@@ -1,0 +1,87 @@
+syntax="proto3";
+
+option java_multiple_files = true;
+option java_package = "cn.atali.usercenter";
+option java_outer_classname = "LanguageProto";
+option objc_class_prefix = "LANGUAGESRV";
+
+package usercenter;
+option go_package = "./;usercenter";
+
+import "common.proto";
+
+service Language{
+    rpc Add(LanguageInfo)returns(CommonResponse){}
+    rpc Update(LanguageInfo)returns(CommonResponse){}
+    rpc Delete(DelRequest)returns(CommonResponse){}
+    rpc Query(QueryLanguageRequest)returns(QueryLanguageResponse){}
+    rpc GetAll(GetAllRequest)returns(GetAllLanguageResponse){}
+    rpc GetDetail(GetDetailRequest)returns(GetLanguageDetailResponse){}
+    rpc Export(CommonExportRequest)returns(CommonExportResponse){}
+}
+
+message LanguageInfo {
+    string id=1;
+	//Chinese 
+ 	string chinese=2;
+	//Description 
+ 	string description=3;
+	//English 
+ 	string english=4;
+	//Group 
+ 	string group=5;
+	//Japan 
+ 	string japan=6;
+	//Name 
+ 	string name=7;
+	//System Admin-管理后台 APP
+ 	string system=8;
+	//所属站点 
+ 	string webSiteID=9;
+    string projectID=10;
+    string tenantID=11;
+    //系统必须要有的数据
+    bool isMust=12;
+}
+
+
+
+
+message QueryLanguageRequest{
+    // @inject_tag: uri:"pageIndex" form:"pageIndex"
+    int64 pageIndex=1;
+    // @inject_tag: uri:"pageSize" form:"pageSize"
+    int64 pageSize=2;
+    // @inject_tag: uri:"orderField" form:"orderField"
+    string orderField=3;
+    // @inject_tag: uri:"desc" form:"desc"
+    bool desc=4;
+	//所属站点 
+    // @inject_tag: uri:"webSiteID" form:"webSiteID"
+    string webSiteID=5;
+    // @inject_tag: uri:"isMust" form:"isMust"
+    bool isMust=6;
+    // @inject_tag: uri:"sortConfig" form:"sortConfig"
+    string sortConfig=7;
+}
+
+message QueryLanguageResponse{
+    Code code=1;
+    string message=2;
+    repeated LanguageInfo data=3;
+    int64 pages=4;
+    int64 records=5;
+    int64 total=6;
+}
+
+message GetAllLanguageResponse{
+    Code code=1;
+    string message=2;
+    repeated LanguageInfo data=3;
+}
+
+message GetLanguageDetailResponse{
+    Code code=1;
+    string message=2;
+    LanguageInfo data=3;
+}

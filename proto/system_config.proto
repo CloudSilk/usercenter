@@ -1,0 +1,84 @@
+syntax="proto3";
+option java_multiple_files = true;
+option java_package = "cn.atali.usercenter";
+option java_outer_classname = "SystemConfigProto";
+option objc_class_prefix = "SYSTEMCONFIGSRV";
+package usercenter;
+option go_package = "./;usercenter";
+
+import "common.proto";
+
+service SystemConfig{
+    rpc Add(SystemConfigInfo)returns(CommonResponse){}
+    rpc Update(SystemConfigInfo)returns(CommonResponse){}
+    rpc Delete(DelRequest)returns(CommonResponse){}
+    rpc Query(QuerySystemConfigRequest)returns(QuerySystemConfigResponse){}
+    rpc GetAll(GetAllRequest)returns(GetAllSystemConfigResponse){}
+    rpc GetDetail(GetDetailRequest)returns(GetSystemConfigDetailResponse){}
+    rpc Export(CommonExportRequest)returns(CommonExportResponse){}
+}
+
+message SystemConfigInfo {
+    string id=1;
+	//加密key 
+ 	string key=2;
+	//Redis地址 
+ 	string redisAddr=3;
+	//Redis用户名 
+ 	string redisName=4;
+	//Redis密码 
+ 	string redisPwd=5;
+	//Token过期时间 单位分钟
+ 	string expired=6;
+	//重置默认密码 
+ 	string defaultPwd=7;
+	//超级管理员角色 
+ 	string superAdminRoleID=8;
+	//平台租户 
+ 	string platformTenantID=9;
+	//启用租户 
+ 	bool enableTenant=10;
+    string projectID=11;
+    string tenantID=12;
+    //系统必须要有的数据
+    bool isMust=13;
+}
+
+
+
+
+message QuerySystemConfigRequest{
+    // @inject_tag: uri:"pageIndex" form:"pageIndex"
+    int64 pageIndex=1;
+    // @inject_tag: uri:"pageSize" form:"pageSize"
+    int64 pageSize=2;
+    // @inject_tag: uri:"orderField" form:"orderField"
+    string orderField=3;
+    // @inject_tag: uri:"desc" form:"desc"
+    bool desc=4;
+    // @inject_tag: uri:"isMust" form:"isMust"
+    bool isMust=5;
+    // @inject_tag: uri:"sortConfig" form:"sortConfig"
+    string sortConfig=6;
+}
+
+message QuerySystemConfigResponse{
+    Code code=1;
+    string message=2;
+    repeated SystemConfigInfo data=3;
+    int64 pages=4;
+    int64 records=5;
+    int64 total=6;
+}
+
+message GetAllSystemConfigResponse{
+    Code code=1;
+    string message=2;
+    repeated SystemConfigInfo data=3;
+}
+
+message GetSystemConfigDetailResponse{
+    Code code=1;
+    string message=2;
+    SystemConfigInfo data=3;
+}

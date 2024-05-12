@@ -1,0 +1,122 @@
+syntax="proto3";
+
+option java_multiple_files = true;
+option java_package = "cn.atali.usercenter";
+option java_outer_classname = "TenantProto";
+option objc_class_prefix = "TENANTSRV";
+
+package usercenter;
+option go_package = "./;usercenter";
+
+import "common.proto";
+import "menu.proto";
+
+service Tenant{
+    rpc Add(TenantInfo)returns(CommonResponse){}
+    rpc Update(TenantInfo)returns(CommonResponse){}
+    rpc Delete(DelRequest)returns(CommonResponse){}
+    rpc Query(QueryTenantRequest)returns(QueryTenantResponse){}
+    rpc Enable(EnableRequest)returns(CommonResponse){}
+    rpc GetAll(GetAllRequest)returns(GetAllTenantResponse){}
+    rpc GetDetail(GetDetailRequest)returns(GetTenantDetailResponse){}
+    rpc StatisticCount(StatisticTenantCountRequest)returns(StatisticCountResponse){}
+    rpc Export(CommonExportRequest)returns(CommonExportResponse){}
+}
+
+message StatisticTenantCountRequest{}
+
+message TenantInfo{
+    string id=1;
+    // @inject_tag: validate:"required"
+    string name=2;
+    string contact=3;
+    string cellPhone=4;
+    string address=5;
+    string businessScope=6;
+    string areaCovered=7;
+    int32 staffSize=8;
+    bool enable=9;
+    //省份
+    string province=10;
+    //城市
+    string city=11;
+    //区/县
+    string area=12;
+    //街道/镇
+    string town=13;
+    repeated TenantMenu tenantMenus=14;
+    TenantCertificate certificate=15;
+    int32 userCount=16;
+    int32 roleCount=17;
+    int32 projectCount=18;
+    string expired=19;
+    //系统必须要有的数据
+    bool isMust=20;
+}
+
+message TenantMenu{
+    string id=1;
+    string tenantID=2;
+    string menuID=3;
+    string funcs=4;
+    MenuInfo menu=5;
+}
+
+message TenantCertificate{
+    string id=1;
+    string tenantID=2;
+    string privateKey=3;
+    string publicKey=4;
+}
+
+message QueryTenantRequest{
+   // @inject_tag: uri:"pageIndex" form:"pageIndex"
+   int64 pageIndex=1;
+   // @inject_tag: uri:"pageSize" form:"pageSize"
+   int64 pageSize=2;
+   // @inject_tag: uri:"orderField" form:"orderField"
+   string orderField=3;
+   // @inject_tag: uri:"desc" form:"desc"
+   bool desc=4;
+   // @inject_tag: uri:"name" form:"name"
+    string name=5;
+     //省份
+    // @inject_tag: uri:"province" form:"province"
+    string province=6;
+    //城市
+    // @inject_tag: uri:"city" form:"city"
+    string city=7;
+    //区/县
+    // @inject_tag: uri:"area" form:"area"
+    string area=8;
+    //街道/镇
+    // @inject_tag: uri:"town" form:"town"
+    string town=9;
+    // @inject_tag: uri:"ids" form:"ids"
+    repeated string ids=10;
+    // @inject_tag: uri:"isMust" form:"isMust"
+    bool isMust=11;
+    // @inject_tag: uri:"sortConfig" form:"sortConfig"
+    string sortConfig=12;
+}
+
+message QueryTenantResponse{
+    Code code=1;
+    string message=2;
+    repeated TenantInfo data=3;
+    int64 pages=4;
+    int64 records=5;
+    int64 total=6;
+}
+
+message GetAllTenantResponse{
+    Code code=1;
+    string message=2;
+    repeated TenantInfo data=3;
+}
+
+message GetTenantDetailResponse{
+    Code code=1;
+    string message=2;
+    TenantInfo data=3;
+}

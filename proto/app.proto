@@ -1,0 +1,15 @@
+syntax="proto3";
+
+option java_multiple_files = true;
+option java_package = "cn.atali.usercenter";
+option java_outer_classname = "APPProto";
+option objc_class_prefix = "APPSRV";
+
+package usercenter;
+option go_package = "./;usercenter";
+
+import "common.proto";
+
+service APP{
+    rpc Export(CommonExportRequest)returns(CommonExportResponse){}
+}

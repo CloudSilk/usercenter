@@ -1,0 +1,99 @@
+syntax="proto3";
+
+option java_multiple_files = true;
+option java_package = "cn.atali.usercenter";
+option java_outer_classname = "APIProto";
+option objc_class_prefix = "APISRV";
+
+package usercenter;
+option go_package = "./;usercenter";
+
+import "common.proto";
+
+service API{
+    rpc Add(APIInfo)returns(CommonResponse){}
+    rpc Update(APIInfo)returns(CommonResponse){}
+    rpc Delete(DelRequest)returns(CommonResponse){}
+    rpc Query(QueryAPIRequest)returns(QueryAPIResponse){}
+    rpc Enable(EnableRequest)returns(CommonResponse){}
+    rpc GetAll(QueryAPIRequest)returns(GetAllAPIResponse){}
+    rpc GetDetail(GetDetailRequest)returns(GetAPIDetailResponse){}
+    rpc Export(CommonExportRequest)returns(CommonExportResponse){}
+}
+
+message APIInfo{
+    //UUID
+    string id=1;
+    //路径
+    // @inject_tag: validate:"required"
+    string path=2;
+    //分组
+    string group=3;
+    //方法 GET POST PUT 等等
+    // @inject_tag: validate:"required"
+    string method=4;
+    //描述
+    string description=5;
+    //是否启用
+    bool enable=6;
+    //是否检查权限
+    bool checkAuth=7;
+    //是否需要登录
+    bool checkLogin=8;
+    string projectID=9;
+    string tenantID=10;
+    //系统必须要有的数据
+    bool isMust=11;
+}
+
+message QueryAPIRequest{
+    // @inject_tag: uri:"pageIndex" form:"pageIndex"
+    int64 pageIndex=1;
+    // @inject_tag: uri:"pageSize" form:"pageSize"
+    int64 pageSize=2;
+    // @inject_tag: uri:"orderField" form:"orderField"
+    string orderField=3;
+    // @inject_tag: uri:"desc" form:"desc"
+    bool desc=4;
+    // @inject_tag: uri:"path" form:"path"
+    string path=5;
+    // @inject_tag: uri:"method" form:"method"
+    string method=6;
+    // @inject_tag: uri:"group" form:"group"
+    string group=7;
+    // @inject_tag: uri:"checkAuth" form:"checkAuth"
+    int32 checkAuth=8;
+    // @inject_tag: uri:"checkLogin" form:"checkLogin"
+    int32 checkLogin=9;
+    // @inject_tag: uri:"ids" form:"ids"
+    repeated string ids=10;
+    // @inject_tag: uri:"projectID" form:"projectID"
+    string projectID=11;
+    // @inject_tag: uri:"tenantID" form:"tenantID"
+    string tenantID=12;
+    // @inject_tag: uri:"isMust" form:"isMust"
+    bool isMust=13;
+    // @inject_tag: uri:"sortConfig" form:"sortConfig"
+    string sortConfig=14;
+}
+
+message QueryAPIResponse{
+    Code code=1;
+    string message=2;
+    repeated APIInfo data=3;
+    int64 pages=4;
+    int64 records=5;
+    int64 total=6;
+}
+
+message GetAllAPIResponse{
+    Code code=1;
+    string message=2;
+    repeated APIInfo data=3;
+}
+
+message GetAPIDetailResponse{
+    Code code=1;
+    string message=2;
+    APIInfo data=3;
+}

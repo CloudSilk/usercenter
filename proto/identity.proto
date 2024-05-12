@@ -1,0 +1,57 @@
+syntax="proto3";
+
+option java_multiple_files = true;
+option java_package = "cn.atali.usercenter";
+option java_outer_classname = "IdentityProto";
+option objc_class_prefix = "IDENTITYSRV";
+
+package usercenter;
+option go_package = "./;usercenter";
+
+import "common.proto";
+
+service Identity{
+    rpc Authenticate(AuthenticateRequest)returns(AuthenticateResponse){}
+    rpc DecodeToken(DecodeTokenRequest)returns(AuthenticateResponse){}
+}
+
+message AuthenticateRequest{
+    // @inject_tag: validate:"required"
+    string token=1;
+    // @inject_tag: validate:"required"
+    string url=2;
+    bool checkAuth=3;
+    // @inject_tag: validate:"required"
+    string method=4;
+}
+
+message AuthenticateResponse{
+    Code code=1;
+    string message=2;
+    CurrentUser currentUser=3;
+}
+message DecodeTokenRequest{
+    // @inject_tag: validate:"required"
+    string token=1;
+}
+
+message CurrentUser{
+    string id=1;
+    string userName=2;
+    bool gender=3;
+    int32 deviceType=4;
+    string domain=5;
+    string sessionID=6;
+    string key=7;
+    repeated string roleIDs=8;
+    string tenantID=9;
+    string clientIP=10;
+    //用户类型
+    int32 type=11;
+    string group=12;
+    //昵称
+    string nickname=13;
+    string avatar=14;
+    bool isVip=15;
+    int64 vipExpired=16;
+}

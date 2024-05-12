@@ -1,0 +1,119 @@
+syntax="proto3";
+
+option java_multiple_files = true;
+option java_package = "cn.atali.usercenter";
+option java_outer_classname = "MenuProto";
+option objc_class_prefix = "MENUSRV";
+package usercenter;
+option go_package = "./;usercenter";
+
+import "common.proto";
+import "api.proto";
+
+service Menu{
+    rpc Add(MenuInfo)returns(CommonResponse){}
+    rpc Update(MenuInfo)returns(CommonResponse){}
+    rpc Delete(DelRequest)returns(CommonResponse){}
+    rpc Query(QueryMenuRequest)returns(QueryMenuResponse){}
+    rpc GetAll(QueryMenuRequest)returns(GetAllMenuResponse){}
+    rpc GetDetail(GetDetailRequest)returns(GetMenuDetailResponse){}
+    rpc Export(CommonExportRequest)returns(CommonExportResponse){}
+}
+
+message MenuInfo{
+    string id=1;
+    uint32 level=2;
+    string parentID=3;
+    string path=4;
+    // @inject_tag: validate:"required"
+    string name=5;
+    bool hidden=6;
+    string component=7;
+    int32 sort=8;
+    bool cache=9;
+    bool defaultMenu=10;
+    string title=11;
+    string icon=12;
+    bool closeTab=13;
+    repeated MenuInfo children=14;
+    repeated MenuParameter parameters=15;
+    repeated MenuFunc menuFuncs=16;
+    string projectID=17;
+    string tenantID=18;
+    //系统必须要有的数据
+    bool isMust=19;
+}
+message MenuParameter{
+    string id=1;
+    string menuID=2;
+    string type=3;
+    string key=4;
+    string value=5;
+}
+message MenuFunc{
+    string id=1;
+    string menuID=2;
+    string name=3;
+    string title=4;
+    bool hidden=5;
+    repeated MenuFuncApi menuFuncApis=6;
+}
+
+message MenuFuncApi{
+    string id=1;
+    string menuFuncID=2;
+    string apiID=3;
+    APIInfo apiInfo=4;
+}
+
+message QueryMenuRequest{
+    // @inject_tag: uri:"pageIndex" form:"pageIndex"
+    int64 pageIndex=1;
+    // @inject_tag: uri:"pageSize" form:"pageSize"
+    int64 pageSize=2;
+    // @inject_tag: uri:"orderField" form:"orderField"
+    string orderField=3;
+    // @inject_tag: uri:"desc" form:"desc"
+    bool desc=4;
+    // @inject_tag: uri:"name" form:"name"
+    string name=5;
+    // @inject_tag: uri:"path" form:"path"
+    string path=6;
+    // @inject_tag: uri:"title" form:"title"
+    string title=7;
+    // @inject_tag: uri:"parentID" form:"parentID"
+    string parentID=8;
+    // @inject_tag: uri:"level" form:"level"
+    int32 level=9;
+    // @inject_tag: uri:"ids" form:"ids"
+    repeated string ids=10;
+    // @inject_tag: uri:"projectID" form:"projectID"
+    string projectID=11;
+    // @inject_tag: uri:"tenantID" form:"tenantID"
+    string tenantID=12;
+    // @inject_tag: uri:"isMust" form:"isMust"
+    bool isMust=13;
+    // @inject_tag: uri:"sortConfig" form:"sortConfig"
+    string sortConfig=14;
+}
+
+message QueryMenuResponse{
+    Code code=1;
+    string message=2;
+    repeated MenuInfo data=3;
+    int64 pages=4;
+    int64 records=5;
+    int64 total=6;
+}
+
+message GetAllMenuResponse{
+    Code code=1;
+    string message=2;
+    repeated MenuInfo data=3;
+}
+
+message GetMenuDetailResponse{
+    Code code=1;
+    string message=2;
+    MenuInfo data=3;
+}

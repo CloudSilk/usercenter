@@ -1,0 +1,36 @@
+syntax="proto3";
+option java_multiple_files = true;
+option java_package = "cn.atali.usercenter";
+option java_outer_classname = "WechatProto";
+option objc_class_prefix = "WECHATSRV";
+package usercenter;
+option go_package = "./;usercenter";
+
+import "common.proto";
+
+service Wechat{
+    rpc SendTplMsg(SendTplMsgRequest)returns(SendTplMsgResponse){}
+}
+
+message SendTplMsgRequest{
+    //公众号APP名称
+    string app=1;
+    string toUser=2;
+    string templateID=3;
+    string url=4;
+    //微信小程序APP名称
+    string miniprogramApp=5;
+    string miniprogramPagePath=6;
+    string clientMsgID=7;
+    repeated SendTplMsgData data=8;
+}
+
+message SendTplMsgData{
+    string key=1;
+    string value=2;
+}
+
+message SendTplMsgResponse{
+    Code code=1;
+    string message=2;
+}

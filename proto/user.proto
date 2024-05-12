@@ -1,0 +1,291 @@
+syntax="proto3";
+
+option java_multiple_files = true;
+option java_package = "cn.atali.usercenter";
+option java_outer_classname = "UserProto";
+option objc_class_prefix = "UserSRV";
+package usercenter;
+option go_package = "./;usercenter";
+
+import "common.proto";
+import "menu.proto";
+
+service User{
+    rpc Login(LoginRequest)returns(LoginResponse){}
+    rpc Add(UserInfo)returns(CommonResponse){}
+    rpc Update(UserInfo)returns(CommonResponse){}
+    rpc Delete(DelRequest)returns(CommonResponse){}
+    rpc Query(QueryUserRequest)returns(QueryUserResponse){}
+    rpc GetProfile(GetDetailRequest)returns(GetProfileResponse){}
+    rpc Enable(EnableRequest)returns(CommonResponse){}
+    rpc GetAll(GetAllUsersRequest)returns(GetAllUsersResponse){}
+    rpc GetDetail(GetDetailRequest)returns(GetUserDetailResponse){}
+    rpc ResetPwd(GetDetailRequest)returns(CommonResponse){}
+    rpc ChangePwd(ChangePwdRequest)returns(CommonResponse){}
+    rpc Logout(LogoutRequest)returns(CommonResponse){}
+    rpc UpdateProfile(UserProfile)returns(CommonResponse){}
+    rpc UpdateProfileAndUserName(UserProfile)returns(CommonResponse){}
+    rpc StatisticCount(StatisticUserCountRequest)returns(StatisticCountResponse){}
+    rpc Export(CommonExportRequest)returns(CommonExportResponse){}
+    rpc UpdateBasics(BasicsInfo)returns(CommonResponse){}
+    rpc GetBasics(GetDetailRequest)returns(GetBasicsResponse){}
+    rpc UpdateUserAgeHeightWeight(UpdateUserAgeHeightWeightRequest)returns(CommonResponse){}
+    rpc LoginByStaffNo(LoginByStaffNoRequest)returns(LoginByStaffNoResponse){}
+    rpc LogoutByUserName(LogoutByUserNameRequest)returns(CommonResponse){}
+}
+
+message LoginByStaffNoRequest{
+    string userName=1;
+    string password=2;
+    string staffNo=3;
+}
+
+message LoginByStaffNoResponse{
+    Code code=1;
+    string message=2;
+    string data=3;
+    UserProfile user=4;
+}
+
+message LogoutByUserNameRequest{
+    string userName=1;
+}
+
+message BasicsInfo{
+    string id=1;
+    bool gender=2;
+    int32 age=3;
+    string nickname=4;
+    float height=5;
+}
+
+message UpdateUserAgeHeightWeightRequest{
+    string id=1;
+    int32 age=2;
+    float height=3;
+    float weight=4;
+}
+
+message GetBasicsResponse{
+    Code code=1;
+    string message=2;
+    BasicsInfo data=3;
+}
+
+message UserProfile{
+    string id=1;
+    string tenantID=20;
+    //昵称
+    // @inject_tag: validate:"required"
+    string nickname=2;
+    //邮箱
+    string email=3;
+    //手机号
+    // @inject_tag: validate:"required"
+    string mobile=4;
+    //身份证号码
+    string idCard=5;
+    //头像
+    string avatar=6;
+    //姓名
+    string realName=7;
+    //性别
+    bool gender=8;
+    string country=9;
+    string province=10;
+    string city=11;
+    string county=12;
+    string description=13;
+    string eid=14;
+    int64 birthday=15;
+    //下面数据只有查询的时候用到，更新的时候不需要传
+    //用户类型
+    int32 type=16;
+    string group=17;
+    repeated MenuInfo menus=18;
+    //只有调用UpdateProfileAndUserName接口时需要
+    string userName=19;
+
+    string chineseName=21;
+    string englishName=22;
+    string staffNo=23;
+    bool isVip=24;
+    string vipExpired=25;
+}
+
+message StatisticUserCountRequest{
+    string tenantID=1;
+    //用户类型
+    int32 type=2;
+    string group=3;
+}
+
+message LoginRequest{
+    //用户名
+    string userName=1;
+    //密码
+    string password=2;
+    //微信Union ID
+    string wechatUnionID=3;
+    //微信OpenID
+    string wechatOpenID=4;
+}
+
+message LoginResponse{
+    Code code=1;
+    string message=2;
+    string data=3;
+}
+
+message UserInfo{
+    string id=1;
+    string tenantID=2;
+    // @inject_tag: validate:"required"
+    string userName=3;
+    // @inject_tag: validate:"required"
+    string nickname=4;
+    repeated UserRole userRoles=5;
+    repeated string roleIDs=6;
+    bool enable=7;
+    string email=8;
+    // @inject_tag: validate:"required"
+    string mobile=9;
+    string idCard=10;
+    string avatar=11;
+    string eid=12;
+    string title=13;
+    string description=14;
+    string realName=15;
+    bool gender=16;
+    string password=17;
+    int32 type=18;
+    string tenantName=19;
+    //分组，例如属于某个组织的，或者某个个人
+    string group=20;
+    string wechatUnionID=21;
+    string wechatOpenID=22;
+    string city=23;
+    string country=24;
+    string province=25;
+    //注册时间
+    string createdAt=26;
+    string projectID=27;
+    string wechatConfigID=28;
+    //系统必须要有的数据
+    bool isMust=29;
+    repeated UserWechatOpenIDMap wechatOpenIDMaps=30;
+    int32 age = 31;
+    float height = 32;
+    float weight = 33;
+    bool isVip=34;
+    string vipExpired=35;
+}
+
+message UserRole{
+    string id=1;
+    string userID=2;
+    string roleID=3;
+}
+
+message UserWechatOpenIDMap{
+    string id=1;
+    string userID=2;
+    string unionID=3;
+    string openID=4;
+    string wechatConfigID=5;
+}
+
+//QueryUserRequest QueryUserRequest
+message QueryUserRequest{
+    // @inject_tag: uri:"pageIndex" form:"pageIndex"
+   int64 pageIndex=1;
+   // @inject_tag: uri:"pageSize" form:"pageSize"
+   int64 pageSize=2;
+   // @inject_tag: uri:"orderField" form:"orderField"
+   string orderField=3;
+   // @inject_tag: uri:"desc" form:"desc"
+   bool desc=4;
+   // @inject_tag: uri:"userName" form:"userName"
+    string userName=5;
+    // @inject_tag: uri:"nickname" form:"nickname"
+    string nickname=6;
+    // @inject_tag: uri:"idCard" form:"idCard"
+    string idCard=7;
+    // @inject_tag: uri:"mobile" form:"mobile"
+    string mobile=8;
+    // @inject_tag: uri:"title" form:"title"
+    string title=9;
+    // @inject_tag: uri:"userNames" form:"userNames"
+    string userNames=10;
+    // @inject_tag: uri:"wechatID" form:"wechatID"
+    string wechatID=11;
+    // @inject_tag: uri:"tenantID" form:"tenantID"
+    string tenantID=12;
+    //用户类型
+    // @inject_tag: uri:"type" form:"type"
+    int32 type=13;
+    // @inject_tag: uri:"group" form:"group"
+    string group=14;
+    // @inject_tag: uri:"ids" form:"ids"
+    repeated string ids=15;
+    // @inject_tag: uri:"projectID" form:"projectID"
+    string projectID=16;
+    // @inject_tag: uri:"wechatConfigID" form:"wechatConfigID"
+    string wechatConfigID=17;
+    // @inject_tag: uri:"isMust" form:"isMust"
+    bool isMust=18;
+    // @inject_tag: uri:"sortConfig" form:"sortConfig"
+    string sortConfig=19;
+}
+
+message QueryUserResponse{
+    Code code=1;
+    string message=2;
+    repeated UserInfo data=3;
+    int64 pages=4;
+    int64 records=5;
+    int64 total=6;
+}
+
+message GetProfileResponse{
+    Code code=1;
+    string message=2;
+    UserProfile data=3;
+}
+
+message GetAllUsersResponse{
+    Code code=1;
+    string message=2;
+    repeated UserInfo data=3;
+}
+
+message GetAllUsersRequest{
+    // @inject_tag: uri:"tenantID" form:"tenantID"
+    string tenantID=1;
+    // @inject_tag: uri:"group" form:"group"
+    string group=2;
+    // @inject_tag: uri:"type" form:"type"
+    int32 type=3;
+}
+
+message GetUserDetailResponse{
+    Code code=1;
+    string message=2;
+    UserInfo data=3;
+}
+
+message ChangePwdRequest{
+    // @inject_tag: validate:"required"
+    string id=1;
+    string tenantID=2;
+    // @inject_tag: validate:"required"
+    string newPwd=3;
+    // @inject_tag: validate:"required"
+    string oldPwd=4;
+    // @inject_tag: validate:"required"
+    string newConfirmPwd=5;
+}
+
+message LogoutRequest{
+    string token=1;
+}

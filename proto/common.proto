@@ -1,0 +1,81 @@
+syntax="proto3";
+
+option java_multiple_files = true;
+option java_package = "cn.atali.usercenter";
+option java_outer_classname = "CommonProto";
+
+package usercenter;
+option go_package = "./;usercenter";
+
+message CommonExportRequest{
+    string projectID=1;
+    bool isMust=2;
+}
+
+message CommonExportResponse{
+    Code code=1;
+    string message=2;
+    string data=3;
+}
+
+message CommonResponse{
+    Code code=1;
+    string message=2;
+}
+
+message DelRequest{
+    // @inject_tag: validate:"required"
+    string id=1;
+    string tenantID=2;
+}
+
+message EnableRequest{
+    // @inject_tag: validate:"required"
+    string id=1;
+    string tenantID=2;
+    bool enable=3;
+}
+
+message GetAllRequest{
+    // @inject_tag: uri:"tenantID" form:"tenantID"
+    string tenantID=1;
+}
+
+message GetDetailRequest{
+    // @inject_tag: uri:"id" form:"id" validate:"required"
+    string id=1;
+    // @inject_tag: uri:"tenantID" form:"tenantID"
+    string tenantID=2;
+}
+
+message StatisticCountResponse{
+    Code code=1;
+    string message=2;
+    int32 count=3;
+}
+
+enum Code{
+    None=0;
+    //成功
+    Success=20000;
+    //服务端错误
+	InternalServerError       = 50000;
+    //错误请求参数
+	BadRequest                = 40000;
+    //未授权
+	Unauthorized              = 40001;
+    //资源不存在
+	ErrRecordNotFound         = 40002;
+    //用户名或者密码错误
+	UserNameOrPasswordIsWrong = 41001;
+    //用户不存在
+	UserIsNotExist            = 41002;
+    //没有权限
+	NoPermission              = 41003;
+    //无效Token
+	TokenInvalid              = 41004;
+    //Token过期
+	TokenExpired              = 41005;
+    //已禁用用户
+	UserDisabled              = 41006;
+}

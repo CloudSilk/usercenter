@@ -1,0 +1,95 @@
+
+
+syntax="proto3";
+option java_multiple_files = true;
+option java_package = "cn.atali.usercenter";
+option java_outer_classname = "WechatConfigProto";
+option objc_class_prefix = "WEBCONFIGSRV";
+package usercenter;
+option go_package = "./;usercenter";
+
+import "common.proto";
+
+service WechatConfig{
+    rpc Add(WechatConfigInfo)returns(CommonResponse){}
+    rpc Update(WechatConfigInfo)returns(CommonResponse){}
+    rpc Delete(DelRequest)returns(CommonResponse){}
+    rpc Query(QueryWechatConfigRequest)returns(QueryWechatConfigResponse){}
+    rpc GetAll(GetAllRequest)returns(GetAllWechatConfigResponse){}
+    rpc GetDetail(GetDetailRequest)returns(GetWechatConfigDetailResponse){}
+    rpc Export(CommonExportRequest)returns(CommonExportResponse){}
+}
+
+message WechatConfigInfo {
+    string id=1;
+	//APP ID 
+ 	string appID=2;
+	//APP名称 
+ 	string appName=3;
+	//秘钥 
+ 	string secret=4;
+	//租户ID 
+ 	string tenantID=5;
+	//类型 1-微信小程序 2-微信公众号 3-微信APP应用 4-微信网站应用
+ 	int32 appType=6;
+	//默认角色 用户通过微信注册时赋予默认角色
+ 	string defaultRoleID=7;
+    //重定向URL
+    string redirectUrl=8;
+    //Token
+    string token=9;
+    //消息加解密密钥
+    string encodingAESKey=10;
+    //消息加解密方式,1-明文模式,2-兼容模式,3-安全模式（推荐）
+    int32 encodingMethod=11;
+    //显示名称
+    string displayName=12;
+    string projectID=13;
+    //系统必须要有的数据
+    bool isMust=14;
+}
+
+message QueryWechatConfigRequest{
+    // @inject_tag: uri:"pageIndex" form:"pageIndex"
+    int64 pageIndex=1;
+    // @inject_tag: uri:"pageSize" form:"pageSize"
+    int64 pageSize=2;
+    // @inject_tag: uri:"orderField" form:"orderField"
+    string orderField=3;
+    // @inject_tag: uri:"desc" form:"desc"
+    bool desc=4;
+	//APP名称 
+    // @inject_tag: uri:"appName" form:"appName"
+    string appName=6;
+	//租户ID 
+    // @inject_tag: uri:"tenantID" form:"tenantID"
+    string tenantID=8;
+	//类型 1-微信小程序 2-微信公众号 3-微信APP应用 4-微信网站应用
+    // @inject_tag: uri:"appType" form:"appType"
+    int32 appType=9;
+    // @inject_tag: uri:"isMust" form:"isMust"
+    bool isMust=10;
+    // @inject_tag: uri:"sortConfig" form:"sortConfig"
+    string sortConfig=11;
+}
+
+message QueryWechatConfigResponse{
+    Code code=1;
+    string message=2;
+    repeated WechatConfigInfo data=3;
+    int64 pages=4;
+    int64 records=5;
+    int64 total=6;
+}
+
+message GetAllWechatConfigResponse{
+    Code code=1;
+    string message=2;
+    repeated WechatConfigInfo data=3;
+}
+
+message GetWechatConfigDetailResponse{
+    Code code=1;
+    string message=2;
+    WechatConfigInfo data=3;
+}
