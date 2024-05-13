@@ -52,7 +52,7 @@ func (r *RoleMenu) GetShow() bool {
 }
 
 func CreateRole(newRole *Role) error {
-	return dbClient.DB().Transaction(func(tx *gorm.DB) error {
+	err := dbClient.DB().Transaction(func(tx *gorm.DB) error {
 		count, err := statisticRoleCount(tx, newRole.TenantID)
 		if err != nil {
 			return err
@@ -77,17 +77,24 @@ func CreateRole(newRole *Role) error {
 		if duplication {
 			return errors.New("存在相同角色id")
 		}
-		err = updateRoleAuth(newRole.ID)
-		if err != nil {
-			return err
-		}
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	err = updateRoleAuth(newRole.ID)
+	if err != nil {
+		fmt.Println(err)
+	}
+	return nil
 }
 
 func updateRoleAuth(id string) error {
 	roleDetail, err := GetFullRoleByID(id)
+	if err == gorm.ErrRecordNotFound {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
