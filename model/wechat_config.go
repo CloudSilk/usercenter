@@ -107,8 +107,8 @@ type WechatConfig struct {
 	Secret string `json:"secret" gorm:"size:512" `
 	//租户ID
 	TenantID string `json:"tenantID" gorm:"size:36;index" `
-	//类型 1-微信小程序 2-微信公众号 3-微信APP应用 4-微信网站应用
-	AppType int32 `json:"appType" gorm:"index;comment:1-微信小程序 2-微信公众号 3-微信APP应用 4-微信网站应用" `
+	//类型 1-微信小程序 2-微信公众号 3-微信APP应用 4-微信网站应用 5-企业微信应用
+	AppType int32 `json:"appType" gorm:"index;comment:1-微信小程序 2-微信公众号 3-微信APP应用 4-微信网站应用 5-企业微信应用" `
 	//默认角色 用户通过微信注册时赋予默认角色
 	DefaultRoleID  string `json:"defaultRoleID" gorm:"size:36;comment:用户通过微信注册时赋予默认角色" `
 	RedirectUrl    string
@@ -116,6 +116,7 @@ type WechatConfig struct {
 	EncodingAESKey string `json:"encodingAESKey" gorm:"size:43;"`
 	EncodingMethod int32  `json:"encodingMethod" gorm:"comment:1-明文模式 2-兼容模式 3-安全模式" `
 	ProjectID      string `json:"projectID" gorm:"index;size:36"`
+	AgentID        string `json:"agentID" gorm:"size:36;comment:企业微信应用ID" `
 	IsMust         bool   `json:"isMust" gorm:"index;comment:系统必须要有的数据"`
 }
 
@@ -148,6 +149,7 @@ func PBToWechatConfig(in *apipb.WechatConfigInfo) *WechatConfig {
 		DisplayName:    in.DisplayName,
 		ProjectID:      in.ProjectID,
 		IsMust:         in.IsMust,
+		AgentID:        in.AgentID,
 	}
 }
 
@@ -178,5 +180,6 @@ func WechatConfigToPB(in *WechatConfig) *apipb.WechatConfigInfo {
 		DisplayName:    in.DisplayName,
 		ProjectID:      in.ProjectID,
 		IsMust:         in.IsMust,
+		AgentID:        in.AgentID,
 	}
 }
