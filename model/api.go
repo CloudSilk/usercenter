@@ -125,7 +125,7 @@ func QueryAPI(req *apipb.QueryAPIRequest, resp *apipb.QueryAPIResponse) {
 	}
 
 	var apis []API
-	resp.Records, resp.Pages, err = dbClient.PageQuery(db, req.PageSize, req.PageIndex, orderStr, &apis)
+	resp.Records, resp.Pages, err = dbClient.PageQuery(db, req.PageSize, req.PageIndex, orderStr, &apis, nil)
 	if err != nil {
 		resp.Code = commonmodel.InternalServerError
 		resp.Message = err.Error()

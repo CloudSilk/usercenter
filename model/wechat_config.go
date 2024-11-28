@@ -47,7 +47,7 @@ func QueryWechatConfig(req *apipb.QueryWechatConfigRequest, resp *apipb.QueryWec
 	}
 
 	var list []*WechatConfig
-	resp.Records, resp.Pages, err = dbClient.PageQuery(db, req.PageSize, req.PageIndex, orderStr, &list)
+	resp.Records, resp.Pages, err = dbClient.PageQuery(db, req.PageSize, req.PageIndex, orderStr, &list, nil)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()

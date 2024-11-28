@@ -179,7 +179,7 @@ func QueryTenant(req *apipb.QueryTenantRequest, resp *apipb.QueryTenantResponse)
 	}
 
 	var tenants []*Tenant
-	resp.Records, resp.Pages, err = dbClient.PageQuery(db, req.PageSize, req.PageIndex, orderStr, &tenants)
+	resp.Records, resp.Pages, err = dbClient.PageQuery(db, req.PageSize, req.PageIndex, orderStr, &tenants, nil)
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()

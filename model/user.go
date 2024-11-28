@@ -299,7 +299,7 @@ func QueryUser(req *apipb.QueryUserRequest, resp *apipb.QueryUserResponse, prelo
 	if preload {
 		resp.Records, resp.Pages, err = dbClient.PageQueryWithPreload(db, req.PageSize, req.PageIndex, orderStr, []string{"UserRoles", clause.Associations}, &list)
 	} else {
-		resp.Records, resp.Pages, err = dbClient.PageQuery(db, req.PageSize, req.PageIndex, orderStr, &list)
+		resp.Records, resp.Pages, err = dbClient.PageQuery(db, req.PageSize, req.PageIndex, orderStr, &list, nil)
 	}
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError

@@ -85,7 +85,7 @@ func QueryAPP(req *QueryAPPRequest, resp *QueryAPPResponse) {
 		return
 	}
 
-	resp.Records, resp.Pages, err = dbClient.PageQuery(db, req.PageSize, req.PageIndex, orderStr, &resp.Data)
+	resp.Records, resp.Pages, err = dbClient.PageQuery(db, req.PageSize, req.PageIndex, orderStr, &resp.Data, nil)
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
