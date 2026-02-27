@@ -78,26 +78,29 @@ func wechatMiniLogin(c *gin.Context) {
 		TenantID:      miniProgramConfig.MiniAppConfig.TenantID,
 	}
 	if req.Register {
-		plainData, err := miniprogram.GetEncryptor().Decrypt(result.SessionKey, req.EncryptedData, req.IV)
-		if err != nil {
-			resp.Code = model.BadRequest
-			resp.Message = err.Error()
-			c.JSON(http.StatusOK, resp)
-			log.Warnf(context.Background(), "TransID:%s,解密出错:%v", transID, err)
-			return
+		// 微信已废弃 getUserProfile 接口，encryptedData 和 iv 可能为空
+		// 如果有加密数据则解密获取用户信息，否则使用基本信息注册
+		if req.EncryptedData != "" && req.IV != "" {
+			plainData, err := miniprogram.GetEncryptor().Decrypt(result.SessionKey, req.EncryptedData, req.IV)
+			if err != nil {
+				log.Warnf(context.Background(), "TransID:%s,解密出错:%v", transID, err)
+				// 解密失败不阻断注册流程，继续使用基本信息
+			} else {
+				fmt.Printf("Decrypt:%#v\n", plainData)
+				user.Avatar = plainData.AvatarURL
+				user.Nickname = plainData.NickName
+				user.City = plainData.City
+				user.Country = plainData.Country
+				user.Province = plainData.Province
+				user.Gender = plainData.Gender == 1
+				user.Mobile = plainData.PhoneNumber
+			}
 		}
 
-		fmt.Printf("Decrypt:%#v\n", plainData)
-		user.Avatar = plainData.AvatarURL
-		user.Nickname = plainData.NickName
+		// 优先使用请求中传入的昵称
 		if req.Nickname != "" {
 			user.Nickname = req.Nickname
 		}
-		user.City = plainData.City
-		user.Country = plainData.Country
-		user.Province = plainData.Province
-		user.Gender = plainData.Gender == 1
-		user.Mobile = plainData.PhoneNumber
 		user.Enable = true
 		user.WechatConfigID = miniProgramConfig.MiniAppConfig.ID
 		user.UserRoles = []*apipb.UserRole{
@@ -112,6 +115,7 @@ func wechatMiniLogin(c *gin.Context) {
 				user.Mobile = result2.PhoneInfo.PhoneNumber
 			}
 		}
+		// 设置用户名：优先手机号 > UnionID > OpenID
 		if user.Mobile != "" {
 			user.UserName = user.Mobile
 		} else if result.UnionID != "" {
