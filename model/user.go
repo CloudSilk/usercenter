@@ -73,8 +73,8 @@ type User struct {
 	City       string    `json:"city" gorm:"size:100;"`     //城市
 	County     string    `json:"county" gorm:"size:100;"`   //区县
 	Birthday   int64     `json:"birthday"`                  //公历出生日期包含时分
-	IsVip      bool      `json:"isVip"`
-	VipExpired time.Time `json:"vipExpired"`
+	IsVip      bool       `json:"isVip"`
+	VipExpired *time.Time `json:"vipExpired"`
 
 	Tenant           *Tenant                `json:"tenant"`
 	IsMust           bool                   `json:"isMust" gorm:"index;comment:系统必须要有的数据"`

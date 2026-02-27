@@ -16,6 +16,10 @@ func PBToUser(in *apipb.UserInfo) *User {
 		in.VipExpired = in.VipExpired + " 15:59:59"
 	}
 	vipExpired := utils.ParseTime(in.VipExpired)
+	var vipExpiredPtr *time.Time
+	if !vipExpired.IsZero() {
+		vipExpiredPtr = &vipExpired
+	}
 	return &User{
 		TenantModel: commonmodel.TenantModel{
 			Model: commonmodel.Model{
@@ -48,8 +52,8 @@ func PBToUser(in *apipb.UserInfo) *User {
 		Password:         in.Password,
 		WechatConfigID:   in.WechatConfigID,
 		IsMust:           in.IsMust,
-		IsVip:            time.Until(vipExpired).Seconds() > 0,
-		VipExpired:       vipExpired,
+		IsVip:            vipExpiredPtr != nil && time.Until(*vipExpiredPtr).Seconds() > 0,
+		VipExpired:       vipExpiredPtr,
 		WechatOpenIDMaps: PBToUserWechatOpenIDMaps(in.WechatOpenIDMaps),
 	}
 }
@@ -57,6 +61,12 @@ func PBToUser(in *apipb.UserInfo) *User {
 func UserToPB(in *User) *apipb.UserInfo {
 	if in == nil {
 		return nil
+	}
+	var vipExpiredStr string
+	var isVip bool
+	if in.VipExpired != nil {
+		vipExpiredStr = utils.FormatTime(*in.VipExpired)
+		isVip = time.Until(*in.VipExpired).Seconds() > 0
 	}
 	user := &apipb.UserInfo{
 		Id:               in.ID,
@@ -88,10 +98,9 @@ func UserToPB(in *User) *apipb.UserInfo {
 		Age:              in.Age,
 		Height:           in.Height,
 		Weight:           in.Weight,
-		IsVip:            in.IsVip,
-		VipExpired:       utils.FormatTime(in.VipExpired),
+		IsVip:            isVip,
+		VipExpired:       vipExpiredStr,
 	}
-	user.IsVip = time.Until(in.VipExpired).Seconds() > 0
 	if in.Tenant != nil {
 		user.TenantName = in.Tenant.Name
 	}
