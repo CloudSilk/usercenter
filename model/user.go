@@ -179,7 +179,11 @@ func CreateUser(user *User, isCreateFromWechat bool) error {
 		if isCreateFromWechat {
 			duplication, err = dbClient.CreateWithCheckDuplicationWithDB(tx, user, "wechat_union_id = ? and wechat_open_id = ?", user.WechatUnionID, user.WechatOpenID)
 		} else {
-			duplication, err = dbClient.CreateWithCheckDuplicationWithDB(tx, user, "user_name = ? or mobile = ?", user.UserName, user.Mobile)
+			if strings.TrimSpace(user.Mobile) == "" {
+				duplication, err = dbClient.CreateWithCheckDuplicationWithDB(tx, user, "user_name = ?", user.UserName)
+			} else {
+				duplication, err = dbClient.CreateWithCheckDuplicationWithDB(tx, user, "user_name = ? or mobile = ?", user.UserName, user.Mobile)
+			}
 		}
 
 		if err != nil {
@@ -378,7 +382,13 @@ func UpdateUser(user *User) error {
 			}
 		}
 
-		duplication, err := dbClient.UpdateWithCheckDuplicationAndOmit(tx, user, true, []string{"password", "can_del", "created_at", "wechat_union_id", "wechat_open_id", "height", "age"}, "id <> ? and (user_name = ? or mobile = ?)", user.ID, user.UserName, user.Mobile)
+		query := "id <> ? and user_name = ?"
+		params := []interface{}{user.ID, user.UserName}
+		if strings.TrimSpace(user.Mobile) != "" {
+			query = "id <> ? and (user_name = ? or mobile = ?)"
+			params = append(params, user.Mobile)
+		}
+		duplication, err := dbClient.UpdateWithCheckDuplicationAndOmit(tx, user, true, []string{"password", "can_del", "created_at", "wechat_union_id", "wechat_open_id", "height", "age"}, query, params...)
 		if err != nil {
 			return err
 		}
