@@ -86,27 +86,11 @@ func ExportAllSystemConfigs(req *apipb.CommonExportRequest, resp *apipb.CommonEx
 
 type SystemConfig struct {
 	commonmodel.Model
-	//加密key
-	Key string `json:"key" gorm:"size:36" `
-	//Redis地址
-	RedisAddr string `json:"redisAddr" gorm:"size:100" `
-	//Redis用户名
-	RedisName string `json:"redisName" gorm:"size:100" `
-	//Redis密码
-	RedisPwd string `json:"redisPwd" gorm:"size:36" `
-	//Token过期时间 单位分钟
-	Expired string `json:"expired" gorm:"size:36;comment:单位分钟" `
-	//重置默认密码
-	DefaultPwd string `json:"defaultPwd" gorm:"size:36" `
-	//超级管理员角色
-	SuperAdminRoleID string `json:"superAdminRoleID" gorm:"size:36" `
-	//平台租户
-	PlatformTenantID string `json:"platformTenantID" gorm:"size:36" `
-	//启用租户
-	EnableTenant bool   `json:"enableTenant" gorm:"" `
-	TenantID     string `json:"tenantID" gorm:"size:36;index" `
-	ProjectID    string `json:"projectID" gorm:"index;size:36"`
-	IsMust       bool   `json:"isMust" gorm:"index;comment:系统必须要有的数据"`
+	Key       string `json:"key" gorm:"size:100;index"`
+	Value     string `json:"value" gorm:"type:text"`
+	TenantID  string `json:"tenantID" gorm:"size:36;index"`
+	ProjectID string `json:"projectID" gorm:"index;size:36"`
+	IsMust    bool   `json:"isMust" gorm:"index;comment:系统必须要有的数据"`
 }
 
 func PBToSystemConfigs(in []*apipb.SystemConfigInfo) []*SystemConfig {
@@ -125,16 +109,11 @@ func PBToSystemConfig(in *apipb.SystemConfigInfo) *SystemConfig {
 		Model: commonmodel.Model{
 			ID: in.Id,
 		},
-		Key:              in.Key,
-		RedisAddr:        in.RedisAddr,
-		RedisName:        in.RedisName,
-		RedisPwd:         in.RedisPwd,
-		Expired:          in.Expired,
-		DefaultPwd:       in.DefaultPwd,
-		SuperAdminRoleID: in.SuperAdminRoleID,
-		PlatformTenantID: in.PlatformTenantID,
-		EnableTenant:     in.EnableTenant,
-		IsMust:           in.IsMust,
+		Key:       in.Key,
+		Value:     in.Value,
+		TenantID:  in.TenantID,
+		ProjectID: in.ProjectID,
+		IsMust:    in.IsMust,
 	}
 }
 
@@ -151,16 +130,11 @@ func SystemConfigToPB(in *SystemConfig) *apipb.SystemConfigInfo {
 		return nil
 	}
 	return &apipb.SystemConfigInfo{
-		Id:               in.ID,
-		Key:              in.Key,
-		RedisAddr:        in.RedisAddr,
-		RedisName:        in.RedisName,
-		RedisPwd:         in.RedisPwd,
-		Expired:          in.Expired,
-		DefaultPwd:       in.DefaultPwd,
-		SuperAdminRoleID: in.SuperAdminRoleID,
-		PlatformTenantID: in.PlatformTenantID,
-		EnableTenant:     in.EnableTenant,
-		IsMust:           in.IsMust,
+		Id:        in.ID,
+		Key:       in.Key,
+		Value:     in.Value,
+		ProjectID: in.ProjectID,
+		TenantID:  in.TenantID,
+		IsMust:    in.IsMust,
 	}
 }

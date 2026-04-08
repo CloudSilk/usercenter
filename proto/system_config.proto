@@ -20,32 +20,12 @@ service SystemConfig{
 
 message SystemConfigInfo {
     string id=1;
-	//加密key 
- 	string key=2;
-	//Redis地址 
- 	string redisAddr=3;
-	//Redis用户名 
- 	string redisName=4;
-	//Redis密码 
- 	string redisPwd=5;
-	//Token过期时间 单位分钟
- 	string expired=6;
-	//重置默认密码 
- 	string defaultPwd=7;
-	//超级管理员角色 
- 	string superAdminRoleID=8;
-	//平台租户 
- 	string platformTenantID=9;
-	//启用租户 
- 	bool enableTenant=10;
-    string projectID=11;
-    string tenantID=12;
-    //系统必须要有的数据
-    bool isMust=13;
+    string key=2;
+    string value=3;
+    string projectID=4;
+    string tenantID=5;
+    bool isMust=6;
 }
-
-
-
 
 message QuerySystemConfigRequest{
     // @inject_tag: uri:"pageIndex" form:"pageIndex"

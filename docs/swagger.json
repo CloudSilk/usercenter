@@ -5947,53 +5947,22 @@
         "usercenter.SystemConfigInfo": {
             "type": "object",
             "properties": {
-                "defaultPwd": {
-                    "description": "重置默认密码",
-                    "type": "string"
-                },
-                "enableTenant": {
-                    "description": "启用租户",
-                    "type": "boolean"
-                },
-                "expired": {
-                    "description": "Token过期时间 单位分钟",
-                    "type": "string"
-                },
                 "id": {
                     "type": "string"
                 },
                 "isMust": {
-                    "description": "系统必须要有的数据",
                     "type": "boolean"
                 },
                 "key": {
-                    "description": "加密key",
-                    "type": "string"
-                },
-                "platformTenantID": {
-                    "description": "平台租户",
                     "type": "string"
                 },
                 "projectID": {
                     "type": "string"
                 },
-                "redisAddr": {
-                    "description": "Redis地址",
-                    "type": "string"
-                },
-                "redisName": {
-                    "description": "Redis用户名",
-                    "type": "string"
-                },
-                "redisPwd": {
-                    "description": "Redis密码",
-                    "type": "string"
-                },
-                "superAdminRoleID": {
-                    "description": "超级管理员角色",
-                    "type": "string"
-                },
                 "tenantID": {
+                    "type": "string"
+                },
+                "value": {
                     "type": "string"
                 }
             }
