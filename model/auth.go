@@ -23,7 +23,7 @@ func Authenticate(t, method, url string, checkAuth bool) (*apipb.CurrentUser, in
 	}
 
 	if decodeTokenErr != nil {
-		if errors.As(decodeTokenErr, &jwt.ErrTokenExpired) {
+		if errors.Is(decodeTokenErr, jwt.ErrTokenExpired) {
 			return nil, model.TokenExpired, errors.New("token is expired")
 		} else {
 			return nil, model.TokenInvalid, decodeTokenErr

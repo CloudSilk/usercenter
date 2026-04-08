@@ -343,7 +343,7 @@ func NewMemory(expired int) TokenCache {
 		token := t.(string)
 		currentUser, err := DecodeToken(token)
 		if err != nil {
-			if !errors.As(err, &jwt.ErrTokenExpired) {
+			if !errors.Is(err, jwt.ErrTokenExpired) {
 				return
 			}
 		}

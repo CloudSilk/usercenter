@@ -21,6 +21,11 @@ type MiniProgramConfig struct {
 }
 
 func InitWechat() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf(context.Background(), "鍒濆鍖栧井淇￠厤缃烦杩?%v", r)
+		}
+	}()
 	list, err := ucmodel.GetAllWechatConfigs()
 	if err != nil {
 		log.Errorf(context.Background(), "初始化微信配置失败:%v", err)

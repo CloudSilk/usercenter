@@ -115,7 +115,7 @@ func DecodeToken(t string) (*apipb.CurrentUser, error) {
 	}
 
 	//刷新token用
-	if token != nil && errors.As(err, &jwt.ErrTokenExpired) {
+	if token != nil && errors.Is(err, jwt.ErrTokenExpired) {
 		return ExtractorCurrentUser(token), err
 	}
 

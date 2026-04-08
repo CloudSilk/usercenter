@@ -682,7 +682,7 @@ func CheckRegisterWithWechat(openID string) (string, error) {
 func Logout(t string) error {
 	currentUser, err := token.DecodeToken(t)
 	if err != nil {
-		if errors.As(err, &jwt.ErrTokenExpired) {
+		if errors.Is(err, jwt.ErrTokenExpired) {
 			log.Error(context.Background(), err)
 			return nil
 		}
