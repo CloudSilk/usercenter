@@ -86,11 +86,50 @@ func ExportAllSystemConfigs(req *apipb.CommonExportRequest, resp *apipb.CommonEx
 
 type SystemConfig struct {
 	commonmodel.Model
-	Key       string `json:"key" gorm:"size:100;index"`
+	Key       string `json:"key" gorm:"size:100;uniqueIndex"`
 	Value     string `json:"value" gorm:"type:text"`
 	TenantID  string `json:"tenantID" gorm:"size:36;index"`
 	ProjectID string `json:"projectID" gorm:"index;size:36"`
 	IsMust    bool   `json:"isMust" gorm:"index;comment:系统必须要有的数据"`
+}
+
+// GetSystemConfigByKey returns a single config by key.
+func GetSystemConfigByKey(key string) (*SystemConfig, error) {
+	m := &SystemConfig{}
+	err := dbClient.DB().Where("`key` = ?", key).First(m).Error
+	return m, err
+}
+
+// GetSystemConfigsByKeys returns configs matching the given keys.
+func GetSystemConfigsByKeys(keys []string) ([]*SystemConfig, error) {
+	var list []*SystemConfig
+	err := dbClient.DB().Where("`key` IN ?", keys).Find(&list).Error
+	return list, err
+}
+
+// GetSystemConfigMapByKeys returns a key→value map for the given keys.
+func GetSystemConfigMapByKeys(keys []string) (map[string]string, error) {
+	list, err := GetSystemConfigsByKeys(keys)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(list))
+	for _, c := range list {
+		out[c.Key] = c.Value
+	}
+	return out, nil
+}
+
+// UpsertSystemConfigByKey creates or updates a config row identified by key.
+// Uses ON CONFLICT for atomic upsert — safe under concurrent writes.
+func UpsertSystemConfigByKey(key, value string) error {
+	if key == "" {
+		return nil
+	}
+	return dbClient.DB().Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+	}).Create(&SystemConfig{Key: key, Value: value}).Error
 }
 
 func PBToSystemConfigs(in []*apipb.SystemConfigInfo) []*SystemConfig {
