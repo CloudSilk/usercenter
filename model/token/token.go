@@ -192,21 +192,11 @@ func ExtractorCurrentUser(t *jwt.Token) *apipb.CurrentUser {
 }
 
 func GetUserID(t string) (string, error) {
-	array := strings.Split(t, ".")
-	if len(array) != 3 {
-		return "", nil
-	}
-	var currentUser apipb.CurrentUser
-	b, err := base64.RawStdEncoding.DecodeString(array[1])
+	claims, err := decodeClaims(t)
 	if err != nil {
 		return "", err
 	}
-	err = json.Unmarshal(b, &currentUser)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprint(currentUser.Id), err
+	return fmt.Sprint(claims["id"]), nil
 }
 
 func GetSessionID(t string) (string, error) {
@@ -218,15 +208,32 @@ func GetSessionID(t string) (string, error) {
 }
 
 func getSessionID(sig string) (string, error) {
-	var currentUser apipb.CurrentUser
-	b, err := base64.RawStdEncoding.DecodeString(sig)
-	if err != nil {
-		return "", err
-	}
-	err = json.Unmarshal(b, &currentUser)
+	claims, err := decodeClaimsFromPayload(sig)
 	if err != nil {
 		return "", err
 	}
 
-	return currentUser.SessionID, err
+	sessionID, _ := claims["sessionID"].(string)
+	return sessionID, nil
+}
+
+func decodeClaims(token string) (map[string]interface{}, error) {
+	array := strings.Split(token, ".")
+	if len(array) != 3 {
+		return nil, nil
+	}
+	return decodeClaimsFromPayload(array[1])
+}
+
+func decodeClaimsFromPayload(payload string) (map[string]interface{}, error) {
+	b, err := base64.RawStdEncoding.DecodeString(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	claims := make(map[string]interface{})
+	if err := json.Unmarshal(b, &claims); err != nil {
+		return nil, err
+	}
+	return claims, nil
 }
