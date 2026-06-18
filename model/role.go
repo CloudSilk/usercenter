@@ -335,16 +335,6 @@ func QueryRole(req *apipb.QueryRoleRequest, resp *apipb.QueryRoleResponse, prelo
 	}
 }
 
-func findChildrenRole(authority *Role) (err error) {
-	err = dbClient.DB().Preload("RoleMenus").Where("parent_id = ?", authority.ID).Find(&authority.Children).Error
-	if len(authority.Children) > 0 {
-		for k := range authority.Children {
-			err = findChildrenRole(authority.Children[k])
-		}
-	}
-	return err
-}
-
 func getMenuTreeMap(roleID string) (treeMap map[string][]*Menu, err error) {
 	var allMenus []*Menu
 	treeMap = make(map[string][]*Menu)

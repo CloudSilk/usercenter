@@ -65,7 +65,16 @@ func UpdateCasbinApi(oldPath string, newPath string, oldMethod string, newMethod
 		"v1": newPath,
 		"v2": newMethod,
 	}).Error
-	return err
+	if err != nil {
+		return err
+	}
+	// 直接写 DB 不会触发 watcher 自动通知，需手动重载本实例策略并清空鉴权缓存，
+	// 使 API 路径/方法变更立即生效（其他实例依赖 watcher 或缓存 TTL 最终一致）
+	if enforcer != nil {
+		_ = enforcer.LoadPolicy()
+	}
+	invalidateAuthCache()
+	return nil
 }
 
 // @author: [guoxf](https://github.com/guoxf)

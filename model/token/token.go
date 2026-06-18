@@ -3,7 +3,6 @@ package token
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,15 +14,6 @@ import (
 )
 
 const defaultExpired = 30 * 24 * time.Hour // 回退默认值，当配置值转换失败时使用
-
-var deviceTypes = map[string]int32{
-	"":  0,
-	"0": 0, //web
-	"1": 1, //android phone
-	"2": 2, //android pad
-	"3": 3, //iphone
-	"4": 4, //ipad
-}
 
 var secretKey = ""
 
@@ -67,38 +57,6 @@ func EncodeToken(user *apipb.CurrentUser) (string, error) {
 		return "", err
 	}
 	return tokenString, err
-}
-
-func arrayToString(array []int32) string {
-	str := make([]string, len(array))
-	for i, a := range array {
-		str[i] = fmt.Sprint(a)
-	}
-	return strings.Join(str, ",")
-}
-
-func stringToIntArray(str string) ([]int, error) {
-	array := strings.Split(str, ",")
-	var tenantIDs []int
-	for _, str := range array {
-		tenantID, err := strconv.Atoi(str)
-		if err != nil {
-			return nil, err
-		}
-		tenantIDs = append(tenantIDs, tenantID)
-	}
-	return tenantIDs, nil
-}
-
-func getTenantID(str string) (int, error) {
-	tenantIDs, err := stringToIntArray(str)
-	if err != nil {
-		return 0, err
-	}
-	if len(tenantIDs) == 0 {
-		return 0, nil
-	}
-	return tenantIDs[0], nil
 }
 
 // DecodeToken  解析token

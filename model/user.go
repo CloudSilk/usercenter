@@ -457,6 +457,9 @@ func clearLoginFailure(userID string) {
 }
 
 func UpdatePwd(id string, oldPwd, newPwd string) error {
+	if !ValidPasswdStrength(newPwd) {
+		return errors.New("密码强度不够")
+	}
 	var user User
 	err := dbClient.DB().Where("id = ?", id).First(&user).Error
 	if err != nil {

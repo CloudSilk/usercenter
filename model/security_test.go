@@ -180,6 +180,18 @@ func TestResetPwdRandomWhenDefaultEmpty(t *testing.T) {
 	}
 }
 
+func TestUpdatePwdRejectsWeakPassword(t *testing.T) {
+	u := mustCreateUser(t, "weakpwduser", "Abc12345")
+	// 弱密码（纯数字，无大小写）应被拒绝
+	if err := UpdatePwd(u.ID, "Abc12345", "12345678"); err == nil {
+		t.Fatal("expected error for weak new password")
+	}
+	// 旧密码未变更（弱密码被拒），强密码应成功
+	if err := UpdatePwd(u.ID, "Abc12345", "Xyz98765"); err != nil {
+		t.Fatalf("strong password should succeed, got %v", err)
+	}
+}
+
 func TestGetUserTenantID(t *testing.T) {
 	u := mustCreateUser(t, "tenantuser", "Abc12345")
 	dbClient.DB().Model(&User{}).Where("id = ?", u.ID).Update("tenant_id", "tenant-xyz")

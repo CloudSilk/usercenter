@@ -284,27 +284,6 @@ func getTenantRoleCount(db *gorm.DB, tenantID string) (bool, int32, error) {
 	return !m.Expired.After(time.Now()), m.UserCount, nil
 }
 
-func getTenantProjectCount(db *gorm.DB, tenantID string) (bool, int32, error) {
-	m := &Tenant{}
-	err := db.Where("id = ?", tenantID).First(m).Error
-	if err != nil {
-		return true, 0, err
-	}
-	return !m.Expired.After(time.Now()), m.UserCount, nil
-}
-
-// true-过期
-// false-未过期
-func tenantExpired(db *gorm.DB, tenantID string) (bool, error) {
-	m := &Tenant{}
-	err := db.Where("id = ?", tenantID).First(m).Error
-	if err != nil {
-		return false, err
-	}
-
-	return !m.Expired.After(time.Now()), nil
-}
-
 func PBToTenantMenus(tenantMenus []*apipb.TenantMenu) []*TenantMenu {
 	var list []*TenantMenu
 	for _, tenantMenu := range tenantMenus {
