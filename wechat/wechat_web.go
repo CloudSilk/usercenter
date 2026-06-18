@@ -52,14 +52,25 @@ type WechatOpenPlatformWeb struct {
 	lock                      sync.Mutex
 	// 存储Token，并且设置过期时间
 	QRConnectResult *cache.Cache
+	// httpGet 可注入的 HTTP GET 实现，默认使用带超时的 httpClient，便于测试注入
+	httpGet func(url string) (*http.Response, error)
 }
 
 func NewWechatOpenPlatformWeb(wechatConfig *ucmodel.WechatConfig) *WechatOpenPlatformWeb {
-	return &WechatOpenPlatformWeb{
+	w := &WechatOpenPlatformWeb{
 		WechatConfig:    wechatConfig,
 		AccessToken:     make(map[string]GetAccessTokenResponse),
 		lock:            sync.Mutex{},
 		QRConnectResult: cache.New(5*time.Minute, 10*time.Minute),
+	}
+	w.httpGet = httpClient.Get
+	return w
+}
+
+// SetHTTPGet 注入自定义 HTTP GET 实现（主要用于测试并发与超时）。
+func (w *WechatOpenPlatformWeb) SetHTTPGet(fn func(url string) (*http.Response, error)) {
+	if fn != nil {
+		w.httpGet = fn
 	}
 }
 
@@ -158,7 +169,7 @@ func decrypt(key, nonce, ciphertext []byte) ([]byte, error) {
 
 // GetAccessToken get access token by code
 func (w *WechatOpenPlatformWeb) GetAccessToken(code string) (*GetAccessTokenResponse, error) {
-	resp, err := httpClient.Get(fmt.Sprintf(platformGetAccessToken, w.WechatConfig.AppID, w.WechatConfig.Secret, code))
+	resp, err := w.httpGet(fmt.Sprintf(platformGetAccessToken, w.WechatConfig.AppID, w.WechatConfig.Secret, code))
 	if err != nil {
 		return nil, err
 	}

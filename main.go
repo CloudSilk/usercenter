@@ -61,6 +61,10 @@ func main() {
 		dbClient = mysql.NewMysql(ucconfig.DefaultConfig.Mysql, ucconfig.DefaultConfig.Debug)
 	}
 
+	// 配置 Casbin watcher 用的 Redis（必须在 InitDB 之前，因为 NewEnforcer 在初始化时读取）
+	if ucconfig.DefaultConfig.Token.RedisAddr != "" {
+		model.SetCasbinRedis(ucconfig.DefaultConfig.Token.RedisAddr, ucconfig.DefaultConfig.Token.RedisName, ucconfig.DefaultConfig.Token.RedisPwd)
+	}
 	model.InitDB(dbClient, true)
 	token.InitTokenCache(ucconfig.DefaultConfig.Token.Key, ucconfig.DefaultConfig.Token.RedisAddr, ucconfig.DefaultConfig.Token.RedisName, ucconfig.DefaultConfig.Token.RedisPwd, ucconfig.DefaultConfig.Token.Expired)
 	constants.SetPlatformTenantID(ucconfig.DefaultConfig.PlatformTenantID)
