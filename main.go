@@ -103,6 +103,9 @@ func Start(port int) {
 	r.Use(middleware.AuthRequired)
 	r.Use(utils.Cors())
 	http.RegisterAuthRouter(r)
-	r.GET("/swagger/usercenter/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	// 仅在 Debug 模式下暴露 swagger 文档，生产环境（debug=false）不对外暴露 API 文档
+	if ucconfig.DefaultConfig.Debug {
+		r.GET("/swagger/usercenter/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	}
 	r.Run(fmt.Sprintf(":%d", port))
 }
