@@ -131,39 +131,22 @@ func UpdateProfile(c *gin.Context) {
 // @Param data body apipb.UserInfo true "用户信息"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/user/add [post]
-func AddUser(c *gin.Context) {
-	transID := middleware.GetTransID(c)
-	req := &apipb.UserInfo{}
-	resp := &apipb.CommonResponse{
-		Code: model.Success,
-	}
-	err := c.BindJSON(req)
-	if err != nil {
-		resp.Code = model.BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		log.Warnf(context.Background(), "TransID:%s,新建User请求参数无效:%v", transID, err)
-		return
-	}
-	err = middleware.Validate.Struct(req)
-	if err != nil {
-		resp.Code = model.BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		return
-	}
+// AddUser 使用泛型 AutoHandler 自动绑定+校验,业务函数只写核心逻辑
+func AddUser(c *gin.Context, req *apipb.UserInfo) (*apipb.CommonResponse, error) {
 	//只有平台租户才能为其他租户创建用户
 	tenantID := middleware.GetTenantID(c)
 	if tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
-	err = ucmodel.CreateUser(ucmodel.PBToUser(req), false)
-	if err != nil {
-		resp.Code = model.InternalServerError
-		resp.Message = err.Error()
+	if err := ucmodel.CreateUser(ucmodel.PBToUser(req), false); err != nil {
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	c.JSON(http.StatusOK, resp)
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
+
+// AddUserHandler 泛型路由注册入口
+// AddUserHandler 泛型路由注册入口
+var AddUserHandler = AutoHandler(AddUser)
 
 // UpdateUser
 // @Summary 更新用户
@@ -678,7 +661,7 @@ func RegisterUserRouter(r *gin.Engine) {
 	userGroup.POST("logout", Logout)
 	userGroup.GET("profile", Profile)
 	userGroup.PUT("profile", UpdateProfile)
-	userGroup.POST("add", AddUser)
+	userGroup.POST("add", AddUserHandler)
 	userGroup.PUT("update", UpdateUser)
 	userGroup.GET("query", QueryUser)
 	userGroup.DELETE("delete", DeleteUser)
