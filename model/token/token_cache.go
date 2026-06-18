@@ -17,10 +17,10 @@ import (
 var DefaultTokenCache TokenCache
 
 func InitTokenCache(key, redisAddr, redisUserName, redisPWD string, expired int) {
-	// 安全要求：JWT 签名密钥必须由部署方显式配置，禁止使用空值或源码默认值，
-	// 否则任意方可伪造合法 token。配置缺失时直接拒绝启动。
-	if strings.TrimSpace(key) == "" {
-		panic("token key 未配置，拒绝启动：请在配置中设置 token.key")
+	// 安全要求：JWT 签名密钥必须由部署方显式配置，禁止使用空值或源码已知的不安全默认值，
+	// 否则任意方可伪造合法 token。配置缺失或使用不安全默认值时直接拒绝启动。
+	if strings.TrimSpace(key) == "" || key == "c4c902bb-b4ca-4246-a9c0-fb8b218c9a69" {
+		panic("token key 未配置或使用了已知的不安全默认值，拒绝启动：请在配置中设置唯一 token.key")
 	}
 	SetSecretKey(key)
 	if expired < 1 {
