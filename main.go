@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"dubbo.apache.org/dubbo-go/v3/config"
 	_ "dubbo.apache.org/dubbo-go/v3/imports"
@@ -15,7 +20,7 @@ import (
 	"github.com/CloudSilk/pkg/utils"
 	ucconfig "github.com/CloudSilk/usercenter/config"
 	"github.com/CloudSilk/usercenter/docs"
-	"github.com/CloudSilk/usercenter/http"
+	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/model"
 	"github.com/CloudSilk/usercenter/model/token"
 	"github.com/CloudSilk/usercenter/provider"
@@ -73,7 +78,6 @@ func main() {
 	constants.SetEnabelTenant(ucconfig.DefaultConfig.EnableTenant)
 	model.SetDefaultPwd(ucconfig.DefaultConfig.DefaultPwd)
 	model.SetLoginLock(ucconfig.DefaultConfig.LoginLock.MaxErrCount, ucconfig.DefaultConfig.LoginLock.LockMinutes)
-	fmt.Println("started server")
 	Start(GetPort("ATALI_PORT", 48080))
 }
 
@@ -102,10 +106,40 @@ func Start(port int) {
 	r := gin.Default()
 	r.Use(middleware.AuthRequired)
 	r.Use(utils.Cors())
-	http.RegisterAuthRouter(r)
+	userhttp.RegisterAuthRouter(r)
+
+	// 健康检查端点（供 K8s liveness/readiness probe 使用）
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
 	// 仅在 Debug 模式下暴露 swagger 文档，生产环境（debug=false）不对外暴露 API 文档
 	if ucconfig.DefaultConfig.Debug {
 		r.GET("/swagger/usercenter/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	}
-	r.Run(fmt.Sprintf(":%d", port))
+
+	// 优雅关闭：捕获 SIGTERM/SIGINT，等待现有请求完成后再退出
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: r,
+	}
+
+	go func() {
+		fmt.Printf("started server on :%d\n", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("server error: %v\n", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	fmt.Println("shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		fmt.Printf("server forced to shutdown: %v\n", err)
+	}
+	fmt.Println("server exited")
 }
