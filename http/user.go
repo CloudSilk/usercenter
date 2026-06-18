@@ -411,6 +411,17 @@ func ResetPwd(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
+	// 越权校验：非平台租户只能重置本租户用户的密码
+	tenantID := middleware.GetTenantID(c)
+	if tenantID != constants.PlatformTenantID {
+		userTenantID, err := ucmodel.GetUserTenantID(req.Id)
+		if err != nil || userTenantID != tenantID {
+			resp.Code = model.NoPermission
+			resp.Message = "无权重置该用户密码"
+			c.JSON(http.StatusOK, resp)
+			return
+		}
+	}
 	err = ucmodel.ResetPwd(req.Id, ucmodel.DefaultPwd)
 	if err != nil {
 		resp.Code = model.InternalServerError
@@ -447,9 +458,8 @@ func ChangePwd(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	if req.Id == "" {
-		req.Id = middleware.GetUserID(c)
-	}
+	// 安全限制：只能修改自己的密码，忽略请求体中传入的 id
+	req.Id = middleware.GetUserID(c)
 	err = ucmodel.UpdatePwd(req.Id, req.OldPwd, req.NewPwd)
 	if err != nil {
 		resp.Code = model.InternalServerError

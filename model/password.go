@@ -1,18 +1,13 @@
 package model
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"regexp"
-	"time"
 
 	scrypt "github.com/elithrar/simple-scrypt"
 )
-
-func init() {
-	//随机种子
-	rand.Seed(time.Now().UnixNano())
-}
 
 var (
 	numberReg      = regexp.MustCompile("\\d+")
@@ -35,7 +30,7 @@ func ValidPasswdStrength(str string) bool {
 	return upperLetterReg.MatchString(str)
 }
 
-//EncryptedPassword 对密码进行加密
+// EncryptedPassword 对密码进行加密
 func EncryptedPassword(password string) (string, error) {
 	hash, err := scrypt.GenerateFromPassword([]byte(password), scrypt.DefaultParams)
 	if err != nil {
@@ -50,15 +45,6 @@ const (
 	SpecStr = "+=-@#~,.[]()!%^*$"
 )
 
-//检测字符串中的空格
-func test1() {
-	for i := 0; i < len(CharStr); i++ {
-		if CharStr[i] != ' ' {
-			fmt.Printf("%c", CharStr[i])
-		}
-	}
-}
-
 type PwdStrength int
 
 const (
@@ -70,7 +56,7 @@ const (
 
 func generatePasswd(length int, pwdStrength PwdStrength) string {
 	//初始化密码切片
-	var passwd []byte = make([]byte, length, length)
+	passwd := make([]byte, length)
 	//源字符串
 	var sourceStr string
 	switch pwdStrength {
@@ -84,10 +70,16 @@ func generatePasswd(length int, pwdStrength PwdStrength) string {
 		sourceStr = fmt.Sprintf("%s%s%s", NUmStr, CharStr, SpecStr)
 	}
 
-	//遍历，生成一个随机index索引,
+	//使用 crypto/rand 生成密码学安全的随机索引（拒绝采样由 rand.Int 内部保证，无模偏）
+	max := big.NewInt(int64(len(sourceStr)))
 	for i := 0; i < length; i++ {
-		index := rand.Intn(len(sourceStr))
-		passwd[i] = sourceStr[index]
+		idx, err := rand.Int(rand.Reader, max)
+		if err != nil {
+			//crypto/rand 读取失败极罕见；回退到首字符以保证不 panic
+			passwd[i] = sourceStr[0]
+			continue
+		}
+		passwd[i] = sourceStr[idx.Int64()]
 	}
 	return string(passwd)
 }

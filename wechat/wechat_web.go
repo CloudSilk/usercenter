@@ -7,10 +7,13 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,10 +34,14 @@ const (
 	sendTplMsgURL                      = "https://api.weixin.qq.com/cgi-bin/message/template/send?access_token=%s"
 	scopeLogin                         = "snsapi_login"
 	scopeUserInfo                      = "snsapi_userinfo"
+	// stateMaxAgeSeconds 微信网页登录 state 的最大有效时长（秒），用于防重放
+	stateMaxAgeSeconds = 600
 )
 
 var (
 	wechatOpenPlatformWebs = make(map[string]*WechatOpenPlatformWeb)
+	// httpClient 统一带超时的 HTTP 客户端，避免微信 API 慢响应拖垮 goroutine
+	httpClient = &http.Client{Timeout: 10 * time.Second}
 )
 
 type WechatOpenPlatformWeb struct {
@@ -73,14 +80,15 @@ func (w *WechatOpenPlatformWeb) GetAuthURL() (string, error) {
 
 // 将AppName+当前时间戳使用Secret进行加密，作为state参数
 func (w *WechatOpenPlatformWeb) EncryptState() (string, error) {
-	ciphertext, nonce, err := encrypt([]byte(w.WechatConfig.Secret), []byte(w.WechatConfig.AppName))
+	plaintext := fmt.Sprintf("%s|%d", w.WechatConfig.AppName, time.Now().Unix())
+	ciphertext, nonce, err := encrypt([]byte(w.WechatConfig.Secret), []byte(plaintext))
 	if err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s_%s_%s", w.WechatConfig.AppName, base64.StdEncoding.EncodeToString(ciphertext), base64.StdEncoding.EncodeToString(nonce)), nil
 }
 
-// DecryptState 解密state参数
+// DecryptState 解密state参数，并校验时间戳新鲜度以防重放
 func (w *WechatOpenPlatformWeb) DecryptState(data, nonce string) (string, error) {
 	ciphertext, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
@@ -94,7 +102,19 @@ func (w *WechatOpenPlatformWeb) DecryptState(data, nonce string) (string, error)
 	if err != nil {
 		return "", err
 	}
-	return string(decrypted), nil
+	// 明文格式：AppName|时间戳，校验时间戳新鲜度防止 state 重放
+	parts := strings.SplitN(string(decrypted), "|", 2)
+	if len(parts) != 2 {
+		return "", errors.New("invalid state")
+	}
+	ts, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return "", err
+	}
+	if time.Now().Unix()-ts > stateMaxAgeSeconds {
+		return "", errors.New("state expired")
+	}
+	return parts[0], nil
 }
 
 func encrypt(key, plaintext []byte) ([]byte, []byte, error) {
@@ -138,7 +158,7 @@ func decrypt(key, nonce, ciphertext []byte) ([]byte, error) {
 
 // GetAccessToken get access token by code
 func (w *WechatOpenPlatformWeb) GetAccessToken(code string) (*GetAccessTokenResponse, error) {
-	resp, err := http.Get(fmt.Sprintf(platformGetAccessToken, w.WechatConfig.AppID, w.WechatConfig.Secret, code))
+	resp, err := httpClient.Get(fmt.Sprintf(platformGetAccessToken, w.WechatConfig.AppID, w.WechatConfig.Secret, code))
 	if err != nil {
 		return nil, err
 	}
@@ -151,14 +171,19 @@ func (w *WechatOpenPlatformWeb) GetAccessToken(code string) (*GetAccessTokenResp
 	if getAccessTokenResponse.ErrCode != 0 {
 		return nil, fmt.Errorf("get access token error: %s", getAccessTokenResponse.ErrMsg)
 	}
+	w.lock.Lock()
 	w.AccessToken[getAccessTokenResponse.UnionID] = getAccessTokenResponse
+	w.lock.Unlock()
 
 	return &getAccessTokenResponse, nil
 }
 
 // RefreshAccessToken refresh access token
 func (w *WechatOpenPlatformWeb) RefreshAccessToken(unionID string) (string, error) {
-	resp, err := http.Get(fmt.Sprintf(platformRefreshAccessToken, w.WechatConfig.AppID, w.AccessToken[unionID].RefreshToken))
+	w.lock.Lock()
+	refreshToken := w.AccessToken[unionID].RefreshToken
+	w.lock.Unlock()
+	resp, err := httpClient.Get(fmt.Sprintf(platformRefreshAccessToken, w.WechatConfig.AppID, refreshToken))
 	if err != nil {
 		return "", err
 	}
@@ -171,14 +196,20 @@ func (w *WechatOpenPlatformWeb) RefreshAccessToken(unionID string) (string, erro
 	if getAccessTokenResponse.ErrCode != 0 {
 		return "", fmt.Errorf("get access token error: %s", getAccessTokenResponse.ErrMsg)
 	}
+	w.lock.Lock()
 	w.AccessToken[unionID] = getAccessTokenResponse
+	w.lock.Unlock()
 
 	return getAccessTokenResponse.AccessToken, nil
 }
 
 // 校验Token是否有效
 func (w *WechatOpenPlatformWeb) CheckAccessToken(unionID string) bool {
-	resp, err := http.Get(fmt.Sprintf(platformCheckAccessToken, w.AccessToken[unionID].AccessToken, w.AccessToken[unionID].OpenID))
+	w.lock.Lock()
+	accessToken := w.AccessToken[unionID].AccessToken
+	openID := w.AccessToken[unionID].OpenID
+	w.lock.Unlock()
+	resp, err := httpClient.Get(fmt.Sprintf(platformCheckAccessToken, accessToken, openID))
 	if err != nil {
 		return false
 	}
@@ -197,7 +228,11 @@ func (w *WechatOpenPlatformWeb) CheckAccessToken(unionID string) bool {
 
 // 获取个人信息
 func (w *WechatOpenPlatformWeb) GetUserInfo(unionID string) (*GetUserInfoResponse, error) {
-	resp, err := http.Get(fmt.Sprintf(platformGetUserInfo, w.AccessToken[unionID].AccessToken, w.AccessToken[unionID].OpenID))
+	w.lock.Lock()
+	accessToken := w.AccessToken[unionID].AccessToken
+	openID := w.AccessToken[unionID].OpenID
+	w.lock.Unlock()
+	resp, err := httpClient.Get(fmt.Sprintf(platformGetUserInfo, accessToken, openID))
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +257,7 @@ func (w *WechatOpenPlatformWeb) GetWechatOfficialAccoutAccessToken() (*GetWechat
 		return w.OfficialAccoutAccessToken, nil
 	}
 
-	resp, err := http.Get(fmt.Sprintf(getWechatOfficialAccoutAccessToken, w.WechatConfig.AppID, w.WechatConfig.Secret))
+	resp, err := httpClient.Get(fmt.Sprintf(getWechatOfficialAccoutAccessToken, w.WechatConfig.AppID, w.WechatConfig.Secret))
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +285,7 @@ func (w *WechatOpenPlatformWeb) GetWechatOfficialAccoutUserInfo(openID string) (
 		return nil, err
 	}
 
-	resp, err := http.Get(fmt.Sprintf(getWechatOfficialAccoutUserInfo, w.OfficialAccoutAccessToken.AccessToken, openID))
+	resp, err := httpClient.Get(fmt.Sprintf(getWechatOfficialAccoutUserInfo, w.OfficialAccoutAccessToken.AccessToken, openID))
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +325,7 @@ func (w *WechatOpenPlatformWeb) GetWechatOfficialAccoutQRCode(isTemp bool, expir
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonParams))
+	resp, err := httpClient.Post(url, "application/json", bytes.NewBuffer(jsonParams))
 	if err != nil {
 		return nil, err
 	}
@@ -341,8 +376,7 @@ func (w *WechatOpenPlatformWeb) SendTplMsg(req SendTplMsgRequest) (*SendTplMsgRe
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(string(jsonParams))
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonParams))
+	resp, err := httpClient.Post(url, "application/json", bytes.NewBuffer(jsonParams))
 	if err != nil {
 		return nil, err
 	}

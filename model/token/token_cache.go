@@ -17,6 +17,11 @@ import (
 var DefaultTokenCache TokenCache
 
 func InitTokenCache(key, redisAddr, redisUserName, redisPWD string, expired int) {
+	// 安全要求：JWT 签名密钥必须由部署方显式配置，禁止使用空值或源码默认值，
+	// 否则任意方可伪造合法 token。配置缺失时直接拒绝启动。
+	if strings.TrimSpace(key) == "" {
+		panic("token key 未配置，拒绝启动：请在配置中设置 token.key")
+	}
 	SetSecretKey(key)
 	if expired < 1 {
 		expired = 120
@@ -62,11 +67,9 @@ func NewRedis(addr, userName, pwd string, expired int) TokenCache {
 		tokenExpired: expired,
 	}
 
-	pong, err := r.client.Ping(context.Background()).Result()
-	if err != nil {
+	if _, err := r.client.Ping(context.Background()).Result(); err != nil {
 		panic(err)
 	}
-	fmt.Println(pong)
 	return r
 }
 
@@ -339,7 +342,6 @@ func NewMemory(expired int) TokenCache {
 		tokenExpired:    expired,
 	}
 	m.tokenCache.OnEvicted(func(sig string, t interface{}) {
-		fmt.Println("expired", sig, t)
 		token := t.(string)
 		currentUser, err := DecodeToken(token)
 		if err != nil {

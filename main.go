@@ -68,6 +68,7 @@ func main() {
 	constants.SetDefaultRoleID(ucconfig.DefaultConfig.DefaultRoleID)
 	constants.SetEnabelTenant(ucconfig.DefaultConfig.EnableTenant)
 	model.SetDefaultPwd(ucconfig.DefaultConfig.DefaultPwd)
+	model.SetLoginLock(ucconfig.DefaultConfig.LoginLock.MaxErrCount, ucconfig.DefaultConfig.LoginLock.LockMinutes)
 	fmt.Println("started server")
 	Start(GetPort("ATALI_PORT", 48080))
 }

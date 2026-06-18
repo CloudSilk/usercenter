@@ -34,6 +34,7 @@ func UpdateCasbin(roleID string, casbinInfos []*CasbinRule) error {
 	if !success {
 		return errors.New("存在相同api,添加失败,请联系管理员")
 	}
+	invalidateAuthCache()
 	return nil
 }
 
@@ -72,7 +73,9 @@ func GetPolicyPathByRoleID(roleID string) (pathMaps []*CasbinRule) {
 // @param: v int, p ...string
 // @return: bool
 func ClearCasbin(v int, p ...string) (bool, error) {
-	return enforcer.RemoveFilteredPolicy(v, p...)
+	ok, err := enforcer.RemoveFilteredPolicy(v, p...)
+	invalidateAuthCache()
+	return ok, err
 }
 
 // @author: [guoxf](https://github.com/guoxf)

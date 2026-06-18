@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -86,7 +85,6 @@ func wechatMiniLogin(c *gin.Context) {
 				log.Warnf(context.Background(), "TransID:%s,解密出错:%v", transID, err)
 				// 解密失败不阻断注册流程，继续使用基本信息
 			} else {
-				fmt.Printf("Decrypt:%#v\n", plainData)
 				user.Avatar = plainData.AvatarURL
 				user.Nickname = plainData.NickName
 				user.City = plainData.City

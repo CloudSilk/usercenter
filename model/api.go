@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils"
@@ -189,22 +188,30 @@ func EnableAPI(id string, enable bool) error {
 	return nil
 }
 
+// getAllAPIsByCheck 按 check_auth/check_login 布尔语义不分页查询全部 API。
+// 语义与 QueryAPI 一致：参数值 > 0 时，check_auth/check_login = (val == 1)；
+// 参数值为 0 时不过滤该字段。用于替代原先 PageSize=1000 的分页查询，避免丢规则。
+func getAllAPIsByCheck(checkAuth, checkLogin int) []API {
+	db := dbClient.DB().Model(&API{})
+	if checkAuth > 0 {
+		db = db.Where("check_auth = ?", checkAuth == 1)
+	}
+	if checkLogin > 0 {
+		db = db.Where("check_login = ?", checkLogin == 1)
+	}
+	var apis []API
+	if err := db.Find(&apis).Error; err != nil {
+		log.Errorf(context.Background(), "getAllAPIsByCheck error: %v", err)
+		return nil
+	}
+	return apis
+}
+
 func updateNotCheckAuthRule() {
-	resp := &apipb.QueryAPIResponse{
-		Code: commonmodel.Success,
-	}
-	QueryAPI(&apipb.QueryAPIRequest{
-		CheckAuth:  2,
-		CheckLogin: 1,
-		PageSize:   1000,
-	}, resp)
-	if resp.Code != commonmodel.Success {
-		log.Errorf(context.Background(), "updateNotCheckAuthRule error:%s", resp.Message)
-		return
-	}
-	fmt.Println("updateNotCheckAuthRule===>", resp.Data)
+	// check_auth=false 且 check_login=true：需要登录但不校验权限（所有人可访问）
+	apis := getAllAPIsByCheck(2, 1)
 	var newRules []*CasbinRule
-	for _, api := range resp.Data {
+	for _, api := range apis {
 		newRules = append(newRules, &CasbinRule{
 			Ptype:     "p",
 			RoleID:    "0",
@@ -226,19 +233,10 @@ func updateNotCheckAuthRule() {
 }
 
 func updateNotCheckLoginRule() {
-	resp := &apipb.QueryAPIResponse{
-		Code: commonmodel.Success,
-	}
-	QueryAPI(&apipb.QueryAPIRequest{
-		CheckLogin: 2,
-		PageSize:   1000,
-	}, resp)
-	if resp.Code != commonmodel.Success {
-		log.Errorf(context.Background(), "updateNotCheckLoginRule error:%s", resp.Message)
-		return
-	}
+	// check_login=false：不需要登录即可访问
+	apis := getAllAPIsByCheck(0, 2)
 	var newRules []*CasbinRule
-	for _, api := range resp.Data {
+	for _, api := range apis {
 		newRules = append(newRules, &CasbinRule{
 			Ptype:     "p",
 			RoleID:    "-1",

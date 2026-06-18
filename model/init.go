@@ -52,10 +52,26 @@ func AutoMigrate() error {
 	)
 }
 
-var DefaultPwd = "ABC123def"
+var DefaultPwd = ""
+
+// 登录失败锁定参数（默认值，可由 SetLoginLock 覆盖）
+var (
+	loginLockMaxErrCount int32 = 5
+	loginLockLockMinutes int   = 15
+)
 
 func SetDefaultPwd(defaultPwd string) {
 	if defaultPwd != "" {
 		DefaultPwd = defaultPwd
+	}
+}
+
+// SetLoginLock 设置登录失败锁定参数：最大连续失败次数与锁定时长（分钟）
+func SetLoginLock(maxErrCount int, lockMinutes int) {
+	if maxErrCount > 0 {
+		loginLockMaxErrCount = int32(maxErrCount)
+	}
+	if lockMinutes > 0 {
+		loginLockLockMinutes = lockMinutes
 	}
 }

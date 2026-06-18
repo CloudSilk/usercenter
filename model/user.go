@@ -405,11 +405,55 @@ func EnableUser(id string, enable bool) error {
 }
 
 func ResetPwd(id string, pwd string) error {
+	if pwd == "" {
+		// 未配置默认密码时生成密码学安全的随机密码（避免使用可预测的固定默认值）
+		pwd = generatePasswd(16, PwdStrengthAdvance)
+	}
 	password, err := EncryptedPassword(pwd)
 	if err != nil {
 		return err
 	}
-	return dbClient.DB().Model(&User{}).Where("id=?", id).Update("password", password).Error
+	// 重置密码后强制下次登录修改，并清零登录失败计数与锁定状态
+	return dbClient.DB().Model(&User{}).Where("id=?", id).UpdateColumns(map[string]interface{}{
+		"password":         password,
+		"force_change_pwd": true,
+		"err_number":       0,
+		"locked_expired":   0,
+	}).Error
+}
+
+// GetUserTenantID 仅查询用户所属租户，供越权校验使用
+func GetUserTenantID(id string) (string, error) {
+	var user User
+	err := dbClient.DB().Select("tenant_id").Where("id = ?", id).Limit(1).First(&user).Error
+	if err != nil {
+		return "", err
+	}
+	return user.TenantID, nil
+}
+
+// recordLoginFailure 记录一次登录失败：原子自增 err_number，达阈值则锁定账号并清零计数
+func recordLoginFailure(userID string, currentErrNumber int32) {
+	updates := map[string]interface{}{
+		"err_number": gorm.Expr("err_number + ?", 1),
+	}
+	if currentErrNumber+1 >= loginLockMaxErrCount {
+		updates["locked_expired"] = time.Now().Unix() + int64(loginLockLockMinutes*60)
+		updates["err_number"] = 0
+	}
+	if err := dbClient.DB().Model(&User{}).Where("id = ?", userID).UpdateColumns(updates).Error; err != nil {
+		log.Error(context.Background(), err)
+	}
+}
+
+// clearLoginFailure 登录成功后清零失败计数与锁定状态
+func clearLoginFailure(userID string) {
+	if err := dbClient.DB().Model(&User{}).Where("id = ?", userID).UpdateColumns(map[string]interface{}{
+		"err_number":     0,
+		"locked_expired": 0,
+	}).Error; err != nil {
+		log.Error(context.Background(), err)
+	}
 }
 
 func UpdatePwd(id string, oldPwd, newPwd string) error {
@@ -464,15 +508,25 @@ func Login(req *apipb.LoginRequest, resp *apipb.LoginResponse) {
 		return
 	}
 
+	// 账号锁定检查
+	if user.LockedExpired > time.Now().Unix() {
+		resp.Code = model.UserDisabled
+		resp.Message = "账号已锁定，请稍后再试"
+		return
+	}
+
 	password := []byte(user.Password)
 	err = scrypt.CompareHashAndPassword(password, []byte(req.Password))
 	if err != nil && err == scrypt.ErrMismatchedHashAndPassword {
+		recordLoginFailure(user.ID, user.ErrNumber)
 		resp.Code = model.UserNameOrPasswordIsWrong
 		return
 	} else if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
+		return
 	}
+	clearLoginFailure(user.ID)
 	currentUser := &apipb.CurrentUser{
 		Id:       user.ID,
 		UserName: user.UserName,
@@ -521,17 +575,26 @@ func LoginByStaffNo(req *apipb.LoginByStaffNoRequest, resp *apipb.LoginByStaffNo
 		return
 	}
 
-	if m["user_name"] != "" {
-		password := []byte(user.Password)
-		err = scrypt.CompareHashAndPassword(password, []byte(req.Password))
-		if err != nil && err == scrypt.ErrMismatchedHashAndPassword {
-			resp.Code = model.UserNameOrPasswordIsWrong
-			return
-		} else if err != nil {
-			resp.Code = model.InternalServerError
-			resp.Message = err.Error()
-		}
+	// 账号锁定检查
+	if user.LockedExpired > time.Now().Unix() {
+		resp.Code = model.UserDisabled
+		resp.Message = "账号已锁定，请稍后再试"
+		return
 	}
+
+	// 无论是 staff_no 还是 user_name 入口，都必须校验密码（修复 staff_no 免密登录漏洞）
+	password := []byte(user.Password)
+	err = scrypt.CompareHashAndPassword(password, []byte(req.Password))
+	if err != nil && err == scrypt.ErrMismatchedHashAndPassword {
+		recordLoginFailure(user.ID, user.ErrNumber)
+		resp.Code = model.UserNameOrPasswordIsWrong
+		return
+	} else if err != nil {
+		resp.Code = model.InternalServerError
+		resp.Message = err.Error()
+		return
+	}
+	clearLoginFailure(user.ID)
 
 	currentUser := &apipb.CurrentUser{
 		Id:       user.ID,

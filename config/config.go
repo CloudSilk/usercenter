@@ -75,6 +75,15 @@ type Config struct {
 	DefaultPwd       string          `yaml:"defaultPwd"`
 	MiniApp          []MiniAppConfig `yaml:"miniApp"`
 	EnableTenant     bool            `yaml:"enableTenant"`
+	LoginLock        LoginLockConfig `yaml:"loginLock"`
+}
+
+// LoginLockConfig 登录失败锁定策略
+type LoginLockConfig struct {
+	// MaxErrCount 连续失败次数上限，达到后锁定账号（默认 5）
+	MaxErrCount int `yaml:"maxErrCount"`
+	// LockMinutes 锁定时长（分钟，默认 15）
+	LockMinutes int `yaml:"lockMinutes"`
 }
 
 type MiniAppConfig struct {

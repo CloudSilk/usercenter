@@ -85,7 +85,7 @@ func CreateRole(newRole *Role) error {
 	}
 	err = updateRoleAuth(newRole.ID)
 	if err != nil {
-		fmt.Println(err)
+		log.Error(context.Background(), err)
 	}
 	return nil
 }
@@ -142,7 +142,7 @@ func updateRoleAuth(id string) error {
 	}
 	_, err = ClearCasbin(0, roleID)
 	if err != nil {
-		fmt.Println("ClearCasbin error:", err)
+		log.Errorf(context.Background(), "ClearCasbin error: %v", err)
 	}
 	if len(list) > 0 {
 		err = UpdateCasbin(roleID, list)

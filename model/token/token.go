@@ -25,7 +25,7 @@ var deviceTypes = map[string]int32{
 	"4": 4, //ipad
 }
 
-var secretKey = "c4c902bb-b4ca-4246-a9c0-fb8b218c9a69"
+var secretKey = ""
 
 // SetSecretKey 设置Token加密key
 func SetSecretKey(key string) {
