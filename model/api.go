@@ -173,8 +173,9 @@ func UpdateAPI(api *API) error {
 	if duplication {
 		return errors.New("存在相同api")
 	}
-	// updateNotCheckAuthRule()
-	// updateNotCheckLoginRule()
+	// 更新 API 后同步刷新免登录/免鉴权 Casbin 规则，使修改立即生效而无需重启
+	updateNotCheckAuthRule()
+	updateNotCheckLoginRule()
 	return nil
 }
 

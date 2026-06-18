@@ -142,7 +142,7 @@ func (r *Redis) StoreToken(userID, token string) error {
 	if field == "" {
 		return nil
 	}
-	_, err := r.client.Set(context.Background(), r.getKey(userID, field), token, defaultExpired).Result()
+	_, err := r.client.Set(context.Background(), r.getKey(userID, field), token, r.tokenExpiry()).Result()
 	return err
 }
 
@@ -155,7 +155,7 @@ func (r *Redis) GetPrivateKey(sessionID string) (string, bool) {
 }
 
 func (r *Redis) StorePrivateKey(sessionID string, privateKey string) error {
-	_, err := r.client.Set(context.Background(), r.getSessionKey(sessionID), privateKey, defaultExpired).Result()
+	_, err := r.client.Set(context.Background(), r.getSessionKey(sessionID), privateKey, r.tokenExpiry()).Result()
 	return err
 }
 
@@ -165,7 +165,7 @@ func (r *Redis) DelPrivateKey(sessionID string) error {
 }
 
 func (r *Redis) StorePublicKey(sessionID string, publicKey string) error {
-	_, err := r.client.Set(context.Background(), r.getSessionPublicKey(sessionID), publicKey, defaultExpired).Result()
+	_, err := r.client.Set(context.Background(), r.getSessionPublicKey(sessionID), publicKey, r.tokenExpiry()).Result()
 	return err
 }
 func (r *Redis) GetPublicKey(sessionID string) (string, bool) {
@@ -182,6 +182,14 @@ func (r *Redis) DelPublicKey(sessionID string) error {
 
 func (r *Redis) TokenExpired() int {
 	return r.tokenExpired
+}
+
+// tokenExpiry 返回 Redis TTL 时长，基于配置分钟数（与 JWT exp 对齐）
+func (r *Redis) tokenExpiry() time.Duration {
+	if r.tokenExpired > 0 {
+		return time.Duration(r.tokenExpired) * time.Minute
+	}
+	return defaultExpired
 }
 
 func (r *Redis) getKey(userID, token string) string {
@@ -334,10 +342,15 @@ func (r *Memory) DelPublicKey(sessionID string) error {
 }
 
 func NewMemory(expired int) TokenCache {
+	// 将配置分钟数转换为 time.Duration
+	ttl := defaultExpired
+	if expired > 0 {
+		ttl = time.Duration(expired) * time.Minute
+	}
 	m := &Memory{
-		tokenCache:      cache.New(defaultExpired, 10*time.Minute),
-		privateKeyCache: cache.New(defaultExpired, 10*time.Minute),
-		publicKeyCache:  cache.New(defaultExpired, 10*time.Minute),
+		tokenCache:      cache.New(ttl, ttl/2),
+		privateKeyCache: cache.New(ttl, ttl/2),
+		publicKeyCache:  cache.New(ttl, ttl/2),
 		userCache:       make(map[string]map[string]struct{}),
 		tokenExpired:    expired,
 	}

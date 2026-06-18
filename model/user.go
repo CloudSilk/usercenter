@@ -652,16 +652,16 @@ func LoginByWechat(register bool, req *User, resp *apipb.LoginResponse) {
 	// 1、先用union id 或者open id判断是否已经创建过用户
 	// 2、如果已经创建过，再用open id判断是否已经关联了open id
 	// 3、如果未创建过，那么创建用户
-	whereSql := ""
-	value := ""
+	// 优先用 UnionID 查找，次之用 OpenID；两者都不提供时走 else 的 OpenID 条件
+	// （上一行的双空校验已保证至少有一个非空）
+	conds := map[string]interface{}{}
 	if req.WechatUnionID != "" {
-		whereSql = "wechat_union_id=?"
-		value = req.WechatUnionID
-	} else {
-		whereSql = "wechat_open_id=?"
-		value = req.WechatOpenID
+		conds["wechat_union_id"] = req.WechatUnionID
 	}
-	err := dbClient.DB().Model(user).Preload("UserRoles").Where(whereSql, value).First(user).Error
+	if req.WechatOpenID != "" {
+		conds["wechat_open_id"] = req.WechatOpenID
+	}
+	err := dbClient.DB().Model(user).Preload("UserRoles").Where(conds).First(user).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()

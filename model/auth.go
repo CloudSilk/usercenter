@@ -3,6 +3,8 @@ package model
 import (
 	"context"
 	"errors"
+	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/CloudSilk/pkg/model"
@@ -17,13 +19,21 @@ import (
 // 用于减少高频请求下的策略遍历开销；权限规则变更时通过 invalidateAuthCache 清空。
 var authResultCache = cache.New(2*time.Minute, 5*time.Minute)
 
-// enforceCached 带内存缓存的鉴权判定
-func enforceCached(sub, obj, act string) (bool, error) {
+// enforceCached 带内存缓存+panic 恢复的鉴权判定。
+// Casbin 内置的 ParamsMatchFunc 在参数类型异常时可能 panic（类型断言），
+// 此处 recover 转为 err 返回，避免单个请求导致整个进程崩溃。
+func enforceCached(sub, obj, act string) (ok bool, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("casbin enforce panic (sub=%s obj=%s act=%s): %v\n%s", sub, obj, act, r, debug.Stack())
+			ok = false
+		}
+	}()
 	key := sub + "|" + obj + "|" + act
 	if v, ok := authResultCache.Get(key); ok {
 		return v.(bool), nil
 	}
-	ok, err := enforcer.Enforce(sub, obj, act)
+	ok, err = enforcer.Enforce(sub, obj, act)
 	if err != nil {
 		return false, err
 	}

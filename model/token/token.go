@@ -14,7 +14,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 )
 
-const defaultExpired = 30 * 24 * time.Hour
+const defaultExpired = 30 * 24 * time.Hour // 回退默认值，当配置值转换失败时使用
 
 var deviceTypes = map[string]int32{
 	"":  0,
