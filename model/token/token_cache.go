@@ -10,7 +10,7 @@ import (
 
 	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/go-redis/redis/v8"
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/patrickmn/go-cache"
 )
 

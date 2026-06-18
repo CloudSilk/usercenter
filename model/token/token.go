@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 
 	apipb "github.com/CloudSilk/usercenter/proto"
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const defaultExpired = 30 * 24 * time.Hour // 回退默认值，当配置值转换失败时使用

@@ -11,7 +11,7 @@ import (
 	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/CloudSilk/usercenter/model/token"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/patrickmn/go-cache"
 )
 

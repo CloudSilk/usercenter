@@ -15,7 +15,7 @@ import (
 	"github.com/CloudSilk/usercenter/model/token"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	scrypt "github.com/elithrar/simple-scrypt"
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
