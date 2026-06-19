@@ -49,6 +49,7 @@ func AutoMigrate() error {
 		&APPProp{}, &Tenant{}, &TenantMenu{}, &TenantCertificate{}, &FormComponent{}, &FormComponentResource{},
 		&Project{}, &ProjectFormComponent{},
 		&Dictionaries{}, &Language{}, &SystemConfig{}, &WebSite{}, &WechatConfig{},
+		&AuditLog{},
 	)
 }
 

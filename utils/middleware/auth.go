@@ -66,6 +66,10 @@ func AuthRequired(c *gin.Context) {
 	currentUser, code, err := ucmodel.Authenticate(t, c.Request.Method, c.Request.URL.Path, true)
 
 	if code != model.Success {
+		// 鉴权失败时触发安全告警（基于 IP 的接口扫描/越权探测检测）
+		if code == model.Unauthorized {
+			ucmodel.AlertAuthFailure(c.ClientIP(), c.Request.URL.Path)
+		}
 		message := ""
 		if err != nil {
 			message = err.Error()

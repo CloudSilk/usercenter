@@ -50,6 +50,10 @@ func Login(c *gin.Context) {
 		return
 	}
 	ucmodel.Login(req, resp)
+	// 登录失败时触发安全告警（基于 IP 的暴力破解检测）
+	if resp.Code == model.UserNameOrPasswordIsWrong {
+		ucmodel.AlertLoginFailure(req.UserName, c.ClientIP())
+	}
 
 	c.JSON(http.StatusOK, resp)
 }
@@ -220,6 +224,8 @@ func DeleteUser(c *gin.Context) {
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
+	} else {
+		ucmodel.RecordAudit(middleware.GetUserID(c), middleware.GetUserName(c), ucmodel.AuditActionDeleteUser, req.Id, c.ClientIP(), "")
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -409,6 +415,8 @@ func ResetPwd(c *gin.Context) {
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
+	} else {
+		ucmodel.RecordAudit(middleware.GetUserID(c), middleware.GetUserName(c), ucmodel.AuditActionResetPwd, req.Id, c.ClientIP(), "")
 	}
 	c.JSON(http.StatusOK, resp)
 }
