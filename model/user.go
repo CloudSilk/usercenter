@@ -13,6 +13,7 @@ import (
 	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/menu"
+	apipb "github.com/CloudSilk/usercenter/proto"
 	scrypt "github.com/elithrar/simple-scrypt"
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
