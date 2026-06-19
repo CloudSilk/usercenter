@@ -12,8 +12,9 @@ import (
 	"github.com/CloudSilk/pkg/db"
 	commonmodel "github.com/CloudSilk/pkg/model"
 	glebsqlite "github.com/glebarez/sqlite"
-	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
+	"github.com/CloudSilk/usercenter/internal/permission"
+	apipb "github.com/CloudSilk/usercenter/proto"
 	"gorm.io/gorm"
 )
 
@@ -217,8 +218,8 @@ func TestAuthenticateInvalidTokenOnProtectedURL(t *testing.T) {
 func TestAuthenticateCacheHitIsConsistent(t *testing.T) {
 	// 同一 (sub,obj,act) 连续判定两次，结果应一致（命中缓存或未命中都应一致）
 	url := "/api/cachecheck/test"
-	c1, err1 := enforceCached("nonexistent-role", url, "GET")
-	c2, err2 := enforceCached("nonexistent-role", url, "GET")
+	c1, err1 := permission.EnforceCached("nonexistent-role", url, "GET")
+	c2, err2 := permission.EnforceCached("nonexistent-role", url, "GET")
 	if err1 != nil || err2 != nil {
 		t.Fatalf("enforceCached errors: %v %v", err1, err2)
 	}
