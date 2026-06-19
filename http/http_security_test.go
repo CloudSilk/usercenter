@@ -17,7 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/model"
-	"github.com/CloudSilk/usercenter/model/token"
+	"github.com/CloudSilk/usercenter/internal/auth/token"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"gorm.io/gorm"
 )

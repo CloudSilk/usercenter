@@ -12,7 +12,7 @@ import (
 	"github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils"
 	"github.com/CloudSilk/pkg/utils/log"
-	"github.com/CloudSilk/usercenter/model/token"
+	"github.com/CloudSilk/usercenter/internal/auth/token"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	scrypt "github.com/elithrar/simple-scrypt"
 	"github.com/golang-jwt/jwt/v5"

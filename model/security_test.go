@@ -13,7 +13,7 @@ import (
 	commonmodel "github.com/CloudSilk/pkg/model"
 	glebsqlite "github.com/glebarez/sqlite"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	"github.com/CloudSilk/usercenter/model/token"
+	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"gorm.io/gorm"
 )
 

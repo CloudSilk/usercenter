@@ -22,7 +22,7 @@ import (
 	"github.com/CloudSilk/usercenter/docs"
 	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/model"
-	"github.com/CloudSilk/usercenter/model/token"
+	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/provider"
 	"github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
