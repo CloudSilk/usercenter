@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	"github.com/CloudSilk/pkg/constants"
@@ -152,158 +152,69 @@ func AddUser(c *gin.Context, req *apipb.UserInfo) (*apipb.CommonResponse, error)
 // AddUserHandler 泛型路由注册入口
 var AddUserHandler = AutoHandler(AddUser)
 
-// UpdateUser
+// UpdateUser godoc
 // @Summary 更新用户
-// @Description 更新用户
 // @Tags 用户管理
-// @Accept  json
-// @Produce  json
 // @Param authorization header string true "jwt token"
 // @Param data body apipb.UserInfo true "用户信息"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/user/update [put]
-func UpdateUser(c *gin.Context) {
-	transID := middleware.GetTransID(c)
-	req := &apipb.UserInfo{}
-	resp := &apipb.CommonResponse{
-		Code: apipb.Code_Success,
-	}
-	err := c.BindJSON(req)
-	if err != nil {
-		resp.Code = apipb.Code_BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		log.Warnf(context.Background(), "TransID:%s,新建User请求参数无效:%v", transID, err)
-		return
-	}
-	err = middleware.Validate.Struct(req)
-	if err != nil {
-		resp.Code = apipb.Code_BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		return
-	}
+func UpdateUser(c *gin.Context, req *apipb.UserInfo) (*apipb.CommonResponse, error) {
 	//只有平台租户才能更改用户的租户
-	tenantID := middleware.GetTenantID(c)
-	if tenantID != constants.PlatformTenantID {
+	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
-	err = ucmodel.UpdateUser(ucmodel.PBToUser(req))
-	if err != nil {
-		resp.Code = apipb.Code_InternalServerError
-		resp.Message = err.Error()
+	if err := ucmodel.UpdateUser(ucmodel.PBToUser(req)); err != nil {
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	c.JSON(http.StatusOK, resp)
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
-// DeleteUser
+// DeleteUser godoc
 // @Summary 删除用户
-// @Description 删除用户
 // @Tags 用户管理
-// @Accept  json
-// @Produce  json
 // @Param authorization header string true "jwt token"
 // @Param data body apipb.DelRequest true "请求参数"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/user/delete [delete]
-func DeleteUser(c *gin.Context) {
-	transID := middleware.GetTransID(c)
-	req := &apipb.DelRequest{}
-	resp := &apipb.CommonResponse{
-		Code: model.Success,
+func DeleteUser(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
+	if err := ucmodel.DeleteUser(req.Id); err != nil {
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	err := c.BindJSON(req)
-	if err != nil {
-		resp.Code = model.BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		log.Warnf(context.Background(), "TransID:%s,新建User请求参数无效:%v", transID, err)
-		return
-	}
-	err = ucmodel.DeleteUser(req.Id)
-	if err != nil {
-		resp.Code = model.InternalServerError
-		resp.Message = err.Error()
-	} else {
-		ucmodel.RecordAudit(middleware.GetUserID(c), middleware.GetUserName(c), ucmodel.AuditActionDeleteUser, req.Id, c.ClientIP(), "")
-	}
-	c.JSON(http.StatusOK, resp)
+	ucmodel.RecordAudit(middleware.GetUserID(c), middleware.GetUserName(c), ucmodel.AuditActionDeleteUser, req.Id, c.ClientIP(), "")
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
-// EnableUser
+// EnableUser godoc
 // @Summary 禁用/启用用户
-// @Description 禁用/启用用户
 // @Tags 用户管理
-// @Accept  json
-// @Produce  json
 // @Param authorization header string true "jwt token"
 // @Param data body apipb.EnableRequest true "请求参数"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/user/enable [post]
-func EnableUser(c *gin.Context) {
-	transID := middleware.GetTransID(c)
-	req := &apipb.EnableRequest{}
-	resp := &model.CommonResponse{
-		Code: model.Success,
+func EnableUser(c *gin.Context, req *apipb.EnableRequest) (*model.CommonResponse, error) {
+	if err := ucmodel.EnableUser(req.Id, req.Enable); err != nil {
+		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
-	err := c.BindJSON(req)
-	if err != nil {
-		resp.Code = model.BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		log.Warnf(context.Background(), "TransID:%s,新建User请求参数无效:%v", transID, err)
-		return
-	}
-
-	err = ucmodel.EnableUser(req.Id, req.Enable)
-	if err != nil {
-		resp.Code = model.InternalServerError
-		resp.Message = err.Error()
-	}
-	c.JSON(http.StatusOK, resp)
+	return &model.CommonResponse{Code: model.Success}, nil
 }
 
-// QueryUser
+// QueryUser godoc
 // @Summary 分页查询
-// @Description 分页查询
 // @Tags 用户管理
-// @Accept  json
-// @Produce  json
 // @Param authorization header string true "jwt token"
 // @Param pageIndex query int false "从1开始"
 // @Param pageSize query int false "默认每页10条"
-// @Param orderField query string false "排序字段"
-// @Param desc query bool false "是否倒序排序"
-// @Param userName query string false "用户名"
-// @Param nickname query string false "昵称"
-// @Param idCard query string false "身份证号"
-// @Param mobile query string false "手机号"
-// @Param title query string false "职位"
-// @Param type query int false "用户类型,从1开始,为0时查询全部"
-// @Param tenantID query string false "租户ID"
-// @Param group query string false "分组ID，例如属于某个组织的，或者某个个人"
 // @Success 200 {object} apipb.QueryUserResponse
 // @Router /api/core/auth/user/query [get]
-func QueryUser(c *gin.Context) {
-	req := &apipb.QueryUserRequest{}
-	resp := &apipb.QueryUserResponse{
-		Code: model.Success,
-	}
-	err := c.BindQuery(req)
-	if err != nil {
-		resp.Code = model.BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		return
-	}
+func QueryUser(c *gin.Context, req *apipb.QueryUserRequest) (*apipb.QueryUserResponse, error) {
 	//只有平台租户才能查询其他租户的角色
-	tenantID := middleware.GetTenantID(c)
-	if tenantID != constants.PlatformTenantID {
+	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
+	resp := &apipb.QueryUserResponse{Code: apipb.Code_Success}
 	ucmodel.QueryUser(req, resp, false)
-
-	c.JSON(http.StatusOK, resp)
+	return resp, nil
 }
 
 // GetAllUsers
@@ -553,7 +464,7 @@ func ImportUser(c *gin.Context) {
 	//defer 结束时关闭文件
 	defer file.Close()
 	fmt.Println("filename: " + fileHeader.Filename)
-	buf, err := ioutil.ReadAll(file)
+	buf, err := io.ReadAll(file)
 	if err != nil {
 		fmt.Println(err)
 		resp.Code = apipb.Code_BadRequest
@@ -670,10 +581,10 @@ func RegisterUserRouter(r *gin.Engine) {
 	userGroup.GET("profile", Profile)
 	userGroup.PUT("profile", UpdateProfile)
 	userGroup.POST("add", AddUserHandler)
-	userGroup.PUT("update", UpdateUser)
-	userGroup.GET("query", QueryUser)
-	userGroup.DELETE("delete", DeleteUser)
-	userGroup.POST("enable", EnableUser)
+	userGroup.PUT("update", AutoHandler(UpdateUser))
+	userGroup.GET("query", AutoQueryHandler(QueryUser))
+	userGroup.DELETE("delete", AutoHandler(DeleteUser))
+	userGroup.POST("enable", AutoHandler(EnableUser))
 	userGroup.GET("all", GetAllUsers)
 	userGroup.GET("detail", GetUserDetail)
 	userGroup.POST("resetpwd", ResetPwd)
