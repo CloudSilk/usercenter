@@ -1,85 +1,30 @@
 package model
 
 import (
-	"crypto/rand"
-	"fmt"
-	"math/big"
-	"regexp"
-
-	scrypt "github.com/elithrar/simple-scrypt"
+	"github.com/CloudSilk/usercenter/internal/auth"
 )
 
-var (
-	numberReg      = regexp.MustCompile("\\d+")
-	lowerLetterReg = regexp.MustCompile("[a-z]+")
-	upperLetterReg = regexp.MustCompile("[A-Z]+")
-)
+// 密码逻辑已迁入 internal/auth(REDESIGN §4 阶段0)。
+// 此处保留 PwdStrength 别名 + 函数委托,向后兼容 model 内部调用
+// (user.go 的 generatePasswd/EncryptedPassword/ValidPasswdStrength)与 password_test。
 
-func ValidPasswdStrength(str string) bool {
-	if len([]rune(str)) < 8 {
-		return false
-	}
-	result := numberReg.MatchString(str)
-	if !result {
-		return false
-	}
-	result = lowerLetterReg.MatchString(str)
-	if !result {
-		return false
-	}
-	return upperLetterReg.MatchString(str)
-}
-
-// EncryptedPassword 对密码进行加密
-func EncryptedPassword(password string) (string, error) {
-	hash, err := scrypt.GenerateFromPassword([]byte(password), scrypt.DefaultParams)
-	if err != nil {
-		return "", err
-	}
-	return string(hash), nil
-}
+// PwdStrength 密码强度等级(定义已迁至 internal/auth)
+type PwdStrength = auth.PwdStrength
 
 const (
-	NUmStr  = "0123456789"
-	CharStr = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-	SpecStr = "+=-@#~,.[]()!%^*$"
+	PwdStrengthOnliyNumber PwdStrength = auth.PwdStrengthOnliyNumber
+	PwdStrengthOnliyChar   PwdStrength = auth.PwdStrengthOnliyChar
+	PwdStrengthMix         PwdStrength = auth.PwdStrengthMix
+	PwdStrengthAdvance     PwdStrength = auth.PwdStrengthAdvance
 )
 
-type PwdStrength int
+// ValidPasswdStrength 委托 internal/auth
+func ValidPasswdStrength(str string) bool { return auth.ValidPasswdStrength(str) }
 
-const (
-	PwdStrengthOnliyNumber PwdStrength = iota
-	PwdStrengthOnliyChar
-	PwdStrengthMix
-	PwdStrengthAdvance
-)
+// EncryptedPassword 委托 internal/auth
+func EncryptedPassword(password string) (string, error) { return auth.EncryptedPassword(password) }
 
+// generatePasswd 委托 internal/auth.GeneratePasswd(model 内部小写包装,不破坏 user.go 调用)
 func generatePasswd(length int, pwdStrength PwdStrength) string {
-	//初始化密码切片
-	passwd := make([]byte, length)
-	//源字符串
-	var sourceStr string
-	switch pwdStrength {
-	case PwdStrengthOnliyNumber:
-		sourceStr = NUmStr
-	case PwdStrengthOnliyChar:
-		sourceStr = fmt.Sprintf("%s%s", NUmStr, CharStr)
-	case PwdStrengthMix:
-		sourceStr = fmt.Sprintf("%s%s", NUmStr, CharStr)
-	default:
-		sourceStr = fmt.Sprintf("%s%s%s", NUmStr, CharStr, SpecStr)
-	}
-
-	//使用 crypto/rand 生成密码学安全的随机索引（拒绝采样由 rand.Int 内部保证，无模偏）
-	max := big.NewInt(int64(len(sourceStr)))
-	for i := 0; i < length; i++ {
-		idx, err := rand.Int(rand.Reader, max)
-		if err != nil {
-			//crypto/rand 读取失败极罕见；回退到首字符以保证不 panic
-			passwd[i] = sourceStr[0]
-			continue
-		}
-		passwd[i] = sourceStr[idx.Int64()]
-	}
-	return string(passwd)
+	return auth.GeneratePasswd(length, pwdStrength)
 }
