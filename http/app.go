@@ -1,127 +1,43 @@
 package http
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/CloudSilk/pkg/model"
-	"github.com/CloudSilk/pkg/utils/log"
-	"github.com/CloudSilk/pkg/utils/middleware"
 	ucmodel "github.com/CloudSilk/usercenter/model"
 	"github.com/gin-gonic/gin"
 )
 
-func AddAPP(c *gin.Context) {
-	transID := middleware.GetTransID(c)
-	req := &ucmodel.APP{}
-	resp := &model.CommonResponse{
-		Code: model.Success,
+func AddAPP(c *gin.Context, req *ucmodel.APP) (*model.CommonResponse, error) {
+	if err := ucmodel.CreateAPP(req); err != nil {
+		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
-	err := c.BindJSON(req)
-	if err != nil {
-		resp.Code = model.BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		log.Warnf(context.Background(), "TransID:%s,新建APP请求参数无效:%v", transID, err)
-		return
-	}
-	err = middleware.Validate.Struct(req)
-	if err != nil {
-		resp.Code = model.BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		return
-	}
-	err = ucmodel.CreateAPP(req)
-	if err != nil {
-		resp.Code = model.InternalServerError
-		resp.Message = err.Error()
-	}
-	c.JSON(http.StatusOK, resp)
+	return &model.CommonResponse{Code: model.Success}, nil
 }
 
-func UpdateAPP(c *gin.Context) {
-	transID := middleware.GetTransID(c)
-	req := &ucmodel.APP{}
-	resp := &model.CommonResponse{
-		Code: model.Success,
+func UpdateAPP(c *gin.Context, req *ucmodel.APP) (*model.CommonResponse, error) {
+	if err := ucmodel.UpdateAPP(req); err != nil {
+		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
-	err := c.BindJSON(req)
-	if err != nil {
-		resp.Code = model.BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		log.Warnf(context.Background(), "TransID:%s,新建APP请求参数无效:%v", transID, err)
-		return
-	}
-	err = middleware.Validate.Struct(req)
-	if err != nil {
-		resp.Code = model.BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		return
-	}
-	err = ucmodel.UpdateAPP(req)
-	if err != nil {
-		resp.Code = model.InternalServerError
-		resp.Message = err.Error()
-	}
-	c.JSON(http.StatusOK, resp)
+	return &model.CommonResponse{Code: model.Success}, nil
 }
 
-func DeleteAPP(c *gin.Context) {
-	transID := middleware.GetTransID(c)
-	req := &ucmodel.APP{}
-	resp := &model.CommonResponse{
-		Code: model.Success,
+func DeleteAPP(c *gin.Context, req *ucmodel.APP) (*model.CommonResponse, error) {
+	if err := ucmodel.DeleteAPP(req.ID); err != nil {
+		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
-	err := c.BindJSON(req)
-	if err != nil {
-		resp.Code = model.BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		log.Warnf(context.Background(), "TransID:%s,新建APP请求参数无效:%v", transID, err)
-		return
-	}
-	err = middleware.Validate.Struct(req)
-	if err != nil {
-		resp.Code = model.BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		return
-	}
-	err = ucmodel.DeleteAPP(req.ID)
-	if err != nil {
-		resp.Code = model.InternalServerError
-		resp.Message = err.Error()
-	}
-	c.JSON(http.StatusOK, resp)
+	return &model.CommonResponse{Code: model.Success}, nil
 }
 
-func QueryAPP(c *gin.Context) {
-	req := &ucmodel.QueryAPPRequest{}
-	resp := &ucmodel.QueryAPPResponse{
-		CommonResponse: model.CommonResponse{
-			Code: model.Success,
-		},
-	}
-	err := c.BindQuery(req)
-	if err != nil {
-		resp.Code = model.BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
-		return
-	}
+func QueryAPP(c *gin.Context, req *ucmodel.QueryAPPRequest) (*ucmodel.QueryAPPResponse, error) {
+	resp := &ucmodel.QueryAPPResponse{CommonResponse: model.CommonResponse{Code: model.Success}}
 	ucmodel.QueryAPP(req, resp)
-
-	c.JSON(http.StatusOK, resp)
+	return resp, nil
 }
 
 func GetAllAPP(c *gin.Context) {
 	resp := &ucmodel.QueryAPPResponse{
-		CommonResponse: model.CommonResponse{
-			Code: model.Success,
-		},
+		CommonResponse: model.CommonResponse{Code: model.Success},
 	}
 	metadatas, err := ucmodel.GetAllAPPs()
 	if err != nil {
@@ -138,9 +54,7 @@ func GetAllAPP(c *gin.Context) {
 
 func GetAPPDetail(c *gin.Context) {
 	resp := model.CommonDetailResponse{
-		CommonResponse: model.CommonResponse{
-			Code: model.Success,
-		},
+		CommonResponse: model.CommonResponse{Code: model.Success},
 	}
 	idStr := c.Query("id")
 	if idStr == "" {
@@ -148,22 +62,22 @@ func GetAPPDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	var err error
-
-	resp.Data, err = ucmodel.GetAPPById(idStr)
+	data, err := ucmodel.GetAPPById(idStr)
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
+	} else {
+		resp.Data = data
 	}
 	c.JSON(http.StatusOK, resp)
 }
 
 func RegisterAPPRouter(r *gin.Engine) {
 	appGroup := r.Group("/api/core/auth/app")
-	appGroup.POST("add", AddAPP)
-	appGroup.PUT("update", UpdateAPP)
-	appGroup.GET("query", QueryAPP)
-	appGroup.DELETE("delete", DeleteAPP)
+	appGroup.POST("add", AutoHandler(AddAPP))
+	appGroup.PUT("update", AutoHandler(UpdateAPP))
+	appGroup.GET("query", AutoQueryHandler(QueryAPP))
+	appGroup.DELETE("delete", AutoHandler(DeleteAPP))
 	appGroup.GET("all", GetAllAPP)
 	appGroup.GET("detail", GetAPPDetail)
 }
