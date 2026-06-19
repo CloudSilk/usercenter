@@ -6,6 +6,7 @@ import (
 	"github.com/CloudSilk/pkg/db"
 	"github.com/CloudSilk/pkg/db/mysql"
 	"github.com/CloudSilk/pkg/db/sqlite"
+	"github.com/CloudSilk/usercenter/internal/store"
 )
 
 var dbClient db.DBClientInterface
@@ -13,16 +14,19 @@ var dbClient db.DBClientInterface
 // Init Init
 func Init(connStr string, debug bool) {
 	dbClient = mysql.NewMysql(connStr, debug)
+	store.SetDB(dbClient)
 	initDB(debug)
 }
 
 func InitSqlite(database string, debug bool) {
 	dbClient = sqlite.NewSqlite2("", "", database, "", debug)
+	store.SetDB(dbClient)
 	initDB(debug)
 }
 
 func InitDB(client db.DBClientInterface, debug bool) {
 	dbClient = client
+	store.SetDB(dbClient) // 同步到 internal/store,供 internal 领域包访问
 	initDB(debug)
 }
 
