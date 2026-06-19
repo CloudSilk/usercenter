@@ -11,7 +11,6 @@ import (
 
 var dbClient db.DBClientInterface
 
-// Init Init
 func Init(connStr string, debug bool) {
 	dbClient = mysql.NewMysql(connStr, debug)
 	store.SetDB(dbClient)
@@ -35,16 +34,10 @@ func initDB(debug bool) {
 		fmt.Println(AutoMigrate())
 	}
 	InitCasbin()
-	roles, err := GetAllRole("", true)
-	if err != nil {
-		panic(err)
-	}
-	_ = roles
 	updateNotCheckAuthRule()
 	updateNotCheckLoginRule()
 }
 
-// AutoMigrate migrates model tables.
 func AutoMigrate() error {
 	return dbClient.DB().AutoMigrate(&CasbinRule{}, &API{}, &Menu{}, &MenuParameter{}, &MenuFunc{},
 		&MenuFuncApi{}, &Role{}, &RoleMenu{}, &User{}, &UserRole{}, &UserWechatOpenIDMap{}, &APP{},
@@ -53,26 +46,4 @@ func AutoMigrate() error {
 		&Dictionaries{}, &Language{}, &SystemConfig{}, &WebSite{}, &WechatConfig{},
 		&AuditLog{},
 	)
-}
-
-var DefaultPwd = ""
-
-var (
-	loginLockMaxErrCount int32 = 5
-	loginLockLockMinutes int   = 15
-)
-
-func SetDefaultPwd(defaultPwd string) {
-	if defaultPwd != "" {
-		DefaultPwd = defaultPwd
-	}
-}
-
-func SetLoginLock(maxErrCount int, lockMinutes int) {
-	if maxErrCount > 0 {
-		loginLockMaxErrCount = int32(maxErrCount)
-	}
-	if lockMinutes > 0 {
-		loginLockLockMinutes = lockMinutes
-	}
 }
