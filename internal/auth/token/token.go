@@ -90,7 +90,9 @@ func ExtractorCurrentUser(t *jwt.Token) *apipb.CurrentUser {
 	currentUser := apipb.CurrentUser{}
 	id, _ := (claims["id"]).(string)
 	currentUser.Id = id
-	currentUser.UserName = (claims["userName"]).(string)
+	if v, ok := claims["userName"].(string); ok {
+		currentUser.UserName = v
+	}
 
 	if _, ok := claims["domain"]; ok {
 		currentUser.Domain = claims["domain"].(string)
