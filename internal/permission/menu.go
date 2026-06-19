@@ -1,4 +1,4 @@
-package menu
+package permission
 
 import (
 	"encoding/json"
@@ -6,7 +6,6 @@ import (
 
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils"
-	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/store"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"gorm.io/gorm"
@@ -56,7 +55,7 @@ type MenuFuncApi struct {
 	commonmodel.Model
 	MenuFuncID string            `json:"menuFuncID" gorm:"index"`
 	APIID      string            `json:"apiID" gorm:"column:api_id"`
-	API        *permission.API   `json:"apiInfo"`
+	API        *API   `json:"apiInfo"`
 }
 
 func AddMenu(menu *Menu) error {
@@ -84,7 +83,7 @@ func DeleteMenu(id string) (err error) {
 		if err != nil {
 			return err
 		}
-		err = tx.Unscoped().Delete(&permission.CasbinRule{}, "menu_id=?", id).Error
+		err = tx.Unscoped().Delete(&CasbinRule{}, "menu_id=?", id).Error
 		if err != nil {
 			return err
 		}
@@ -418,7 +417,7 @@ func PBToMenuFuncApis(params []*apipb.MenuFuncApi) []MenuFuncApi {
 			APIID:      param.ApiID,
 		}
 		if param.ApiInfo != nil {
-			apiInfo.API = permission.PBToAPI(param.ApiInfo)
+			apiInfo.API = PBToAPI(param.ApiInfo)
 		}
 		list = append(list, apiInfo)
 	}
@@ -432,7 +431,7 @@ func MenuFuncApisToPB(params []MenuFuncApi) []*apipb.MenuFuncApi {
 			Id:         param.ID,
 			MenuFuncID: param.MenuFuncID,
 			ApiID:      param.APIID,
-			ApiInfo:    permission.APIToPB(param.API),
+			ApiInfo:    APIToPB(param.API),
 		})
 	}
 	return list

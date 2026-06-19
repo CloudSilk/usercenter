@@ -8,7 +8,7 @@ import (
 
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils"
-	"github.com/CloudSilk/usercenter/internal/menu"
+	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/store"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"gorm.io/gorm"
@@ -60,7 +60,7 @@ type TenantMenu struct {
 	TenantID string `json:"tenantID" gorm:"index;comment:租户ID"`
 	MenuID   string `json:"menuID" gorm:"index;comment:菜单ID"`
 	Funcs    string `json:"funcs" gorm:"size:500;comment:功能名称,多个以逗号隔开"`
-	Menu     *menu.Menu `json:"menu"`
+	Menu     *permission.Menu `json:"menu"`
 }
 
 func (r *TenantMenu) GetMenuID() string { return r.MenuID }
@@ -265,7 +265,7 @@ func PBToTenantMenus(tenantMenus []*apipb.TenantMenu) []*TenantMenu {
 			TenantID: tm.TenantID,
 			MenuID:   tm.MenuID,
 			Funcs:    tm.Funcs,
-			Menu:     menu.PBToMenu(tm.Menu),
+			Menu:     permission.PBToMenu(tm.Menu),
 		})
 	}
 	return list
@@ -279,7 +279,7 @@ func TenantMenusToPB(tenantMenus []*TenantMenu) []*apipb.TenantMenu {
 			TenantID: tm.TenantID,
 			MenuID:   tm.MenuID,
 			Funcs:    tm.Funcs,
-			Menu:     menu.MenuToPB(tm.Menu),
+			Menu:     permission.MenuToPB(tm.Menu),
 		})
 	}
 	return list

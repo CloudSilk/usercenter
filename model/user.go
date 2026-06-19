@@ -12,7 +12,7 @@ import (
 	"github.com/CloudSilk/pkg/utils"
 	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
-	"github.com/CloudSilk/usercenter/internal/menu"
+	"github.com/CloudSilk/usercenter/internal/permission"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	scrypt "github.com/elithrar/simple-scrypt"
 	"github.com/golang-jwt/jwt/v5"
@@ -847,7 +847,7 @@ func GetUserProfile(id string, needMenu bool) (*apipb.UserProfile, error) {
 	return userProfile, nil
 }
 
-// sortMenu 已迁至 internal/menu.SortMenu
+// sortMenu 已迁至 internal/permission.SortMenu
 
 func StatisticUserCount(t int, tenantID, group string) (int64, error) {
 	return statisticUserCount(dbClient.DB(), t, tenantID, group)
@@ -885,9 +885,9 @@ func GetOpenIDByUserIDAndConfigID(userID, wechatConfigID string) (string, error)
 	return result.OpenID, nil
 }
 
-// GetAuthorizedMenu 委托 internal/menu.GetAuthorizedMenu(接口化泛型,解循环依赖)
-func GetAuthorizedMenu[T menu.MenuAuthItem](tx *gorm.DB, authiruzedMenu map[string]T, hidden bool) ([]*Menu, error) {
-	return menu.GetAuthorizedMenu(tx, authiruzedMenu, hidden)
+// GetAuthorizedMenu 委托 internal/permission.GetAuthorizedMenu(接口化泛型,解循环依赖)
+func GetAuthorizedMenu[T permission.MenuAuthItem](tx *gorm.DB, authiruzedMenu map[string]T, hidden bool) ([]*Menu, error) {
+	return permission.GetAuthorizedMenu(tx, authiruzedMenu, hidden)
 }
 
 func ExportAllUsers(req *apipb.CommonExportRequest, resp *apipb.CommonExportResponse) {

@@ -171,97 +171,10 @@ func UserRolesToPB(userRoles []*UserRole) []*apipb.UserRole {
 	return list
 }
 
-func PBToRole(in *apipb.RoleInfo) *Role {
-	if in == nil {
-		return nil
-	}
 
-	return &Role{
-		Model: commonmodel.Model{
-			ID: in.Id,
-		},
-		TenantID:      in.TenantID,
-		ProjectID:     in.ProjectID,
-		Name:          in.Name,
-		ParentID:      in.ParentID,
-		DefaultRouter: in.DefaultRouter,
-		Description:   in.Description,
-		CanDel:        in.CanDel,
-		RoleMenus:     PBToRoleMenus(in.RoleMenus),
-		Public:        in.Public,
-		IsMust:        in.IsMust,
-	}
-}
 
-func RoleToPB(in *Role) *apipb.RoleInfo {
-	if in == nil {
-		return nil
-	}
-	var children []*apipb.RoleInfo
-	//递归退出条件
-	if len(in.Children) > 0 {
-		children = RolesToPB(in.Children)
-	}
 
-	role := &apipb.RoleInfo{
-		Id:            in.ID,
-		TenantID:      in.TenantID,
-		ProjectID:     in.ProjectID,
-		Name:          in.Name,
-		ParentID:      in.ParentID,
-		DefaultRouter: in.DefaultRouter,
-		Description:   in.Description,
-		CanDel:        in.CanDel,
-		RoleMenus:     RoleMenusToPB(in.RoleMenus),
-		Children:      children,
-		Public:        in.Public,
-		IsMust:        in.IsMust,
-	}
-	if in.Tenant != nil {
-		role.TenantName = in.Tenant.Name
-	}
-	return role
-}
 
-func RolesToPB(in []*Role) []*apipb.RoleInfo {
-	var list []*apipb.RoleInfo
-	for _, role := range in {
-		list = append(list, RoleToPB(role))
-	}
-	return list
-}
-
-func PBToRoleMenus(roleMenus []*apipb.RoleMenu) []*RoleMenu {
-	var list []*RoleMenu
-	for _, roleMenu := range roleMenus {
-		list = append(list, &RoleMenu{
-			Model: commonmodel.Model{
-				ID: roleMenu.Id,
-			},
-			RoleID: roleMenu.RoleID,
-			MenuID: roleMenu.MenuID,
-			Funcs:  roleMenu.Funcs,
-			Show:   roleMenu.Show,
-			Menu:   PBToMenu(roleMenu.Menu),
-		})
-	}
-	return list
-}
-
-func RoleMenusToPB(roleMenus []*RoleMenu) []*apipb.RoleMenu {
-	var list []*apipb.RoleMenu
-	for _, roleMenu := range roleMenus {
-		list = append(list, &apipb.RoleMenu{
-			Id:     roleMenu.ID,
-			RoleID: roleMenu.RoleID,
-			MenuID: roleMenu.MenuID,
-			Funcs:  roleMenu.Funcs,
-			Show:   roleMenu.Show,
-			Menu:   MenuToPB(roleMenu.Menu),
-		})
-	}
-	return list
-}
 
 func UserProfileToUser(in *apipb.UserProfile) *User {
 	if in == nil {

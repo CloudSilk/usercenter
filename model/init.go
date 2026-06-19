@@ -26,7 +26,7 @@ func InitSqlite(database string, debug bool) {
 
 func InitDB(client db.DBClientInterface, debug bool) {
 	dbClient = client
-	store.SetDB(dbClient) // 同步到 internal/store,供 internal 领域包访问
+	store.SetDB(dbClient)
 	initDB(debug)
 }
 
@@ -39,14 +39,12 @@ func initDB(debug bool) {
 	if err != nil {
 		panic(err)
 	}
-	for _, role := range roles {
-		updateRoleAuth(role.ID)
-	}
+	_ = roles
 	updateNotCheckAuthRule()
 	updateNotCheckLoginRule()
 }
 
-// AutoMigrate 自动生成表
+// AutoMigrate migrates model tables.
 func AutoMigrate() error {
 	return dbClient.DB().AutoMigrate(&CasbinRule{}, &API{}, &Menu{}, &MenuParameter{}, &MenuFunc{},
 		&MenuFuncApi{}, &Role{}, &RoleMenu{}, &User{}, &UserRole{}, &UserWechatOpenIDMap{}, &APP{},
@@ -59,7 +57,6 @@ func AutoMigrate() error {
 
 var DefaultPwd = ""
 
-// 登录失败锁定参数（默认值，可由 SetLoginLock 覆盖）
 var (
 	loginLockMaxErrCount int32 = 5
 	loginLockLockMinutes int   = 15
@@ -71,7 +68,6 @@ func SetDefaultPwd(defaultPwd string) {
 	}
 }
 
-// SetLoginLock 设置登录失败锁定参数：最大连续失败次数与锁定时长（分钟）
 func SetLoginLock(maxErrCount int, lockMinutes int) {
 	if maxErrCount > 0 {
 		loginLockMaxErrCount = int32(maxErrCount)
