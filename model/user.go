@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 	"github.com/CloudSilk/pkg/utils"
 	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
-	apipb "github.com/CloudSilk/usercenter/proto"
+	"github.com/CloudSilk/usercenter/internal/menu"
 	scrypt "github.com/elithrar/simple-scrypt"
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
@@ -847,16 +846,7 @@ func GetUserProfile(id string, needMenu bool) (*apipb.UserProfile, error) {
 	return userProfile, nil
 }
 
-func sortMenu(menu *Menu) {
-	if len(menu.Children) > 0 {
-		sort.Slice(menu.Children, func(i, j int) bool {
-			return menu.Children[i].Sort < menu.Children[j].Sort
-		})
-		for _, child := range menu.Children {
-			sortMenu(child)
-		}
-	}
-}
+// sortMenu 已迁至 internal/menu.SortMenu
 
 func StatisticUserCount(t int, tenantID, group string) (int64, error) {
 	return statisticUserCount(dbClient.DB(), t, tenantID, group)
@@ -894,64 +884,9 @@ func GetOpenIDByUserIDAndConfigID(userID, wechatConfigID string) (string, error)
 	return result.OpenID, nil
 }
 
-// GetAuthorizedMenu 获取有权限的菜单
-// hidden为True时，隐藏在菜单中不显示的数据
-func GetAuthorizedMenu[T interface {
-	GetMenuID() string
-	GetFuncs() []string
-	GetShow() bool
-	*RoleMenu | *TenantMenu
-}](tx *gorm.DB, authiruzedMenu map[string]T, hidden bool) ([]*Menu, error) {
-	parents := make(map[string]*Menu)
-
-	var allMenus []*Menu
-	treeMap := make(map[string]*Menu)
-	err := tx.Order("sort").Preload("MenuFuncs").Find(&allMenus).Error
-	if err != nil {
-		return nil, err
-	}
-	for _, v := range allMenus {
-		treeMap[v.ID] = v
-	}
-
-	for _, roleMenu := range authiruzedMenu {
-		menu := treeMap[roleMenu.GetMenuID()]
-		//顶级menu不在菜单中显示
-		if menu == nil || (hidden && !roleMenu.GetShow()) || (hidden && menu.Hidden) {
-			continue
-		}
-
-		funcs := roleMenu.GetFuncs()
-		if len(funcs) == 0 {
-			menu.MenuFuncs = []*MenuFunc{}
-		} else {
-			var menuFuncs []*MenuFunc
-			for _, fn := range menu.MenuFuncs {
-				for _, f := range funcs {
-					if fn.Name == f {
-						menuFuncs = append(menuFuncs, fn)
-					}
-				}
-			}
-			menu.MenuFuncs = menuFuncs
-		}
-
-		if menu.ParentID == "" {
-			parents[menu.ID] = menu
-		} else {
-			parent := treeMap[menu.ParentID]
-			parent.Children = append(parent.Children, menu)
-		}
-	}
-	var result []*Menu
-	for _, menu := range parents {
-		sortMenu(menu)
-		result = append(result, menu)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Sort < result[j].Sort
-	})
-	return result, nil
+// GetAuthorizedMenu 委托 internal/menu.GetAuthorizedMenu(接口化泛型,解循环依赖)
+func GetAuthorizedMenu[T menu.MenuAuthItem](tx *gorm.DB, authiruzedMenu map[string]T, hidden bool) ([]*Menu, error) {
+	return menu.GetAuthorizedMenu(tx, authiruzedMenu, hidden)
 }
 
 func ExportAllUsers(req *apipb.CommonExportRequest, resp *apipb.CommonExportResponse) {
