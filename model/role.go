@@ -58,7 +58,7 @@ func CreateRole(newRole *Role) error {
 			return err
 		}
 
-		expired, tenantRoleCount, err := getTenantRoleCount(tx, newRole.TenantID)
+		expired, tenantRoleCount, err := getTenantRoleCount(newRole.TenantID)
 		if err != nil {
 			return err
 		}
@@ -368,7 +368,7 @@ func GetAuthorizedMenuTree(tenantID string) (list []*Menu, total int64, err erro
 		if err != nil {
 			return nil, 0, err
 		}
-		authiruzedMenus := t.getAuthorizedMenu()
+		authiruzedMenus := t.GetAuthorizedMenu()
 		result, err := GetAuthorizedMenu(dbClient.DB(), authiruzedMenus, false)
 		return result, 0, err
 	}

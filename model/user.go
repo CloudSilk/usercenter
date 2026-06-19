@@ -68,11 +68,11 @@ type User struct {
 	EnglishName string `json:"englishName" gorm:"size:50"`
 	StaffNo     string `json:"staffNo" gorm:"index;size:50"`
 
-	Country    string    `json:"country" gorm:"size:100;"`  //国家
-	Province   string    `json:"province" gorm:"size:100;"` //省份
-	City       string    `json:"city" gorm:"size:100;"`     //城市
-	County     string    `json:"county" gorm:"size:100;"`   //区县
-	Birthday   int64     `json:"birthday"`                  //公历出生日期包含时分
+	Country    string     `json:"country" gorm:"size:100;"`  //国家
+	Province   string     `json:"province" gorm:"size:100;"` //省份
+	City       string     `json:"city" gorm:"size:100;"`     //城市
+	County     string     `json:"county" gorm:"size:100;"`   //区县
+	Birthday   int64      `json:"birthday"`                  //公历出生日期包含时分
 	IsVip      bool       `json:"isVip"`
 	VipExpired *time.Time `json:"vipExpired"`
 
@@ -163,7 +163,7 @@ func CreateUser(user *User, isCreateFromWechat bool) error {
 			return err
 		}
 
-		expired, tenantUserCount, err := getTenantUserCount(tx, user.TenantID)
+		expired, tenantUserCount, err := getTenantUserCount(user.TenantID)
 		if err != nil {
 			return err
 		}
