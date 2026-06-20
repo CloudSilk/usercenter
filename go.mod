@@ -18,7 +18,6 @@ require (
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.3.0
-	github.com/jinzhu/copier v0.3.5
 	github.com/nacos-group/nacos-sdk-go v1.1.4
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/silenceper/wechat/v2 v2.1.4
@@ -106,6 +105,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/jinzhu/copier v0.3.5 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect

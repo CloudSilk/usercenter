@@ -71,7 +71,6 @@ func AuthenticatePrincipal(t, method, url string, checkAuth bool) (principal.Pri
 	return p, model.Unauthorized, errors.New("Unauthorized")
 }
 
-// principalFromToken 从 token + CurrentUser 直接构造 Principal(内联,不调 FromCurrentUser)。
 // 阶段3:替代了 FromCurrentUser 适配器,Gate 1 归零。
 
 // Authenticate 旧接口(向后兼容 provider/RPC 调用)。

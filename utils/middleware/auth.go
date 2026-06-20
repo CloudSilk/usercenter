@@ -98,7 +98,6 @@ func GetAccessToken(c *gin.Context) string {
 	return accessToken
 }
 
-// buildPrincipal 从 token 构造 Principal(阶段3:内联,不调 FromCurrentUser)
 
 func AuthRequired(c *gin.Context) {
 	if strings.HasPrefix(c.Request.URL.Path, "/swagger/") || strings.HasPrefix(c.Request.URL.Path, "/web/") {

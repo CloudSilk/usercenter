@@ -213,7 +213,7 @@ func EncodeTokenFromPrincipal(p principal.Principal) (string, error) {
 	claims["iat"] = time.Now().Unix()
 	claims["id"] = p.Subject()
 	claims["tenantID"] = p.TenantID()
-	claims["type"] = float64(p.Kind())
+	claims["type"] = float64(p.Kind() - 1)
 	roleIDs, _ := json.Marshal(p.Roles())
 	claims["roleIDs"] = string(roleIDs)
 
