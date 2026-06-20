@@ -8,10 +8,14 @@ import (
 
 	"dubbo.apache.org/dubbo-go/v3/config"
 	"github.com/CloudSilk/pkg/model"
+	"github.com/CloudSilk/usercenter/internal/auth/token"
+	"github.com/CloudSilk/usercenter/internal/principal"
 	ucmodel "github.com/CloudSilk/usercenter/model"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/gin-gonic/gin"
 )
+
+// --- 旧接口(向后兼容,阶段3 删除) ---
 
 func GetUser(c *gin.Context) (bool, *apipb.CurrentUser) {
 	obj, exists := c.Get("User")
@@ -26,6 +30,9 @@ func GetUser(c *gin.Context) (bool, *apipb.CurrentUser) {
 }
 
 func GetUserID(c *gin.Context) string {
+	if p, ok := GetPrincipal(c); ok && p != nil {
+		return p.Subject()
+	}
 	exists, user := GetUser(c)
 	if !exists || user == nil {
 		return ""
@@ -42,6 +49,9 @@ func GetUserName(c *gin.Context) string {
 }
 
 func GetTenantID(c *gin.Context) string {
+	if p, ok := GetPrincipal(c); ok && p != nil {
+		return p.TenantID()
+	}
 	exists, user := GetUser(c)
 	if !exists || user == nil {
 		return ""
@@ -49,13 +59,57 @@ func GetTenantID(c *gin.Context) string {
 	return user.TenantID
 }
 
-func GetAccessToken(c *gin.Context) string {
-	token := c.GetHeader("Authorization")
-	if token == "" {
-		token = c.GetHeader("authorization")
+// --- 新接口(REDESIGN §4 阶段2:Principal) ---
+
+// GetPrincipal 从 gin.Context 获取鉴权主体 Principal
+func GetPrincipal(c *gin.Context) (principal.Principal, bool) {
+	obj, exists := c.Get("Principal")
+	if !exists {
+		return nil, false
 	}
-	token = strings.Replace(token, "Bearer ", "", 1)
-	return token
+	p, ok := obj.(principal.Principal)
+	if !ok {
+		return nil, false
+	}
+	return p, true
+}
+
+// GetPrincipalKind 返回主体类型(Human/Agent/Service),未登录返回 Unknown
+func GetPrincipalKind(c *gin.Context) principal.Kind {
+	if p, ok := GetPrincipal(c); ok && p != nil {
+		return p.Kind()
+	}
+	return principal.KindUnknown
+}
+
+// IsAgentRequest 判断当前请求是否来自 AI Agent
+func IsAgentRequest(c *gin.Context) bool {
+	return GetPrincipalKind(c) == principal.KindAgent
+}
+
+func GetAccessToken(c *gin.Context) string {
+	accessToken := c.GetHeader("Authorization")
+	if accessToken == "" {
+		accessToken = c.GetHeader("authorization")
+	}
+	accessToken = strings.Replace(accessToken, "Bearer ", "", 1)
+	return accessToken
+}
+
+// buildPrincipal 从 token 构造 Principal(阶段2 核心:Agent 与人类分流)
+func buildPrincipal(accessToken string, currentUser *apipb.CurrentUser) principal.Principal {
+	if currentUser == nil {
+		return nil
+	}
+	if token.IsAgentToken(currentUser) {
+		// Agent token:解码 Agent 身份
+		ac, err := token.DecodeAgentPrincipal(accessToken)
+		if err == nil && ac != nil {
+			return principal.NewAgent(ac.AgentID, ac.OwnerUserID, ac.TenantID, ac.RoleIDs)
+		}
+	}
+	// 人类 token(默认路径)
+	return principal.FromCurrentUser(currentUser)
 }
 
 func AuthRequired(c *gin.Context) {
@@ -66,7 +120,6 @@ func AuthRequired(c *gin.Context) {
 	currentUser, code, err := ucmodel.Authenticate(t, c.Request.Method, c.Request.URL.Path, true)
 
 	if code != model.Success {
-		// 鉴权失败时触发安全告警（基于 IP 的接口扫描/越权探测检测）
 		if code == model.Unauthorized {
 			ucmodel.AlertAuthFailure(c.ClientIP(), c.Request.URL.Path)
 		}
@@ -81,6 +134,11 @@ func AuthRequired(c *gin.Context) {
 		return
 	}
 
+	// 阶段2:同时注入 Principal(新)和 CurrentUser(旧,向后兼容)
+	p := buildPrincipal(t, currentUser)
+	if p != nil {
+		c.Set("Principal", p)
+	}
 	c.Set("User", currentUser)
 }
 
@@ -125,5 +183,9 @@ func AuthRequiredWithRPC(c *gin.Context) {
 		return
 	}
 
+	p := buildPrincipal(t, currentUser)
+	if p != nil {
+		c.Set("Principal", p)
+	}
 	c.Set("User", currentUser)
 }
