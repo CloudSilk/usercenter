@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/@openapitools/openapi-generator-cli/config.schema.json",
+  "generator-cli": {
+    "version": "7.12.0",
+    "generators": {
+      "go": {
+        "generatorName": "go",
+        "output": "go",
+        "inputSpec": "../docs/swagger.json",
+        "packageName": "usercenterclient"
+      },
+      "python": {
+        "generatorName": "python",
+        "output": "python",
+        "inputSpec": "../docs/swagger.json",
+        "packageName": "usercenter_client"
+      },
+      "typescript": {
+        "generatorName": "typescript-fetch",
+        "output": "typescript",
+        "inputSpec": "../docs/swagger.json",
+        "npmName": "@usercenter/sdk"
+      }
+    }
+  }
+}
