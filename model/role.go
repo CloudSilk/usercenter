@@ -2,6 +2,7 @@ package model
 
 import (
 	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/store"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -35,7 +36,7 @@ func GetAuthorizedMenuTree(tenantID string) ([]*permission.Menu, int64, error) {
 			return nil, 0, err
 		}
 		authMenus := t.GetAuthorizedMenu()
-		result, err := permission.GetAuthorizedMenu(dbClient.DB(), authMenus, false)
+		result, err := permission.GetAuthorizedMenu(store.DB(), authMenus, false)
 		return result, 0, err
 	}
 	menus, err := permission.GetBaseMenuTree()

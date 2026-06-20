@@ -1,6 +1,7 @@
 package model
 
 import (
+	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/audit"
 )
 
@@ -24,7 +25,7 @@ func RecordAudit(userID, userName, action, targetID, ip, detail string) {
 	if dbClient == nil {
 		return
 	}
-	audit.RecordAudit(dbClient.DB(), userID, userName, action, targetID, ip, detail)
+	audit.RecordAudit(store.DB(), userID, userName, action, targetID, ip, detail)
 }
 
 // RecordAuditWithKind 记录带主体类型的审计日志(阶段2:Principal-aware 审计)
@@ -32,5 +33,5 @@ func RecordAuditWithKind(userID, userName string, principalKind int32, action, t
 	if dbClient == nil {
 		return
 	}
-	audit.RecordAuditWithKind(dbClient.DB(), userID, userName, principalKind, action, targetID, ip, detail)
+	audit.RecordAuditWithKind(store.DB(), userID, userName, principalKind, action, targetID, ip, detail)
 }
