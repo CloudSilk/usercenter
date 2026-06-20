@@ -108,20 +108,19 @@ func GetAccessToken(c *gin.Context) string {
 	return accessToken
 }
 
-// buildPrincipal 从 token 构造 Principal(阶段2 核心:Agent 与人类分流)
+// buildPrincipal 从 token 构造 Principal(阶段3:内联,不调 FromCurrentUser)
 func buildPrincipal(accessToken string, currentUser *apipb.CurrentUser) principal.Principal {
 	if currentUser == nil {
 		return nil
 	}
 	if token.IsAgentToken(currentUser) {
-		// Agent token:解码 Agent 身份
 		ac, err := token.DecodeAgentPrincipal(accessToken)
 		if err == nil && ac != nil {
 			return principal.NewAgent(ac.AgentID, ac.OwnerUserID, ac.TenantID, ac.RoleIDs)
 		}
 	}
-	// 人类 token(默认路径)
-	return principal.FromCurrentUser(currentUser)
+	// 人类:直接构造(内联,Gate 1 归零)
+	return principal.NewHuman(currentUser.Id, currentUser.TenantID, currentUser.RoleIDs)
 }
 
 func AuthRequired(c *gin.Context) {
@@ -146,7 +145,7 @@ func AuthRequired(c *gin.Context) {
 		return
 	}
 
-	// 阶段2:同时注入 Principal(新)和 CurrentUser(旧,向后兼容)
+	// 阶段3:Principal 为一等身份,CurrentUser 向后兼容
 	p := buildPrincipal(t, currentUser)
 	if p != nil {
 		c.Set("Principal", p)

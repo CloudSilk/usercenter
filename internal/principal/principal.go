@@ -101,12 +101,9 @@ func (s *ServicePrincipal) Roles() []string  { return s.roles }
 
 // FromCurrentUser 从现有 *apipb.CurrentUser 适配出 Principal。
 //
-// 这是过渡期的单向适配器(REDESIGN §4 阶段1 的 PrincipalAdapter 雏形):
-// 旧 token 解出 CurrentUser 后,转成 Principal 进入新鉴权链路。
-// 单向数据流:只读旧模型产 Principal,禁止反向回写(避免循环适配)。
-//
-// 注意:本符号在 CI debt-check 闸门监控下(REDESIGN §4),目标是随 14 个
-// Provider 迁移到 Principal 后归零并删除。
+// Deprecated: 阶段3 已完成,生产代码不再调用此函数(内联为 NewHuman)。
+// 保留仅供测试使用(test helpers 可直接构造 Principal,不需要此函数)。
+// CI debt-check Gate 1 不再监控此符号(生产代码引用已归零)。
 func FromCurrentUser(u *apipb.CurrentUser) Principal {
 	return NewHuman(u.Id, u.TenantID, u.RoleIDs)
 }

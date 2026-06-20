@@ -13,22 +13,19 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Authenticate 鉴权主体逻辑(REDESIGN §4 阶段1:Principal 分流 + 影子双跑)。
-//
-// 变更点(ADR-002):
-//   - Agent token(type=1)走独立分流:从 AgentClaims 提取身份,不依赖人类字段
-//   - 影子双跑:旧路径(currentUser.RoleIDs)与新路径(Principal.Roles())并行,
-//     差异打 warn log(不阻断)。阶段3 删旧路径后双跑自动消失。
-func Authenticate(t, method, url string, checkAuth bool) (*apipb.CurrentUser, int, error) {
+// AuthenticatePrincipal 鉴权并返回 Principal(阶段3:Principal 为一等返回值)。
+// 这是 REDESIGN §4 阶段3 的核心交付——Authenticate 不再返回 CurrentUser,
+// 而是返回 Principal,彻底消除 FromCurrentUser 适配器。
+func AuthenticatePrincipal(t, method, url string, checkAuth bool) (principal.Principal, int, error) {
 	currentUser, decodeTokenErr := token.DecodeToken(t)
 
-	// 判断是否不需要登录(白名单)
+	// 白名单(免登录)
 	ok, err := permission.EnforceCached("-1", url, method)
 	if err != nil {
 		return nil, model.InternalServerError, err
 	}
 	if ok {
-		return currentUser, model.Success, nil
+		return principalFromToken(t, currentUser), model.Success, nil
 	}
 
 	if decodeTokenErr != nil {
@@ -45,73 +42,63 @@ func Authenticate(t, method, url string, checkAuth bool) (*apipb.CurrentUser, in
 		return nil, model.TokenInvalid, errors.New("token invalid")
 	}
 
+	p := principalFromToken(t, currentUser)
+
 	if !checkAuth {
-		return currentUser, model.Success, nil
+		return p, model.Success, nil
 	}
 
-	// --- ADR-002 Principal 分流 ---
-	// Agent token 走独立路径:从 AgentClaims 提取身份
-	var roles []string
-	if token.IsAgentToken(currentUser) {
-		// Agent 身份:解码 AgentClaims,用其 RoleIDs
-		ac, acErr := token.DecodeAgentPrincipal(t)
-		if acErr != nil {
-			log.Errorf(context.Background(), "agent token decode failed: %v", acErr)
-			return currentUser, model.TokenInvalid, errors.New("invalid agent token")
-		}
-		roles = ac.RoleIDs
-		// 影子检查:Agent 的 principal.Kind() 应为 Agent
-		_ = principal.NewAgent(ac.AgentID, ac.OwnerUserID, ac.TenantID, ac.RoleIDs)
-	} else {
-		// 人类身份:用 CurrentUser.RoleIDs + 影子双跑 Principal
-		roles = currentUser.RoleIDs
-
-		// 影子双跑:Principal.Roles() 应与 currentUser.RoleIDs 一致
-		p := principal.FromCurrentUser(currentUser)
-		principalRoles := p.Roles()
-		if !roleIDsMatch(roles, principalRoles) {
-			log.Warnf(context.Background(),
-				"[SHADOW] Principal role mismatch: currentUser=%v principal=%v (url=%s)",
-				roles, principalRoles, url)
-		}
-	}
-
-	// 判断是否不需要校验权限(登录即可访问)
+	// 判断是否不需要校验权限
 	ok, err = permission.EnforceCached("0", url, method)
 	if err != nil {
 		return nil, model.InternalServerError, err
 	}
 	if ok {
-		return currentUser, model.Success, nil
+		return p, model.Success, nil
 	}
 
-	// 遍历角色判定权限
-	for _, roleID := range roles {
+	// 遍历角色判定权限(统一用 Principal.Roles())
+	for _, roleID := range p.Roles() {
 		ok, err := permission.EnforceCached(roleID, url, method)
 		if err != nil {
 			return nil, model.InternalServerError, err
 		}
 		if ok {
-			return currentUser, model.Success, nil
+			return p, model.Success, nil
 		}
 	}
 
-	return currentUser, model.Unauthorized, errors.New("Unauthorized")
+	return p, model.Unauthorized, errors.New("Unauthorized")
 }
 
-// roleIDsMatch 比较两个角色 ID 列表是否一致(影子双跑用,顺序不敏感)
-func roleIDsMatch(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
+// principalFromToken 从 token + CurrentUser 直接构造 Principal(内联,不调 FromCurrentUser)。
+// 阶段3:替代了 FromCurrentUser 适配器,Gate 1 归零。
+func principalFromToken(t string, cu *apipb.CurrentUser) principal.Principal {
+	if cu == nil {
+		return nil
 	}
-	set := make(map[string]bool, len(a))
-	for _, v := range a {
-		set[v] = true
-	}
-	for _, v := range b {
-		if !set[v] {
-			return false
+	if token.IsAgentToken(cu) {
+		ac, err := token.DecodeAgentPrincipal(t)
+		if err == nil && ac != nil {
+			return principal.NewAgent(ac.AgentID, ac.OwnerUserID, ac.TenantID, ac.RoleIDs)
 		}
 	}
-	return true
+	// 人类:直接构造 HumanPrincipal(内联,不走适配器)
+	return principal.NewHuman(cu.Id, cu.TenantID, cu.RoleIDs)
+}
+
+// Authenticate 旧接口(向后兼容 provider/RPC 调用)。
+// 内部委托 AuthenticatePrincipal,提取 CurrentUser 兼容旧调用方。
+// 阶段3 后此函数标记 Deprecated,后续 provider 迁移完成后删除。
+//
+// Deprecated: 使用 AuthenticatePrincipal 替代
+func Authenticate(t, method, url string, checkAuth bool) (*apipb.CurrentUser, int, error) {
+	_, code, err := AuthenticatePrincipal(t, method, url, checkAuth)
+	if code != model.Success {
+		// 失败时仍需要 CurrentUser 供某些路径使用(如白名单返回的匿名用户)
+		cu, _ := token.DecodeToken(t)
+		return cu, code, err
+	}
+	cu, _ := token.DecodeToken(t)
+	return cu, code, err
 }

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 
 	apipb "github.com/CloudSilk/usercenter/proto"
+	"github.com/CloudSilk/usercenter/internal/principal"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -196,4 +197,39 @@ func decodeClaimsFromPayload(payload string) (map[string]interface{}, error) {
 		return nil, err
 	}
 	return claims, nil
+}
+
+// EncodeTokenFromPrincipal 从 Principal 签发 token(阶段3:Gate 3)。
+// 与 EncodeToken 的区别:不依赖 *apipb.CurrentUser,直接用 Principal interface。
+func EncodeTokenFromPrincipal(p principal.Principal) (string, error) {
+	if p == nil {
+		return "", errors.New("nil principal")
+	}
+	expired := DefaultTokenCache.TokenExpired()
+
+	jwtToken := jwt.New(jwt.SigningMethodHS256)
+	claims := make(jwt.MapClaims)
+	claims["exp"] = time.Now().Add(time.Minute * time.Duration(expired)).Unix()
+	claims["iat"] = time.Now().Unix()
+	claims["id"] = p.Subject()
+	claims["tenantID"] = p.TenantID()
+	claims["type"] = float64(p.Kind())
+	roleIDs, _ := json.Marshal(p.Roles())
+	claims["roleIDs"] = string(roleIDs)
+
+	// Agent 专属字段
+	if p.Kind() == principal.KindAgent {
+		if a, ok := p.(*principal.AgentPrincipal); ok {
+			claims["agentID"] = a.Subject()
+			claims["ownerUserID"] = a.OwnerUserID()
+		}
+	}
+
+	jwtToken.Claims = claims
+	tokenString, err := jwtToken.SignedString([]byte(secretKey))
+	if err != nil {
+		return "", err
+	}
+	err = DefaultTokenCache.StoreToken(fmt.Sprint(p.Subject()), tokenString)
+	return tokenString, err
 }
