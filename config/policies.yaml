@@ -1,0 +1,74 @@
+# policies.yaml — Config as Code(REDESIGN #22)
+# 角色权限/策略声明式定义,启动时加载 + diff + 迁移
+# 用法:userctl apply policies.yaml,或启动时自动加载
+
+version: "1"
+
+roles:
+  - id: super_admin
+    name: 超级管理员
+    can_del: false
+    is_must: true
+    menus:
+      - menu_name: dashboard
+        funcs: ["view"]
+      - menu_name: system
+        funcs: ["view", "manage"]
+
+  - id: tenant_admin
+    name: 租户管理员
+    can_del: false
+    menus:
+      - menu_name: dashboard
+        funcs: ["view"]
+      - menu_name: user
+        funcs: ["view", "manage"]
+      - menu_name: role
+        funcs: ["view", "manage"]
+
+  - id: normal_user
+    name: 普通用户
+    can_del: false
+    menus:
+      - menu_name: dashboard
+        funcs: ["view"]
+      - menu_name: profile
+        funcs: ["view", "manage"]
+
+# ABAC 策略(REDESIGN #7)
+abac_policies:
+  - resource: user
+    action: read
+    role_id: tenant_admin
+    data_scope: 1  # DataScopeTenant
+  - resource: user
+    action: read
+    role_id: normal_user
+    data_scope: 3  # DataScopeSelf
+  - resource: user
+    action: delete
+    role_id: tenant_admin
+    data_scope: 1
+    condition: ""
+
+# MFA 要求(REDESIGN #11)
+mfa_requirements:
+  - action: delete_user
+    required_acr: "acr:level2"
+  - action: reset_password
+    required_acr: "acr:level2"
+  - action: export_data
+    required_acr: "acr:level3"
+  - action: delete_tenant
+    required_acr: "acr:level3"
+
+# 登录锁定策略
+login_lock:
+  max_err_count: 5
+  lock_minutes: 15
+
+# IP 限流
+rate_limit:
+  global_per_minute: 100
+  login_per_minute: 10
+  auth_fail_per_minute: 10
