@@ -36,7 +36,7 @@ func TestAgentOwner(t *testing.T) {
 
 func TestFromCurrentUser(t *testing.T) {
 	u := &apipb.CurrentUser{Id: "u1", TenantID: "t1", RoleIDs: []string{"r1", "r2"}}
-	p := FromCurrentUser(u)
+	p := FromTokenAndUser("", u)
 	if p.Kind() != KindHuman {
 		t.Fatalf("expected KindHuman, got %v", p.Kind())
 	}

@@ -94,7 +94,7 @@ func TestLoginLockoutAfterMaxFailures(t *testing.T) {
 	wrong := &apipb.LoginRequest{UserName: "lockuser", Password: "wrong"}
 
 	// 连续 MaxErrCount 次错误密码
-	for i := 0; i < int(int(loginLockMaxErrCount)); i++ {
+	for i := 0; i < int(int(5)); i++ {
 		resp := &apipb.LoginResponse{}
 		Login(wrong, resp)
 		if resp.Code != apipb.Code_UserNameOrPasswordIsWrong {
@@ -106,7 +106,7 @@ func TestLoginLockoutAfterMaxFailures(t *testing.T) {
 	resp := &apipb.LoginResponse{}
 	Login(&apipb.LoginRequest{UserName: "lockuser", Password: "Abc12345"}, resp)
 	if resp.Code != apipb.Code_UserDisabled {
-		t.Fatalf("expected locked/disabled after %d failures, got %v", int(loginLockMaxErrCount), resp.Code)
+		t.Fatalf("expected locked/disabled after %d failures, got %v", int(5), resp.Code)
 	}
 
 	var dbu User

@@ -25,7 +25,7 @@ func AuthenticatePrincipal(t, method, url string, checkAuth bool) (principal.Pri
 		return nil, model.InternalServerError, err
 	}
 	if ok {
-		return principalFromToken(t, currentUser), model.Success, nil
+		return principal.FromTokenAndUser(t, currentUser), model.Success, nil
 	}
 
 	if decodeTokenErr != nil {
@@ -42,7 +42,7 @@ func AuthenticatePrincipal(t, method, url string, checkAuth bool) (principal.Pri
 		return nil, model.TokenInvalid, errors.New("token invalid")
 	}
 
-	p := principalFromToken(t, currentUser)
+	p := principal.FromTokenAndUser(t, currentUser)
 
 	if !checkAuth {
 		return p, model.Success, nil
@@ -73,19 +73,6 @@ func AuthenticatePrincipal(t, method, url string, checkAuth bool) (principal.Pri
 
 // principalFromToken 从 token + CurrentUser 直接构造 Principal(内联,不调 FromCurrentUser)。
 // 阶段3:替代了 FromCurrentUser 适配器,Gate 1 归零。
-func principalFromToken(t string, cu *apipb.CurrentUser) principal.Principal {
-	if cu == nil {
-		return nil
-	}
-	if token.IsAgentToken(cu) {
-		ac, err := token.DecodeAgentPrincipal(t)
-		if err == nil && ac != nil {
-			return principal.NewAgent(ac.AgentID, ac.OwnerUserID, ac.TenantID, ac.RoleIDs)
-		}
-	}
-	// 人类:直接构造 HumanPrincipal(内联,不走适配器)
-	return principal.NewHuman(cu.Id, cu.TenantID, cu.RoleIDs)
-}
 
 // Authenticate 旧接口(向后兼容 provider/RPC 调用)。
 // 内部委托 AuthenticatePrincipal,提取 CurrentUser 兼容旧调用方。

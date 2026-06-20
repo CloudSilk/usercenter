@@ -47,4 +47,3 @@ func AutoMigrate() error {
 		&AuditLog{},
 	)
 }
-var loginLockMaxErrCount int32 = 5

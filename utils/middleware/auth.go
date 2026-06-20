@@ -8,7 +8,6 @@ import (
 
 	"dubbo.apache.org/dubbo-go/v3/config"
 	"github.com/CloudSilk/pkg/model"
-	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/principal"
 	ucmodel "github.com/CloudSilk/usercenter/model"
 	apipb "github.com/CloudSilk/usercenter/proto"
@@ -41,18 +40,9 @@ func GetUserID(c *gin.Context) string {
 }
 
 func GetUserName(c *gin.Context) string {
-	// 阶段2:Agent 主体返回 agentID 作为"用户名"(Principal 优先)
 	if p, ok := GetPrincipal(c); ok && p != nil {
-		if p.Kind() == principal.KindAgent {
-			if a, ok := p.(*principal.AgentPrincipal); ok {
-				return "agent:" + a.Subject()
-			}
-		}
-		if p.Kind() == principal.KindService {
-			return "service:" + p.Subject()
-		}
+		return p.DisplayName()
 	}
-	// 人类:走旧路径
 	exists, user := GetUser(c)
 	if !exists || user == nil {
 		return ""
@@ -109,19 +99,6 @@ func GetAccessToken(c *gin.Context) string {
 }
 
 // buildPrincipal 从 token 构造 Principal(阶段3:内联,不调 FromCurrentUser)
-func buildPrincipal(accessToken string, currentUser *apipb.CurrentUser) principal.Principal {
-	if currentUser == nil {
-		return nil
-	}
-	if token.IsAgentToken(currentUser) {
-		ac, err := token.DecodeAgentPrincipal(accessToken)
-		if err == nil && ac != nil {
-			return principal.NewAgent(ac.AgentID, ac.OwnerUserID, ac.TenantID, ac.RoleIDs)
-		}
-	}
-	// 人类:直接构造(内联,Gate 1 归零)
-	return principal.NewHuman(currentUser.Id, currentUser.TenantID, currentUser.RoleIDs)
-}
 
 func AuthRequired(c *gin.Context) {
 	if strings.HasPrefix(c.Request.URL.Path, "/swagger/") || strings.HasPrefix(c.Request.URL.Path, "/web/") {
@@ -146,7 +123,7 @@ func AuthRequired(c *gin.Context) {
 	}
 
 	// 阶段3:Principal 为一等身份,CurrentUser 向后兼容
-	p := buildPrincipal(t, currentUser)
+	p := principal.FromTokenAndUser(t, currentUser)
 	if p != nil {
 		c.Set("Principal", p)
 	}
@@ -194,7 +171,7 @@ func AuthRequiredWithRPC(c *gin.Context) {
 		return
 	}
 
-	p := buildPrincipal(t, currentUser)
+	p := principal.FromTokenAndUser(t, currentUser)
 	if p != nil {
 		c.Set("Principal", p)
 	}

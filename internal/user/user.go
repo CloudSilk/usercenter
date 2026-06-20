@@ -334,7 +334,6 @@ func recordLoginFailure(userID string, currentErrNumber int32) {
 	}
 	if currentErrNumber+1 >= loginLockMaxErrCount {
 		updates["locked_expired"] = time.Now().Unix() + int64(loginLockLockMinutes*60)
-		updates["err_number"] = 0
 	}
 	if err := store.DB().Model(&User{}).Where("id = ?", userID).UpdateColumns(updates).Error; err != nil {
 		log.Error(context.Background(), err)

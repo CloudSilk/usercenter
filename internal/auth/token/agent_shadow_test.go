@@ -17,7 +17,7 @@ func TestPrincipalShadowConsistency(t *testing.T) {
 		RoleIDs:  []string{"role-a", "role-b", "role-c"},
 	}
 
-	p := principal.FromCurrentUser(cu)
+	p := principal.FromTokenAndUser("", cu)
 	if p.Kind() != principal.KindHuman {
 		t.Fatalf("expected KindHuman, got %v", p.Kind())
 	}
