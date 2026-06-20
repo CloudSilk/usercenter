@@ -25,12 +25,12 @@ type SystemConfigInfo struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id        string `protobuf:"bytes,1,opt,name=id,proto3" json:"id"`
-	Key       string `protobuf:"bytes,2,opt,name=key,proto3" json:"key"`
-	Value     string `protobuf:"bytes,3,opt,name=value,proto3" json:"value"`
-	ProjectID string `protobuf:"bytes,4,opt,name=projectID,proto3" json:"projectID"`
-	TenantID  string `protobuf:"bytes,5,opt,name=tenantID,proto3" json:"tenantID"`
-	IsMust    bool   `protobuf:"varint,6,opt,name=isMust,proto3" json:"isMust"`
+	Id        string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Key       string `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	Value     string `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	ProjectID string `protobuf:"bytes,4,opt,name=projectID,proto3" json:"projectID,omitempty"`
+	TenantID  string `protobuf:"bytes,5,opt,name=tenantID,proto3" json:"tenantID,omitempty"`
+	IsMust    bool   `protobuf:"varint,6,opt,name=isMust,proto3" json:"isMust,omitempty"`
 }
 
 func (x *SystemConfigInfo) Reset() {
@@ -112,12 +112,18 @@ type QuerySystemConfigRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	PageIndex  int64  `protobuf:"varint,1,opt,name=pageIndex,proto3" json:"pageIndex" uri:"pageIndex" form:"pageIndex"`
-	PageSize   int64  `protobuf:"varint,2,opt,name=pageSize,proto3" json:"pageSize" uri:"pageSize" form:"pageSize"`
-	OrderField string `protobuf:"bytes,3,opt,name=orderField,proto3" json:"orderField" uri:"orderField" form:"orderField"`
-	Desc       bool   `protobuf:"varint,4,opt,name=desc,proto3" json:"desc" uri:"desc" form:"desc"`
-	IsMust     bool   `protobuf:"varint,5,opt,name=isMust,proto3" json:"isMust" uri:"isMust" form:"isMust"`
-	SortConfig string `protobuf:"bytes,6,opt,name=sortConfig,proto3" json:"sortConfig" uri:"sortConfig" form:"sortConfig"`
+	// @inject_tag: uri:"pageIndex" form:"pageIndex"
+	PageIndex int64 `protobuf:"varint,1,opt,name=pageIndex,proto3" json:"pageIndex,omitempty"`
+	// @inject_tag: uri:"pageSize" form:"pageSize"
+	PageSize int64 `protobuf:"varint,2,opt,name=pageSize,proto3" json:"pageSize,omitempty"`
+	// @inject_tag: uri:"orderField" form:"orderField"
+	OrderField string `protobuf:"bytes,3,opt,name=orderField,proto3" json:"orderField,omitempty"`
+	// @inject_tag: uri:"desc" form:"desc"
+	Desc bool `protobuf:"varint,4,opt,name=desc,proto3" json:"desc,omitempty"`
+	// @inject_tag: uri:"isMust" form:"isMust"
+	IsMust bool `protobuf:"varint,5,opt,name=isMust,proto3" json:"isMust,omitempty"`
+	// @inject_tag: uri:"sortConfig" form:"sortConfig"
+	SortConfig string `protobuf:"bytes,6,opt,name=sortConfig,proto3" json:"sortConfig,omitempty"`
 }
 
 func (x *QuerySystemConfigRequest) Reset() {
@@ -199,12 +205,12 @@ type QuerySystemConfigResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Code    Code                `protobuf:"varint,1,opt,name=code,proto3,enum=usercenter.Code" json:"code"`
-	Message string              `protobuf:"bytes,2,opt,name=message,proto3" json:"message"`
-	Data    []*SystemConfigInfo `protobuf:"bytes,3,rep,name=data,proto3" json:"data"`
-	Pages   int64               `protobuf:"varint,4,opt,name=pages,proto3" json:"pages"`
-	Records int64               `protobuf:"varint,5,opt,name=records,proto3" json:"records"`
-	Total   int64               `protobuf:"varint,6,opt,name=total,proto3" json:"total"`
+	Code    Code                `protobuf:"varint,1,opt,name=code,proto3,enum=usercenter.Code" json:"code,omitempty"`
+	Message string              `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Data    []*SystemConfigInfo `protobuf:"bytes,3,rep,name=data,proto3" json:"data,omitempty"`
+	Pages   int64               `protobuf:"varint,4,opt,name=pages,proto3" json:"pages,omitempty"`
+	Records int64               `protobuf:"varint,5,opt,name=records,proto3" json:"records,omitempty"`
+	Total   int64               `protobuf:"varint,6,opt,name=total,proto3" json:"total,omitempty"`
 }
 
 func (x *QuerySystemConfigResponse) Reset() {
@@ -286,9 +292,9 @@ type GetAllSystemConfigResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Code    Code                `protobuf:"varint,1,opt,name=code,proto3,enum=usercenter.Code" json:"code"`
-	Message string              `protobuf:"bytes,2,opt,name=message,proto3" json:"message"`
-	Data    []*SystemConfigInfo `protobuf:"bytes,3,rep,name=data,proto3" json:"data"`
+	Code    Code                `protobuf:"varint,1,opt,name=code,proto3,enum=usercenter.Code" json:"code,omitempty"`
+	Message string              `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Data    []*SystemConfigInfo `protobuf:"bytes,3,rep,name=data,proto3" json:"data,omitempty"`
 }
 
 func (x *GetAllSystemConfigResponse) Reset() {
@@ -349,9 +355,9 @@ type GetSystemConfigDetailResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Code    Code              `protobuf:"varint,1,opt,name=code,proto3,enum=usercenter.Code" json:"code"`
-	Message string            `protobuf:"bytes,2,opt,name=message,proto3" json:"message"`
-	Data    *SystemConfigInfo `protobuf:"bytes,3,opt,name=data,proto3" json:"data"`
+	Code    Code              `protobuf:"varint,1,opt,name=code,proto3,enum=usercenter.Code" json:"code,omitempty"`
+	Message string            `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Data    *SystemConfigInfo `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
 }
 
 func (x *GetSystemConfigDetailResponse) Reset() {
