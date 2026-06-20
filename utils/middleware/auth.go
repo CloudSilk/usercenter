@@ -41,6 +41,18 @@ func GetUserID(c *gin.Context) string {
 }
 
 func GetUserName(c *gin.Context) string {
+	// 阶段2:Agent 主体返回 agentID 作为"用户名"(Principal 优先)
+	if p, ok := GetPrincipal(c); ok && p != nil {
+		if p.Kind() == principal.KindAgent {
+			if a, ok := p.(*principal.AgentPrincipal); ok {
+				return "agent:" + a.Subject()
+			}
+		}
+		if p.Kind() == principal.KindService {
+			return "service:" + p.Subject()
+		}
+	}
+	// 人类:走旧路径
 	exists, user := GetUser(c)
 	if !exists || user == nil {
 		return ""
