@@ -187,6 +187,18 @@ func UpdateKey(k *AIKey) error {
 	return store.DB().Omit("created_at", "api_key_enc").Save(k).Error
 }
 
+// GetKeysByProvider 列出某服务商下的 Key(可选租户隔离)。
+// tenantID 为空时返回该服务商全部 Key(管理端跨租户视图)。
+// 返回的 AIKey.APIKeyEnc 为加密密文,调用方不应下发到前端(用 KeyHint 展示)。
+func GetKeysByProvider(providerID, tenantID string) (list []*AIKey, err error) {
+	db := store.DB().Where("provider_id = ?", providerID)
+	if tenantID != "" {
+		db = db.Where("tenant_id = ?", tenantID)
+	}
+	err = db.Order("priority, created_at").Find(&list).Error
+	return
+}
+
 func DeleteKey(id string) error {
 	return store.DB().Delete(&AIKey{}, "id=?", id).Error
 }

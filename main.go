@@ -25,6 +25,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/provider"
 	"github.com/CloudSilk/usercenter/utils/middleware"
+	"github.com/CloudSilk/usercenter/web"
 	"github.com/gin-gonic/gin"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"github.com/swaggo/gin-swagger/swaggerFiles"
@@ -107,6 +108,12 @@ func Start(port int) {
 	r.Use(middleware.AuthRequired)
 	r.Use(utils.Cors())
 	userhttp.RegisterAuthRouter(r)
+	userhttp.RegisterAdminRouter(r)
+
+	// 管理后台单页应用（Vue 3 + Element Plus CDN）。
+	// /web/ 前缀已在 middleware.AuthRequired 中放行，无需鉴权即可加载页面；
+	// 页面内部通过 /api/core/auth/user/login 获取 Token 后访问受保护接口。
+	registerAdminWeb(r)
 
 	// 健康检查端点（供 K8s liveness/readiness probe 使用）
 	r.GET("/health", func(c *gin.Context) {
@@ -142,4 +149,20 @@ func Start(port int) {
 		fmt.Printf("server forced to shutdown: %v\n", err)
 	}
 	fmt.Println("server exited")
+}
+
+// registerAdminWeb 挂载内嵌的管理后台单页应用。
+// 同时响应 /web/admin、/web/admin.html 与 /web/admin/，统一返回 admin.html。
+// /web/ 前缀已被 AuthRequired 放行，因此此处不触发鉴权。
+func registerAdminWeb(r *gin.Engine) {
+	r.GET("/web/admin", serveAdminHTML)
+	r.GET("/web/admin.html", serveAdminHTML)
+	r.GET("/web/admin/", serveAdminHTML)
+}
+
+// serveAdminHTML 返回内嵌的 admin.html，并设置正确的 Content-Type 与禁止缓存的响应头。
+func serveAdminHTML(c *gin.Context) {
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.Header("Cache-Control", "no-cache")
+	c.Data(http.StatusOK, "text/html; charset=utf-8", web.AdminHTML)
 }
