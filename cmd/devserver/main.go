@@ -29,6 +29,7 @@ import (
 	"github.com/CloudSilk/pkg/db/mysql"
 	"github.com/CloudSilk/pkg/utils"
 	"github.com/CloudSilk/usercenter/internal/apikey"
+	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/principal"
 	"github.com/CloudSilk/usercenter/internal/scim"
@@ -67,6 +68,8 @@ func main() {
 	token.InitTokenCache(devTokenKey, "", "", "", 1440)
 	// AI Key 加密密钥（devserver 用 token key 派生，与生产同款逻辑）
 	apikey.SetEncryptionKeyFrom(devTokenKey)
+	// OIDC 密钥管理器
+	auth.InitKeyManager(devTokenKey)
 
 	// 3. 全局常量
 	constants.SetPlatformTenantID(devPlatformTenantID)
@@ -104,6 +107,7 @@ func startHTTP(port int) {
 	userhttp.RegisterAuthRouter(r)
 	userhttp.RegisterAdminRouter(r)
 	userhttp.RegisterAIGatewayRouter(r) // OpenAI 兼容 AI 网关
+	userhttp.RegisterOIDCRouter(r)      // OIDC/OAuth2 Provider
 	scim.RegisterSCIMRouter(r, devSCIMToken) // dev 挂载 SCIM，方便面板「SCIM 配置」页测试
 
 	// 内嵌管理后台单页
@@ -149,11 +153,13 @@ func serveAdminHTML(c *gin.Context) {
 //   - 不做 Casbin 鉴权——已登录即放行。
 func devAuthRequired(c *gin.Context) {
 	path := c.Request.URL.Path
-	if strings.HasPrefix(path, "/swagger/") || strings.HasPrefix(path, "/web/") || strings.HasPrefix(path, "/scim/") {
+	if strings.HasPrefix(path, "/swagger/") || strings.HasPrefix(path, "/web/") ||
+		strings.HasPrefix(path, "/scim/") || strings.HasPrefix(path, "/.well-known/") {
 		return
 	}
-	// 登录/健康检查等免登录路径
-	if path == "/api/core/auth/user/login" || path == "/health" {
+	// 登录/健康检查/OIDC 公开端点免登录（spec 要求 discovery/jwks/token/revoke 公开）
+	if path == "/api/core/auth/user/login" || path == "/health" ||
+		path == "/oauth/token" || path == "/oauth/revoke" {
 		return
 	}
 	t := middleware.GetAccessToken(c)

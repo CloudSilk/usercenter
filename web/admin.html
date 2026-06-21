@@ -92,6 +92,7 @@
             </el-sub-menu>
             <el-sub-menu index="grp-sys">
               <template #title><el-icon><Setting /></el-icon><span>系统集成</span></template>
+              <el-menu-item index="oauth"><el-icon><Connection /></el-icon><span>OAuth 应用</span></el-menu-item>
               <el-menu-item index="scim"><el-icon><Share /></el-icon><span>SCIM 配置</span></el-menu-item>
               <el-menu-item index="config"><el-icon><Tools /></el-icon><span>系统配置</span></el-menu-item>
               <el-menu-item index="tester"><el-icon><Promotion /></el-icon><span>API 测试</span></el-menu-item>
@@ -625,6 +626,59 @@
             </el-row>
           </div>
 
+          <!-- ============ OAuth 应用（OIDC Client 管理） ============ -->
+          <div v-show="activeMenu === 'oauth'">
+            <el-card class="page-card">
+              <template #header>usercenter 作为 OIDC 身份提供者（IdP）</template>
+              <el-descriptions :column="1" border>
+                <el-descriptions-item label="发现文档"><span class="mono">{{ ocBase }}/​.well-known/openid-configuration</span></el-descriptions-item>
+                <el-descriptions-item label="JWKS"><span class="mono">{{ ocBase }}/​.well-known/jwks.json</span></el-descriptions-item>
+                <el-descriptions-item label="授权端点"><span class="mono">{{ ocBase }}/oauth/authorize</span>（POST，需用户 Bearer）</el-descriptions-item>
+                <el-descriptions-item label="令牌端点"><span class="mono">{{ ocBase }}/oauth/token</span>（authorization_code / client_credentials / refresh_token）</el-descriptions-item>
+                <el-descriptions-item label="UserInfo"><span class="mono">{{ ocBase }}/oauth/userinfo</span></el-descriptions-item>
+              </el-descriptions>
+            </el-card>
+            <el-card class="page-card">
+              <div class="toolbar">
+                <span>OAuth 客户端</span><span class="grow"></span>
+                <el-button type="success" @click="openClientDialog()">新建客户端</el-button>
+                <el-button @click="loadOAuthClients">刷新</el-button>
+              </div>
+              <el-table :data="oauthClients" v-loading="ocLoading" border stripe size="small">
+                <el-table-column prop="id" label="Client ID" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="name" label="名称" min-width="120" />
+                <el-table-column prop="redirectURIs" label="回调地址" min-width="220" show-overflow-tooltip />
+                <el-table-column prop="grantTypes" label="授权类型" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="scopes" label="Scopes" min-width="120" show-overflow-tooltip />
+                <el-table-column label="状态" width="80"><template #default="{ row }"><el-tag :type="row.enable ? 'success' : 'info'" size="small">{{ row.enable ? '启用' : '禁用' }}</el-tag></template></el-table-column>
+                <el-table-column label="操作" width="200" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openClientDialog(row)">编辑</el-button>
+                    <el-button link type="warning" size="small" @click="rotateClientSecret(row)">轮转密钥</el-button>
+                    <el-button link type="danger" size="small" @click="removeOAuthClient(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+
+            <el-dialog v-model="clientDialogVisible" :title="clientForm.id ? '编辑客户端' : '新建客户端'" width="560px">
+              <el-form :model="clientForm" label-width="100px">
+                <el-form-item label="Client ID"><el-input v-model="clientForm.id" placeholder="留空自动生成" /></el-form-item>
+                <el-form-item label="名称"><el-input v-model="clientForm.name" /></el-form-item>
+                <el-form-item label="回调地址"><el-input v-model="clientForm.redirectURIs" type="textarea" :rows="2" placeholder="逗号分隔，如 https://app.com/callback" /></el-form-item>
+                <el-form-item label="授权类型"><el-input v-model="clientForm.grantTypes" placeholder="authorization_code,client_credentials,refresh_token" /></el-form-item>
+                <el-form-item label="Scopes"><el-input v-model="clientForm.scopes" placeholder="openid profile email" /></el-form-item>
+              </el-form>
+              <el-alert v-if="clientNewSecret" type="warning" :closable="false" show-icon
+                title="客户端密钥（仅显示一次，请立即保存）" :description="clientNewSecret" style="margin-bottom:8px" />
+              <template #footer>
+                <el-button @click="clientDialogVisible = false">关闭</el-button>
+                <el-button v-if="!clientForm.id" type="primary" :loading="clientSaving" @click="saveOAuthClient">创建</el-button>
+                <el-button v-else type="primary" :loading="clientSaving" @click="saveOAuthClient">保存</el-button>
+              </template>
+            </el-dialog>
+          </div>
+
           <!-- ============ SCIM 配置 ============ -->
           <div v-show="activeMenu === 'scim'">
             <el-card class="page-card">
@@ -795,6 +849,7 @@
           activeMenu.value = key;
           // 进入页面时懒加载该页数据
           if (key === 'gateway') { loadGatewayModels(); loadPrompts(); }
+          if (key === 'oauth') { loadOAuthClients(); }
         }
 
         // ---- 仪表盘统计 ----
@@ -1356,6 +1411,63 @@
           return { title: '风险评分: ' + score + ' (高)', type: 'error', desc: '拒绝访问或强制重新认证。' };
         });
 
+        // ---- OAuth 应用（OIDC Client 管理）----
+        const ocBase = computed(() => location.origin);
+        const oauthClients = ref([]);
+        const ocLoading = ref(false);
+        const clientDialogVisible = ref(false);
+        const clientSaving = ref(false);
+        const clientNewSecret = ref('');
+        const emptyClient = () => ({ id: '', name: '', redirectURIs: '', grantTypes: 'authorization_code,client_credentials,refresh_token', scopes: 'openid profile' });
+        const clientForm = reactive(emptyClient());
+        async function loadOAuthClients() {
+          ocLoading.value = true;
+          try {
+            const res = await get('/admin/api/oauth-clients');
+            if (res.code === 0) oauthClients.value = res.data || [];
+            else ElementPlus.ElMessage.error(res.message || '查询失败');
+          } finally { ocLoading.value = false; }
+        }
+        function openClientDialog(row) {
+          clientNewSecret.value = '';
+          Object.assign(clientForm, emptyClient());
+          if (row) Object.assign(clientForm, { id: row.id, name: row.name, redirectURIs: row.redirectURIs, grantTypes: row.grantTypes, scopes: row.scopes });
+          clientDialogVisible.value = true;
+        }
+        async function saveOAuthClient() {
+          if (!clientForm.name) { ElementPlus.ElMessage.warning('请填写名称'); return; }
+          clientSaving.value = true;
+          try {
+            if (clientForm.id) {
+              // 编辑：不传 secret
+              const res = await request('PUT', '/admin/api/oauth-clients/' + clientForm.id, { name: clientForm.name, redirectURIs: clientForm.redirectURIs, grantTypes: clientForm.grantTypes, scopes: clientForm.scopes });
+              if (res.code === 0) { ElementPlus.ElMessage.success('已保存'); clientDialogVisible.value = false; loadOAuthClients(); }
+              else ElementPlus.ElMessage.error(res.message || '保存失败');
+            } else {
+              // 新建：返回明文 secret 一次
+              const res = await post('/admin/api/oauth-clients', { ...clientForm });
+              if (res.code === 0) {
+                clientNewSecret.value = (res.data && res.data.secret) || '';
+                ElementPlus.ElMessage.success('已创建，请保存密钥');
+                loadOAuthClients();
+              } else ElementPlus.ElMessage.error(res.message || '创建失败');
+            }
+          } finally { clientSaving.value = false; }
+        }
+        async function rotateClientSecret(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`轮转「${row.name}」的密钥？旧密钥立即失效。`, '确认', { type: 'warning' }); } catch { return; }
+          const res = await post('/admin/api/oauth-clients/' + row.id + '/rotate-secret', {});
+          if (res.code === 0) {
+            ElementPlus.ElMessageBox.alert((res.data && res.data.secret) || '', '新密钥（仅显示一次）', { type: 'warning' });
+          } else ElementPlus.ElMessage.error(res.message || '轮转失败');
+        }
+        async function removeOAuthClient(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认删除客户端「${row.name}」？`, '删除确认', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/oauth-clients/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadOAuthClients(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
         // ---- SCIM 配置 ----
         const scimBaseURL = computed(() => location.origin);
         const scimTest = reactive({ method: 'GET', path: '/scim/v2/Users?count=5', token: '', tenant: '', body: '', response: '' });
@@ -1561,6 +1673,7 @@
           // Security
           securityLoading, alerts, loadAlerts, riskInput, riskResult,
           // SCIM
+          ocBase, oauthClients, ocLoading, clientDialogVisible, clientSaving, clientNewSecret, clientForm, loadOAuthClients, openClientDialog, saveOAuthClient, rotateClientSecret, removeOAuthClient,
           scimBaseURL, scimTest, sendScimTest,
           // System Config
           configSearch, configs, configLoading, configDialogVisible, configSaving, configForm, loadConfigs, openConfigDialog, saveConfig, removeConfig,

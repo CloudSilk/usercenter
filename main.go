@@ -23,6 +23,7 @@ import (
 	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/model"
 	"github.com/CloudSilk/usercenter/internal/apikey"
+	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/provider"
 	"github.com/CloudSilk/usercenter/utils/middleware"
@@ -78,6 +79,8 @@ func main() {
 	if !apikey.SetEncryptionKeyFrom(ucconfig.DefaultConfig.APIKeyEncKey) {
 		apikey.SetEncryptionKeyFrom(ucconfig.DefaultConfig.Token.Key)
 	}
+	// OIDC 密钥管理器（id_token 签名 + JWKS）。
+	auth.InitKeyManager(ucconfig.DefaultConfig.Token.Key)
 	constants.SetPlatformTenantID(ucconfig.DefaultConfig.PlatformTenantID)
 	constants.SetSuperAdminRoleID(ucconfig.DefaultConfig.SuperAdminRoleID)
 	constants.SetDefaultRoleID(ucconfig.DefaultConfig.DefaultRoleID)
@@ -138,7 +141,8 @@ func Start(port int) {
 	r.Use(utils.Cors())
 	userhttp.RegisterAuthRouter(r)
 	userhttp.RegisterAdminRouter(r)
-	userhttp.RegisterAIGatewayRouter(r) // OpenAI 兼容 AI 网关：/v1/chat/completions、/v1/models
+	userhttp.RegisterAIGatewayRouter(r)  // OpenAI 兼容 AI 网关：/v1/chat/completions、/v1/models
+	userhttp.RegisterOIDCRouter(r)       // OIDC/OAuth2 Provider：/.well-known/* /oauth/*
 
 	// 管理后台单页应用（Vue 3 + Element Plus CDN）。
 	// /web/ 前缀已在 middleware.AuthRequired 中放行，无需鉴权即可加载页面；

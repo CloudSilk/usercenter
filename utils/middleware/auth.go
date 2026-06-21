@@ -103,6 +103,12 @@ func AuthRequired(c *gin.Context) {
 	if strings.HasPrefix(c.Request.URL.Path, "/swagger/") || strings.HasPrefix(c.Request.URL.Path, "/web/") {
 		return
 	}
+	// OIDC/OAuth2 公开端点（spec 要求）：发现文档、JWKS、令牌、吊销须免登录。
+	// authorize/userinfo 仍需用户 Bearer，走正常鉴权。
+	path := c.Request.URL.Path
+	if strings.HasPrefix(path, "/.well-known/") || path == "/oauth/token" || path == "/oauth/revoke" || path == "/health" {
+		return
+	}
 	t := GetAccessToken(c)
 	currentUser, code, err := ucmodel.Authenticate(t, c.Request.Method, c.Request.URL.Path, true)
 
