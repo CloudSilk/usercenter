@@ -9,6 +9,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/prompt"
 	"github.com/CloudSilk/usercenter/internal/session"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/usage"
@@ -50,12 +51,13 @@ func AutoMigrate() error {
 		&Project{}, &ProjectFormComponent{},
 		&Dictionaries{}, &Language{}, &SystemConfig{}, &WebSite{}, &WechatConfig{},
 		&AuditLog{},
-		// REDESIGN 新增域表：AI Key/路由、用量计量、会话、ABAC、MFA、OAuth。
+		// REDESIGN 新增域表：AI Key/路由、用量计量、会话、ABAC、MFA、OAuth、Prompt 模板。
 		// 此前这些表不在迁移清单内，全新部署的库访问对应功能会报 Table doesn't exist。
 		&apikey.AIProvider{}, &apikey.AIKey{}, &apikey.ModelRoute{},
 		&usage.UsageRecord{}, &usage.UsageBudget{},
 		&session.Session{},
 		&permission.ABACPolicy{},
 		&auth.MFAFactor{}, &auth.RefreshToken{}, &auth.OAuthClient{}, &auth.ConsentRecord{},
+		&prompt.PromptTemplate{},
 	)
 }

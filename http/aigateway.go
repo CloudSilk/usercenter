@@ -99,6 +99,8 @@ func ChatCompletions(c *gin.Context) {
 	// 配额：调用前检查租户/Agent 预算
 	if allowed, _, _, _ := usage.CheckBudget(tenantID, principalID, peek.Model); !allowed {
 		recordGatewayUsage(nil, tenantID, principalID, principalKind, peek.Model, 0, 0, 0, time.Since(start), false, "quota_exceeded")
+		// 成本告警：超额写入审计，供运维与 Wave3 告警系统消费
+		recordAudit(c, "ai_quota_exceeded", peek.Model, "principal="+principalID)
 		c.JSON(http.StatusTooManyRequests, errResp("超出用量配额", http.StatusTooManyRequests))
 		return
 	}

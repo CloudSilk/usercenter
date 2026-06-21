@@ -80,6 +80,7 @@
             </el-sub-menu>
             <el-sub-menu index="grp-ai">
               <template #title><el-icon><Cpu /></el-icon><span>AI 能力</span></template>
+              <el-menu-item index="gateway"><el-icon><Promotion /></el-icon><span>AI 网关</span></el-menu-item>
               <el-menu-item index="aikeys"><el-icon><Key /></el-icon><span>AI Key 管理</span></el-menu-item>
               <el-menu-item index="usage"><el-icon><TrendCharts /></el-icon><span>用量统计</span></el-menu-item>
             </el-sub-menu>
@@ -300,6 +301,84 @@
                 <el-button @click="tenantDialogVisible = false">取消</el-button>
                 <el-button type="primary" :loading="tenantSaving" @click="saveTenant">保存</el-button>
               </template>
+            </el-dialog>
+          </div>
+
+          <!-- ============ AI 网关（OpenAI 兼容代理 + Prompt 模板） ============ -->
+          <div v-show="activeMenu === 'gateway'">
+            <el-card class="page-card">
+              <template #header>
+                <div class="toolbar" style="margin-bottom:0"><span>网关测试（/v1/chat/completions）</span><span class="grow"></span>
+                  <el-button size="small" @click="loadGatewayModels">刷新模型</el-button>
+                </div>
+              </template>
+              <el-form label-width="80px">
+                <el-form-item label="模型">
+                  <el-select v-model="gw.model" filterable allow-create placeholder="选择或输入模型别名" style="width:280px">
+                    <el-option v-for="m in gwModels" :key="m.id" :label="m.id" :value="m.id" />
+                  </el-select>
+                  <el-checkbox v-model="gw.stream" style="margin-left:16px">流式 (SSE)</el-checkbox>
+                </el-form-item>
+                <el-form-item label="System">
+                  <el-input v-model="gw.system" type="textarea" :rows="2" placeholder="可选 system prompt" />
+                </el-form-item>
+                <el-form-item label="消息">
+                  <el-input v-model="gw.userMsg" type="textarea" :rows="4" placeholder="用户消息" />
+                </el-form-item>
+                <el-form-item>
+                  <el-button type="primary" :loading="gw.loading" @click="sendGatewayChat">发送</el-button>
+                  <el-button @click="gw.response=''; gw.tokens=null">清空</el-button>
+                </el-form-item>
+              </el-form>
+              <div style="margin-top:8px;font-weight:600">响应</div>
+              <div class="resp-box">{{ gw.response || '(尚未发送)' }}</div>
+              <div v-if="gw.tokens" style="margin-top:8px;color:#909399;font-size:12px">用量：prompt {{ gw.tokens.prompt }} / completion {{ gw.tokens.completion }} / total {{ gw.tokens.total }}</div>
+            </el-card>
+
+            <el-card class="page-card">
+              <template #header>
+                <div class="toolbar" style="margin-bottom:0"><span>Prompt 模板</span><span class="grow"></span>
+                  <el-button size="small" @click="loadPrompts">刷新</el-button>
+                  <el-button size="small" type="success" @click="openPromptDialog()">新增模板</el-button>
+                </div>
+              </template>
+              <el-table :data="prompts" v-loading="promptLoading" border stripe size="small">
+                <el-table-column prop="name" label="名称" min-width="120" />
+                <el-table-column prop="category" label="分类" width="100" />
+                <el-table-column prop="modelAlias" label="建议模型" width="120" />
+                <el-table-column prop="variables" label="变量" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="content" label="内容预览" min-width="220" show-overflow-tooltip />
+                <el-table-column label="操作" width="180" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openPromptDialog(row)">编辑</el-button>
+                    <el-button link type="primary" size="small" @click="openRenderDialog(row)">渲染测试</el-button>
+                    <el-button link type="danger" size="small" @click="removePrompt(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+
+            <el-dialog v-model="promptDialogVisible" :title="promptForm.id ? '编辑模板' : '新增模板'" width="640px">
+              <el-form :model="promptForm" label-width="80px">
+                <el-form-item label="名称"><el-input v-model="promptForm.name" /></el-form-item>
+                <el-form-item label="分类"><el-input v-model="promptForm.category" placeholder="system / agent / rag" /></el-form-item>
+                <el-form-item label="建议模型"><el-input v-model="promptForm.modelAlias" placeholder="gpt-4o" /></el-form-item>
+                <el-form-item label="内容"><el-input v-model="promptForm.content" type="textarea" :rows="6" placeholder="含 {{变量}} 占位，例如：总结以下文本：{{text}}" /></el-form-item>
+                <el-form-item label="变量"><el-input v-model="promptForm.variables" placeholder="留空自动从内容扫描（逗号分隔）" /></el-form-item>
+                <el-form-item label="启用"><el-switch v-model="promptForm.enable" /></el-form-item>
+              </el-form>
+              <template #footer>
+                <el-button @click="promptDialogVisible = false">取消</el-button>
+                <el-button type="primary" :loading="promptSaving" @click="savePrompt">保存</el-button>
+              </template>
+            </el-dialog>
+
+            <el-dialog v-model="renderDialogVisible" title="渲染测试" width="640px">
+              <p style="margin-top:0">模板变量（每行一个 <code class="mono">key=value</code>）：</p>
+              <el-input v-model="renderInput" type="textarea" :rows="5" placeholder="name=Alice&#10;role=admin" class="mono" />
+              <el-button style="margin-top:8px" type="primary" size="small" @click="doRender">渲染</el-button>
+              <div style="margin-top:8px;font-weight:600">结果</div>
+              <div class="resp-box">{{ renderOutput || '(点击渲染)' }}</div>
             </el-dialog>
           </div>
 
@@ -712,7 +791,11 @@
 
         // ---- 导航 ----
         const activeMenu = ref('dashboard');
-        function onMenuSelect(key) { activeMenu.value = key; }
+        function onMenuSelect(key) {
+          activeMenu.value = key;
+          // 进入页面时懒加载该页数据
+          if (key === 'gateway') { loadGatewayModels(); loadPrompts(); }
+        }
 
         // ---- 仪表盘统计 ----
         const stat = reactive({ users: 0, roles: 0, tenants: 0, sessions: 0, todayTokens: 0, providers: 0, audits: 0, loginLock: false });
@@ -919,6 +1002,121 @@
           const res = await del('/api/core/auth/tenant/delete', { id: row.id });
           if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadTenants(); }
           else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        // ---- AI 网关：模型/聊天测试 + Prompt 模板 ----
+        const gw = reactive({ model: '', system: '', userMsg: '', stream: true, loading: false, response: '', tokens: null });
+        const gwModels = ref([]);
+        async function loadGatewayModels() {
+          try {
+            const res = await get('/v1/models');
+            if (!res.error) gwModels.value = res.data || [];
+          } catch { /* ignore */ }
+        }
+        async function sendGatewayChat() {
+          if (!gw.model) { ElementPlus.ElMessage.warning('请选择模型'); return; }
+          if (!gw.userMsg && !gw.system) { ElementPlus.ElMessage.warning('请输入消息'); return; }
+          gw.loading = true; gw.response = ''; gw.tokens = null;
+          const messages = [];
+          if (gw.system) messages.push({ role: 'system', content: gw.system });
+          messages.push({ role: 'user', content: gw.userMsg });
+          const body = { model: gw.model, messages, stream: gw.stream };
+          if (gw.stream) body.stream_options = { include_usage: true };
+          try {
+            const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+            if (token.value) opts.headers['Authorization'] = 'Bearer ' + token.value;
+            opts.body = JSON.stringify(body);
+            const r = await fetch('/v1/chat/completions', opts);
+            if (!r.ok) { gw.response = 'HTTP ' + r.status + ' ' + (await r.text()); return; }
+            if (gw.stream) {
+              // SSE 逐块读取，实时显示 + 捕获 usage
+              const reader = r.body.getReader(); const dec = new TextDecoder();
+              let buf = ''; let content = '';
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += dec.decode(value, { stream: true });
+                const lines = buf.split('\n'); buf = lines.pop();
+                for (const line of lines) {
+                  const s = line.trim();
+                  if (!s.startsWith('data:')) continue;
+                  const payload = s.slice(5).trim();
+                  if (payload === '[DONE]') continue;
+                  try {
+                    const obj = JSON.parse(payload);
+                    if (obj.usage) gw.tokens = { prompt: obj.usage.prompt_tokens, completion: obj.usage.completion_tokens, total: obj.usage.total_tokens };
+                    const delta = obj.choices && obj.choices[0] && obj.choices[0].delta && obj.choices[0].delta.content;
+                    if (delta) { content += delta; gw.response = content; }
+                  } catch { /* partial */ }
+                }
+              }
+              if (!content) gw.response = '(流式响应为空)';
+            } else {
+              const text = await r.text();
+              try {
+                const obj = JSON.parse(text);
+                gw.response = (obj.choices && obj.choices[0] && obj.choices[0].message && obj.choices[0].message.content) || text;
+                if (obj.usage) gw.tokens = { prompt: obj.usage.prompt_tokens, completion: obj.usage.completion_tokens, total: obj.usage.total_tokens };
+              } catch { gw.response = text; }
+            }
+          } catch (e) { gw.response = '请求失败: ' + e.message; }
+          finally { gw.loading = false; }
+        }
+
+        const prompts = ref([]);
+        const promptLoading = ref(false);
+        const promptDialogVisible = ref(false);
+        const promptSaving = ref(false);
+        const emptyPrompt = () => ({ id: '', name: '', category: '', modelAlias: '', content: '', variables: '', enable: true });
+        const promptForm = reactive(emptyPrompt());
+        const renderDialogVisible = ref(false);
+        const renderInput = ref('');
+        const renderOutput = ref('');
+        let renderTargetId = '';
+        async function loadPrompts() {
+          promptLoading.value = true;
+          try {
+            const res = await get('/admin/api/prompts');
+            if (res.code === 0) prompts.value = res.data || [];
+            else ElementPlus.ElMessage.error(res.message || '查询失败');
+          } finally { promptLoading.value = false; }
+        }
+        function openPromptDialog(row) {
+          Object.assign(promptForm, emptyPrompt());
+          if (row) Object.assign(promptForm, { id: row.id, name: row.name, category: row.category, modelAlias: row.modelAlias, content: row.content, variables: row.variables, enable: row.enable });
+          promptDialogVisible.value = true;
+        }
+        async function savePrompt() {
+          if (!promptForm.name || !promptForm.content) { ElementPlus.ElMessage.warning('请填写名称和内容'); return; }
+          promptSaving.value = true;
+          try {
+            const url = promptForm.id ? '/admin/api/prompts/' + promptForm.id : '/admin/api/prompts';
+            const method = promptForm.id ? 'PUT' : 'POST';
+            const res = await request(method, url, { ...promptForm });
+            if (res.code === 0) { ElementPlus.ElMessage.success('保存成功'); promptDialogVisible.value = false; loadPrompts(); }
+            else ElementPlus.ElMessage.error(res.message || '保存失败');
+          } finally { promptSaving.value = false; }
+        }
+        async function removePrompt(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认删除模板「${row.name}」？`, '删除确认', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/prompts/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadPrompts(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+        function openRenderDialog(row) {
+          renderTargetId = row.id; renderInput.value = ''; renderOutput.value = '';
+          // 预填变量名=占位
+          if (row.variables) renderInput.value = row.variables.split(',').map(v => v.trim() + '=').join('\n');
+          renderDialogVisible.value = true;
+        }
+        async function doRender() {
+          const vars = {};
+          renderInput.value.split('\n').forEach(line => {
+            const i = line.indexOf('='); if (i > 0) vars[line.slice(0, i).trim()] = line.slice(i + 1);
+          });
+          const res = await post('/admin/api/prompts/' + renderTargetId + '/render', { vars });
+          if (res.code === 0) renderOutput.value = (res.data && res.data.rendered) || '(空)';
+          else ElementPlus.ElMessage.error(res.message || '渲染失败');
         }
 
         // ---- AI Key 管理 ----
@@ -1347,6 +1545,9 @@
           roleSearch, roleLoading, roleDialogVisible, roleSaving, roleFormRef, roleRules, roleForm, loadRoles, openRoleDialog, saveRole, removeRole,
           tenantSearch, tenants, tenantTotal, tenantLoading, tenantDialogVisible, tenantSaving, tenantFormRef, tenantRules, tenantForm, loadTenants, openTenantDialog, saveTenant, toggleTenantEnable, removeTenant,
           // AI Key
+          gw, gwModels, loadGatewayModels, sendGatewayChat,
+          prompts, promptLoading, promptDialogVisible, promptSaving, promptForm, loadPrompts, openPromptDialog, savePrompt, removePrompt,
+          renderDialogVisible, renderInput, renderOutput, openRenderDialog, doRender,
           providers, providerLoading, providerDialogVisible, providerSaving, providerForm, loadProviders, openProviderDialog, saveProvider, removeProvider,
           keysDrawerVisible, keysDrawerProvider, aiKeys, keyLoading, loadKeys, openKeysDrawer, keyDialogVisible, keyForm, keySaving, saveKey, toggleKey, removeKey,
           rotateDialogVisible, rotateLoading, rotateTarget, rotateValue, openRotateKey, doRotateKey,
