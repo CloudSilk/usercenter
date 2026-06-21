@@ -28,6 +28,15 @@
     .toolbar .grow { flex: 1; }
     .pager { margin-top: 12px; display: flex; justify-content: flex-end; }
     .tag-muted { color: #909399; }
+    .chart-box { width: 100%; height: 300px; }
+    .kv-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+    .resp-box { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px;
+      font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+    .mono { font-family: "Cascadia Code", Consolas, monospace; }
+    .el-sub-menu__title { color: #c9d1d9 !important; }
+    .el-menu-layout .el-sub-menu .el-menu-item { color: #9aa4af; }
+    .el-menu-layout .el-sub-menu .el-menu-item.is-active { color: #fff; }
   </style>
 </head>
 <body>
@@ -61,26 +70,50 @@
       </el-header>
       <el-container>
         <el-aside class="layout-aside" width="200px">
-          <el-menu :default-active="activeMenu" class="el-menu-layout" @select="onMenuSelect">
+          <el-menu :default-active="activeMenu" class="el-menu-layout" @select="onMenuSelect" :unique-opened="true">
             <el-menu-item index="dashboard"><el-icon><Odometer /></el-icon><span>仪表盘</span></el-menu-item>
-            <el-menu-item index="users"><el-icon><User /></el-icon><span>用户管理</span></el-menu-item>
-            <el-menu-item index="roles"><el-icon><Avatar /></el-icon><span>角色管理</span></el-menu-item>
-            <el-menu-item index="tenants"><el-icon><OfficeBuilding /></el-icon><span>租户管理</span></el-menu-item>
+            <el-sub-menu index="grp-org">
+              <template #title><el-icon><OfficeBuilding /></el-icon><span>组织管理</span></template>
+              <el-menu-item index="users"><el-icon><User /></el-icon><span>用户管理</span></el-menu-item>
+              <el-menu-item index="roles"><el-icon><Avatar /></el-icon><span>角色管理</span></el-menu-item>
+              <el-menu-item index="tenants"><el-icon><School /></el-icon><span>租户管理</span></el-menu-item>
+            </el-sub-menu>
+            <el-sub-menu index="grp-ai">
+              <template #title><el-icon><Cpu /></el-icon><span>AI 能力</span></template>
+              <el-menu-item index="aikeys"><el-icon><Key /></el-icon><span>AI Key 管理</span></el-menu-item>
+              <el-menu-item index="usage"><el-icon><TrendCharts /></el-icon><span>用量统计</span></el-menu-item>
+            </el-sub-menu>
+            <el-sub-menu index="grp-sec">
+              <template #title><el-icon><Lock /></el-icon><span>安全审计</span></template>
+              <el-menu-item index="sessions"><el-icon><Connection /></el-icon><span>会话管理</span></el-menu-item>
+              <el-menu-item index="audit"><el-icon><Document /></el-icon><span>审计日志</span></el-menu-item>
+              <el-menu-item index="security"><el-icon><Aim /></el-icon><span>安全中心</span></el-menu-item>
+            </el-sub-menu>
+            <el-sub-menu index="grp-sys">
+              <template #title><el-icon><Setting /></el-icon><span>系统集成</span></template>
+              <el-menu-item index="scim"><el-icon><Share /></el-icon><span>SCIM 配置</span></el-menu-item>
+              <el-menu-item index="config"><el-icon><Tools /></el-icon><span>系统配置</span></el-menu-item>
+              <el-menu-item index="tester"><el-icon><Promotion /></el-icon><span>API 测试</span></el-menu-item>
+            </el-sub-menu>
           </el-menu>
         </el-aside>
         <el-main class="layout-main">
           <!-- 仪表盘 -->
           <div v-show="activeMenu === 'dashboard'">
             <el-row :gutter="16">
-              <el-col :span="8">
-                <el-card class="page-card"><el-statistic title="用户总数" :value="stat.users" /></el-card>
-              </el-col>
-              <el-col :span="8">
-                <el-card class="page-card"><el-statistic title="角色总数" :value="stat.roles" /></el-card>
-              </el-col>
-              <el-col :span="8">
-                <el-card class="page-card"><el-statistic title="租户总数" :value="stat.tenants" /></el-card>
-              </el-col>
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="用户总数" :value="stat.users" /></el-card></el-col>
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="角色总数" :value="stat.roles" /></el-card></el-col>
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="租户总数" :value="stat.tenants" /></el-card></el-col>
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="活跃会话" :value="stat.sessions" /></el-card></el-col>
+            </el-row>
+            <el-row :gutter="16">
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="今日 Token 用量" :value="stat.todayTokens" /></el-card></el-col>
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="AI 服务商" :value="stat.providers" /></el-card></el-col>
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="审计日志数" :value="stat.audits" /></el-card></el-col>
+              <el-col :span="6"><el-card class="page-card">
+                <div style="font-size:12px;color:#909399;margin-bottom:4px">登录保护</div>
+                <el-tag :type="stat.loginLock ? 'success' : 'info'" size="large">{{ stat.loginLock ? '已启用' : '未启用' }}</el-tag>
+              </el-card></el-col>
             </el-row>
             <el-card class="page-card">
               <template #header>当前登录信息</template>
@@ -269,6 +302,352 @@
               </template>
             </el-dialog>
           </div>
+
+          <!-- ============ AI Key 管理 ============ -->
+          <div v-show="activeMenu === 'aikeys'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-button type="primary" @click="loadProviders">刷新服务商</el-button>
+                <span class="grow"></span>
+                <el-button type="success" @click="openProviderDialog()">新增服务商</el-button>
+              </div>
+              <el-table :data="providers" v-loading="providerLoading" border stripe size="small">
+                <el-table-column prop="name" label="服务商" min-width="120" />
+                <el-table-column prop="baseURL" label="BaseURL" min-width="220" show-overflow-tooltip />
+                <el-table-column prop="authType" label="鉴权方式" width="110" />
+                <el-table-column label="健康" width="80">
+                  <template #default="{ row }"><el-tag :type="row.healthy ? 'success' : 'danger'" size="small">{{ row.healthy ? '正常' : '异常' }}</el-tag></template>
+                </el-table-column>
+                <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
+                <el-table-column label="操作" width="220" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openProviderDialog(row)">编辑</el-button>
+                    <el-button link type="primary" size="small" @click="openKeysDrawer(row)">Key 管理</el-button>
+                    <el-button link type="danger" size="small" @click="removeProvider(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+
+            <el-dialog v-model="providerDialogVisible" :title="providerForm.id ? '编辑服务商' : '新增服务商'" width="520px">
+              <el-form :model="providerForm" label-width="90px">
+                <el-form-item label="名称"><el-input v-model="providerForm.name" /></el-form-item>
+                <el-form-item label="BaseURL"><el-input v-model="providerForm.baseURL" placeholder="https://api.openai.com/v1" /></el-form-item>
+                <el-form-item label="鉴权方式">
+                  <el-select v-model="providerForm.authType" style="width:100%">
+                    <el-option label="Bearer Token" value="bearer" />
+                    <el-option label="API Key Header" value="header" />
+                    <el-option label="Query Param" value="query" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="描述"><el-input v-model="providerForm.description" type="textarea" :rows="2" /></el-form-item>
+              </el-form>
+              <template #footer>
+                <el-button @click="providerDialogVisible = false">取消</el-button>
+                <el-button type="primary" :loading="providerSaving" @click="saveProvider">保存</el-button>
+              </template>
+            </el-dialog>
+
+            <el-drawer v-model="keysDrawerVisible" :title="'Key 管理 - ' + (keysDrawerProvider.name || '')" size="640px">
+              <div class="toolbar">
+                <el-button type="primary" size="small" @click="loadKeys">刷新</el-button>
+                <span class="grow"></span>
+                <el-button type="success" size="small" @click="openKeyDialog()">新增 Key</el-button>
+              </div>
+              <el-table :data="aiKeys" v-loading="keyLoading" border stripe size="small">
+                <el-table-column prop="name" label="名称" min-width="120" />
+                <el-table-column prop="keyHint" label="KeyHint" min-width="120" />
+                <el-table-column prop="priority" label="优先级" width="80" />
+                <el-table-column label="状态" width="120">
+                  <template #default="{ row }">
+                    <el-tag :type="row.enable ? 'success' : 'info'" size="small">{{ row.enable ? '启用' : '禁用' }}</el-tag>
+                    <el-tag v-if="row.cooldownEnd && row.cooldownEnd > Date.now()" type="warning" size="small" style="margin-left:4px">冷却</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="170" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openRotateKey(row)">轮转</el-button>
+                    <el-button link :type="row.enable ? 'warning' : 'success'" size="small" @click="toggleKey(row)">{{ row.enable ? '禁用' : '启用' }}</el-button>
+                    <el-button link type="danger" size="small" @click="removeKey(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+
+              <el-dialog v-model="keyDialogVisible" title="新增 Key" width="460px" append-to-body>
+                <el-form :model="keyForm" label-width="80px">
+                  <el-form-item label="名称"><el-input v-model="keyForm.name" /></el-form-item>
+                  <el-form-item label="密钥"><el-input v-model="keyForm.apiKey" type="password" show-password placeholder="sk-..." /></el-form-item>
+                  <el-form-item label="优先级"><el-input-number v-model="keyForm.priority" :min="0" /></el-form-item>
+                  <el-form-item label="启用"><el-switch v-model="keyForm.enable" /></el-form-item>
+                </el-form>
+                <template #footer>
+                  <el-button @click="keyDialogVisible = false">取消</el-button>
+                  <el-button type="primary" :loading="keySaving" @click="saveKey">保存</el-button>
+                </template>
+              </el-dialog>
+
+              <el-dialog v-model="rotateDialogVisible" title="轮转 Key" width="440px" append-to-body>
+                <p style="margin-top:0">为 Key <b>{{ rotateTarget.name }}</b> 替换为新密钥（旧密钥立即失效）。</p>
+                <el-input v-model="rotateValue" type="password" show-password placeholder="新的 API Key" />
+                <template #footer>
+                  <el-button @click="rotateDialogVisible = false">取消</el-button>
+                  <el-button type="primary" :loading="rotateLoading" @click="doRotateKey">确认轮转</el-button>
+                </template>
+              </el-dialog>
+            </el-drawer>
+          </div>
+
+          <!-- ============ 用量统计 ============ -->
+          <div v-show="activeMenu === 'usage'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-date-picker v-model="usageRange" type="datetimerange" range-separator="至" start-placeholder="开始" end-placeholder="结束" value-format="X" format="YYYY-MM-DD HH:mm" style="width:360px" />
+                <el-button type="primary" @click="loadUsage">查询</el-button>
+                <span class="grow"></span>
+              </div>
+              <el-row :gutter="16" v-loading="usageLoading">
+                <el-col :span="8"><el-card shadow="never"><el-statistic title="总 Token" :value="usageSummary.totalTokens" /></el-card></el-col>
+                <el-col :span="8"><el-card shadow="never"><el-statistic title="总成本($)" :precision="4" :value="usageSummary.totalCost" /></el-card></el-col>
+                <el-col :span="8"><el-card shadow="never"><el-statistic title="请求次数" :value="usageSummary.requestCount" /></el-card></el-col>
+              </el-row>
+            </el-card>
+            <el-row :gutter="16">
+              <el-col :span="12">
+                <el-card class="page-card"><template #header>按模型分布(Token)</template><div ref="chartByModel" class="chart-box"></div></el-card>
+              </el-col>
+              <el-col :span="12">
+                <el-card class="page-card"><template #header>按主体分布(Token)</template><div ref="chartByPrincipal" class="chart-box"></div></el-card>
+              </el-col>
+            </el-row>
+            <el-card class="page-card">
+              <template #header>
+                <div class="toolbar" style="margin-bottom:0">
+                  <span>最近用量明细</span>
+                  <span class="grow"></span>
+                  <el-input-number v-model="usageRecentLimit" :min="1" :max="500" size="small" />
+                  <el-button size="small" type="primary" @click="loadUsageRecent">刷新</el-button>
+                </div>
+              </template>
+              <el-table :data="usageRecent" v-loading="usageRecentLoading" border stripe size="small">
+                <el-table-column prop="model" label="模型" min-width="120" />
+                <el-table-column prop="principalID" label="主体" min-width="120" show-overflow-tooltip />
+                <el-table-column prop="promptTokens" label="输入" width="90" />
+                <el-table-column prop="completionTokens" label="输出" width="90" />
+                <el-table-column prop="totalTokens" label="合计" width="90" />
+                <el-table-column prop="cost" label="成本" width="90" />
+                <el-table-column label="结果" width="80"><template #default="{ row }"><el-tag :type="row.success ? 'success' : 'danger'" size="small">{{ row.success ? '成功' : '失败' }}</el-tag></template></el-table-column>
+                <el-table-column prop="latencyMs" label="延迟(ms)" width="100" />
+                <el-table-column label="时间" min-width="150"><template #default="{ row }">{{ fmtTime(row.createdAt) }}</template></el-table-column>
+              </el-table>
+            </el-card>
+          </div>
+
+          <!-- ============ 会话管理 ============ -->
+          <div v-show="activeMenu === 'sessions'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-input v-model="sessionSearch.principalID" placeholder="主体 ID(用户/Agent ID)" clearable style="width:240px" @keyup.enter="loadSessions" />
+                <el-checkbox v-model="sessionSearch.active">仅活跃</el-checkbox>
+                <el-button type="primary" @click="loadSessions">查询</el-button>
+                <span class="grow"></span>
+                <el-button type="warning" @click="revokeAllSessions">下线该主体全部会话</el-button>
+                <el-button @click="cleanSessions">清理过期会话</el-button>
+              </div>
+              <el-table :data="sessions" v-loading="sessionLoading" border stripe size="small">
+                <el-table-column prop="deviceName" label="设备" min-width="140" show-overflow-tooltip />
+                <el-table-column label="类型" width="90">
+                  <template #default="{ row }">{{ ['Web','Android','iPhone','iPad'][row.deviceType] || row.deviceType }}</template>
+                </el-table-column>
+                <el-table-column prop="ip" label="IP" width="130" />
+                <el-table-column prop="location" label="位置" min-width="120" show-overflow-tooltip />
+                <el-table-column prop="userAgent" label="UserAgent" min-width="200" show-overflow-tooltip />
+                <el-table-column label="状态" width="90">
+                  <template #default="{ row }"><el-tag :type="row.revoked ? 'info' : 'success'" size="small">{{ row.revoked ? '已吊销' : '活跃' }}</el-tag></template>
+                </el-table-column>
+                <el-table-column label="最后活跃" min-width="150"><template #default="{ row }">{{ fmtTime(row.lastActiveAt) }}</template></el-table-column>
+                <el-table-column label="操作" width="100" fixed="right">
+                  <template #default="{ row }">
+                    <el-button v-if="!row.revoked" link type="danger" size="small" @click="revokeSession(row)">吊销</el-button>
+                    <span v-else class="tag-muted">-</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+          </div>
+
+          <!-- ============ 审计日志 ============ -->
+          <div v-show="activeMenu === 'audit'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-input v-model="auditSearch.action" placeholder="操作类型" clearable style="width:160px" />
+                <el-input v-model="auditSearch.userID" placeholder="操作人ID" clearable style="width:160px" />
+                <el-select v-model="auditSearch.principalKind" placeholder="主体类型" clearable style="width:140px">
+                  <el-option label="人类" :value="0" />
+                  <el-option label="Agent" :value="1" />
+                  <el-option label="Service" :value="2" />
+                </el-select>
+                <el-date-picker v-model="auditRange" type="datetimerange" range-separator="至" start-placeholder="开始" end-placeholder="结束" value-format="X" format="YYYY-MM-DD HH:mm" />
+                <el-button type="primary" @click="loadAudits">查询</el-button>
+                <el-button @click="resetAuditSearch">重置</el-button>
+              </div>
+              <el-table :data="audits" v-loading="auditLoading" border stripe size="small">
+                <el-table-column label="时间" min-width="150"><template #default="{ row }">{{ fmtTime(row.createdAt) }}</template></el-table-column>
+                <el-table-column prop="action" label="操作" min-width="140" />
+                <el-table-column label="主体类型" width="100">
+                  <template #default="{ row }">
+                    <el-tag size="small" :type="row.principalKind===1?'warning':row.principalKind===2?'info':''">{{ ['人类','Agent','Service'][row.principalKind] || row.principalKind }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="userName" label="操作人" min-width="120" />
+                <el-table-column prop="targetID" label="目标对象" min-width="140" show-overflow-tooltip />
+                <el-table-column prop="ip" label="IP" width="130" />
+                <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
+              </el-table>
+              <div class="pager">
+                <el-pagination background layout="total, sizes, prev, pager, next, jumper"
+                  :total="auditTotal" :page-size="auditSearch.pageSize" :current-page="auditSearch.pageIndex"
+                  :page-sizes="[10, 20, 50, 100]"
+                  @size-change="(s) => { auditSearch.pageSize = s; loadAudits(); }"
+                  @current-change="(p) => { auditSearch.pageIndex = p; loadAudits(); }" />
+              </div>
+            </el-card>
+          </div>
+
+          <!-- ============ 安全中心 ============ -->
+          <div v-show="activeMenu === 'security'">
+            <el-row :gutter="16">
+              <el-col :span="12">
+                <el-card class="page-card">
+                  <template #header>登录保护策略</template>
+                  <el-descriptions :column="1" border v-loading="securityLoading">
+                    <el-descriptions-item label="登录失败锁定阈值">{{ alerts.loginFailThreshold }} 次</el-descriptions-item>
+                    <el-descriptions-item label="鉴权失败告警阈值">{{ alerts.authFailThreshold }} 次</el-descriptions-item>
+                    <el-descriptions-item label="统计窗口">{{ alerts.windowMinutes }} 分钟</el-descriptions-item>
+                    <el-descriptions-item label="IP 限流">{{ alerts.loginFailThreshold }} 次/窗口触发告警</el-descriptions-item>
+                  </el-descriptions>
+                  <div style="color:#909399;font-size:12px;margin-top:8px">
+                    配置在 Nacos / loginLock 段。修改后重启生效。连接失败登录仍会被记录到审计日志。
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :span="12">
+                <el-card class="page-card">
+                  <template #header>Zero Trust 风险评分（演示）</template>
+                  <el-form label-width="120px" size="small">
+                    <el-form-item label="当前 IP"><el-input v-model="riskInput.currentIP" /></el-form-item>
+                    <el-form-item label="签发 IP"><el-input v-model="riskInput.tokenIP" /></el-form-item>
+                    <el-form-item label="Token 年龄(小时)"><el-input-number v-model="riskInput.tokenAgeHours" :min="0" /></el-form-item>
+                    <el-form-item label="新设备"><el-switch v-model="riskInput.newDevice" /></el-form-item>
+                    <el-form-item label="近期失败次数"><el-input-number v-model="riskInput.failedAuths" :min="0" /></el-form-item>
+                  </el-form>
+                  <el-alert :title="riskResult.title" :type="riskResult.type" :description="riskResult.desc" show-icon :closable="false" />
+                </el-card>
+              </el-col>
+            </el-row>
+          </div>
+
+          <!-- ============ SCIM 配置 ============ -->
+          <div v-show="activeMenu === 'scim'">
+            <el-card class="page-card">
+              <template #header>SCIM 2.0 端点</template>
+              <el-descriptions :column="1" border>
+                <el-descriptions-item label="Base URL"><span class="mono">{{ scimBaseURL }}</span></el-descriptions-item>
+                <el-descriptions-item label="Users 端点"><span class="mono">{{ scimBaseURL }}/scim/v2/Users</span></el-descriptions-item>
+                <el-descriptions-item label="Groups 端点"><span class="mono">{{ scimBaseURL }}/scim/v2/Groups</span></el-descriptions-item>
+                <el-descriptions-item label="鉴权">Bearer Token（服务端固定 Token，见 main.go RegisterSCIMRouter）</el-descriptions-item>
+              </el-descriptions>
+            </el-card>
+            <el-card class="page-card">
+              <template #header>SCIM 测试请求</template>
+              <div class="toolbar">
+                <el-select v-model="scimTest.method" style="width:110px">
+                  <el-option label="GET (查询)" value="GET" />
+                  <el-option label="POST (创建)" value="POST" />
+                  <el-option label="PUT (替换)" value="PUT" />
+                  <el-option label="PATCH (改)" value="PATCH" />
+                  <el-option label="DELETE" value="DELETE" />
+                </el-select>
+                <el-input v-model="scimTest.path" placeholder="/scim/v2/Users?filter=userName eq 'test'" style="flex:1" class="mono" />
+                <el-input v-model="scimTest.token" placeholder="SCIM Bearer Token" style="width:240px" />
+                <el-input v-model="scimTest.tenant" placeholder="X-Tenant-ID" style="width:160px" />
+                <el-button type="primary" @click="sendScimTest">发送</el-button>
+              </div>
+              <el-input v-model="scimTest.body" type="textarea" :rows="6" placeholder='POST/PUT/PATCH 的 JSON body，例如 {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"alice","active":true}' class="mono" />
+              <div style="margin-top:8px;font-weight:600">响应：</div>
+              <div class="resp-box">{{ scimTest.response || '(尚未发送)' }}</div>
+            </el-card>
+          </div>
+
+          <!-- ============ 系统配置 ============ -->
+          <div v-show="activeMenu === 'config'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-input v-model="configSearch.key" placeholder="key/名称" clearable style="width:240px" @keyup.enter="loadConfigs" />
+                <el-button type="primary" @click="loadConfigs">查询</el-button>
+                <span class="grow"></span>
+                <el-button type="success" @click="openConfigDialog()">新增配置</el-button>
+              </div>
+              <el-table :data="configs" v-loading="configLoading" border stripe size="small">
+                <el-table-column prop="key" label="Key" min-width="160" />
+                <el-table-column prop="value" label="Value" min-width="200" show-overflow-tooltip />
+                <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
+                <el-table-column label="操作" width="160" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openConfigDialog(row)">编辑</el-button>
+                    <el-button link type="danger" size="small" @click="removeConfig(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+
+            <el-dialog v-model="configDialogVisible" :title="configForm.id ? '编辑配置' : '新增配置'" width="520px">
+              <el-form :model="configForm" label-width="80px">
+                <el-form-item label="Key"><el-input v-model="configForm.key" :disabled="!!configForm.id" /></el-form-item>
+                <el-form-item label="Value"><el-input v-model="configForm.value" type="textarea" :rows="3" /></el-form-item>
+                <el-form-item label="描述"><el-input v-model="configForm.description" /></el-form-item>
+              </el-form>
+              <template #footer>
+                <el-button @click="configDialogVisible = false">取消</el-button>
+                <el-button type="primary" :loading="configSaving" @click="saveConfig">保存</el-button>
+              </template>
+            </el-dialog>
+          </div>
+
+          <!-- ============ API 测试 ============ -->
+          <div v-show="activeMenu === 'tester'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-select v-model="tester.method" style="width:110px">
+                  <el-option v-for="m in ['GET','POST','PUT','DELETE']" :key="m" :label="m" :value="m" />
+                </el-select>
+                <el-input v-model="tester.path" placeholder="/api/core/auth/user/query 或 /admin/api/stats" style="flex:1" class="mono" />
+                <el-button type="primary" :loading="testerLoading" @click="sendTest">发送</el-button>
+              </div>
+              <el-tabs>
+                <el-tab-pane label="查询参数">
+                  <div v-for="(p, i) in tester.params" :key="i" class="kv-row">
+                    <el-input v-model="p.key" placeholder="参数名" style="width:200px" />
+                    <el-input v-model="p.value" placeholder="参数值" style="flex:1" />
+                    <el-button link type="danger" @click="tester.params.splice(i,1)">删除</el-button>
+                  </div>
+                  <el-button size="small" @click="tester.params.push({key:'',value:''})">+ 添加参数</el-button>
+                </el-tab-pane>
+                <el-tab-pane label="请求体(JSON)">
+                  <el-input v-model="tester.body" type="textarea" :rows="8" class="mono" placeholder='{ "key": "value" }' />
+                </el-tab-pane>
+              </el-tabs>
+            </el-card>
+            <el-card class="page-card">
+              <template #header>
+                <div class="toolbar" style="margin-bottom:0">
+                  <span>响应</span>
+                  <span class="grow"></span>
+                  <el-tag :type="testerStatus === 0 ? 'success' : 'danger'" size="small" v-if="testerStatus !== null">code: {{ testerStatus }}</el-tag>
+                </div>
+              </template>
+              <div class="resp-box">{{ testerResponse || '(尚未发送)' }}</div>
+            </el-card>
+          </div>
         </el-main>
       </el-container>
     </el-container>
@@ -279,6 +658,7 @@
   <script src="https://unpkg.com/element-plus@2.7.8/dist/index.full.min.js"></script>
   <script src="https://unpkg.com/@element-plus/icons-vue@2.3.1/dist/index.iife.min.js"></script>
   <script src="https://unpkg.com/dayjs@1.11.13/dayjs.min.js"></script>
+  <script src="https://unpkg.com/echarts@5.5.1/dist/echarts.min.js"></script>
   <script>
     const { createApp, reactive, ref, onMounted, computed } = Vue;
 
@@ -335,7 +715,7 @@
         function onMenuSelect(key) { activeMenu.value = key; }
 
         // ---- 仪表盘统计 ----
-        const stat = reactive({ users: 0, roles: 0, tenants: 0 });
+        const stat = reactive({ users: 0, roles: 0, tenants: 0, sessions: 0, todayTokens: 0, providers: 0, audits: 0, loginLock: false });
 
         // ---- 用户管理 ----
         const userSearch = reactive({ userName: '', nickname: '', mobile: '', pageIndex: 1, pageSize: 10 });
@@ -541,6 +921,343 @@
           else ElementPlus.ElMessage.error(res.message || '删除失败');
         }
 
+        // ---- AI Key 管理 ----
+        const providers = ref([]);
+        const providerLoading = ref(false);
+        const providerDialogVisible = ref(false);
+        const providerSaving = ref(false);
+        const emptyProvider = () => ({ id: '', name: '', baseURL: '', authType: 'bearer', description: '' });
+        const providerForm = reactive(emptyProvider());
+
+        async function loadProviders() {
+          providerLoading.value = true;
+          try {
+            const res = await get('/admin/api/ai-providers');
+            if (res.code === 0) { providers.value = res.data || []; stat.providers = providers.value.length; }
+            else ElementPlus.ElMessage.error(res.message || '查询服务商失败');
+          } finally { providerLoading.value = false; }
+        }
+        function openProviderDialog(row) {
+          Object.assign(providerForm, emptyProvider());
+          if (row) Object.assign(providerForm, { id: row.id, name: row.name, baseURL: row.baseURL, authType: row.authType, description: row.description });
+          providerDialogVisible.value = true;
+        }
+        async function saveProvider() {
+          providerSaving.value = true;
+          try {
+            const payload = { ...providerForm };
+            const url = payload.id ? '/admin/api/ai-providers/' + payload.id : '/admin/api/ai-providers';
+            const method = payload.id ? 'PUT' : 'POST';
+            const res = await request(method, url, payload);
+            if (res.code === 0) { ElementPlus.ElMessage.success('保存成功'); providerDialogVisible.value = false; loadProviders(); }
+            else ElementPlus.ElMessage.error(res.message || '保存失败');
+          } finally { providerSaving.value = false; }
+        }
+        async function removeProvider(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认删除服务商「${row.name}」？关联的 Key 将一并失效。`, '删除确认', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/ai-providers/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadProviders(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        const keysDrawerVisible = ref(false);
+        const keysDrawerProvider = reactive({});
+        const aiKeys = ref([]);
+        const keyLoading = ref(false);
+        const keyDialogVisible = ref(false);
+        const keySaving = ref(false);
+        const emptyKey = () => ({ name: '', apiKey: '', priority: 0, enable: true });
+        const keyForm = reactive(emptyKey());
+        const rotateDialogVisible = ref(false);
+        const rotateLoading = ref(false);
+        const rotateTarget = reactive({});
+        const rotateValue = ref('');
+
+        function openKeysDrawer(row) {
+          Object.assign(keysDrawerProvider, row);
+          aiKeys.value = [];
+          keysDrawerVisible.value = true;
+          loadKeys();
+        }
+        async function loadKeys() {
+          if (!keysDrawerProvider.id) return;
+          keyLoading.value = true;
+          try {
+            const res = await get('/admin/api/ai-keys', { providerID: keysDrawerProvider.id });
+            if (res.code === 0) aiKeys.value = res.data || [];
+            else ElementPlus.ElMessage.error(res.message || '查询 Key 失败');
+          } finally { keyLoading.value = false; }
+        }
+        function openKeyDialog() { Object.assign(keyForm, emptyKey()); keyDialogVisible.value = true; }
+        async function saveKey() {
+          if (!keyForm.name || !keyForm.apiKey) { ElementPlus.ElMessage.warning('请填写名称和密钥'); return; }
+          keySaving.value = true;
+          try {
+            const res = await post('/admin/api/ai-keys', { providerID: keysDrawerProvider.id, name: keyForm.name, apiKey: keyForm.apiKey, priority: keyForm.priority, enable: keyForm.enable });
+            if (res.code === 0) { ElementPlus.ElMessage.success('新增成功'); keyDialogVisible.value = false; loadKeys(); }
+            else ElementPlus.ElMessage.error(res.message || '保存失败');
+          } finally { keySaving.value = false; }
+        }
+        async function toggleKey(row) {
+          const res = await request('PUT', '/admin/api/ai-keys/' + row.id, { providerID: row.providerID, name: row.name, priority: row.priority, enable: !row.enable });
+          if (res.code === 0) { ElementPlus.ElMessage.success('操作成功'); loadKeys(); }
+          else ElementPlus.ElMessage.error(res.message || '操作失败');
+        }
+        function openRotateKey(row) { Object.assign(rotateTarget, row); rotateValue.value = ''; rotateDialogVisible.value = true; }
+        async function doRotateKey() {
+          if (!rotateValue.value) { ElementPlus.ElMessage.warning('请输入新密钥'); return; }
+          rotateLoading.value = true;
+          try {
+            const res = await post('/admin/api/ai-keys/' + rotateTarget.id + '/rotate', { newAPIKey: rotateValue.value });
+            if (res.code === 0) { ElementPlus.ElMessage.success('轮转成功'); rotateDialogVisible.value = false; loadKeys(); }
+            else ElementPlus.ElMessage.error(res.message || '轮转失败');
+          } finally { rotateLoading.value = false; }
+        }
+        async function removeKey(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认删除 Key「${row.name}」？`, '删除确认', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/ai-keys/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadKeys(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        // ---- 用量统计 ----
+        const usageRange = ref([]);
+        const usageLoading = ref(false);
+        const usageSummary = reactive({ totalTokens: 0, totalCost: 0, requestCount: 0 });
+        const chartByModel = ref(null);
+        const chartByPrincipal = ref(null);
+        const usageRecent = ref([]);
+        const usageRecentLoading = ref(false);
+        const usageRecentLimit = ref(50);
+        let _chartModel = null, _chartPrincipal = null;
+
+        async function loadUsage() {
+          usageLoading.value = true;
+          try {
+            const params = {};
+            if (usageRange.value && usageRange.value.length === 2) { params.startTime = usageRange.value[0]; params.endTime = usageRange.value[1]; }
+            const [sum, byModel, byPrincipal, recent] = await Promise.all([
+              get('/admin/api/usage/summary', params),
+              get('/admin/api/usage/by-model', params),
+              get('/admin/api/usage/by-principal', params),
+              get('/admin/api/usage/recent', { limit: usageRecentLimit.value }),
+            ]);
+            if (sum.code === 0 && sum.data) Object.assign(usageSummary, { totalTokens: sum.data.totalTokens || 0, totalCost: sum.data.totalCost || 0, requestCount: sum.data.requestCount || 0 });
+            stat.todayTokens = usageSummary.totalTokens;
+            usageRecent.value = recent.code === 0 ? (recent.data || []) : [];
+            renderUsageCharts(byModel.data || [], byPrincipal.data || []);
+          } finally { usageLoading.value = false; }
+        }
+        async function loadUsageRecent() {
+          usageRecentLoading.value = true;
+          try {
+            const res = await get('/admin/api/usage/recent', { limit: usageRecentLimit.value });
+            if (res.code === 0) usageRecent.value = res.data || [];
+          } finally { usageRecentLoading.value = false; }
+        }
+        function renderUsageCharts(byModel, byPrincipal) {
+          // ECharts 尚未加载或容器未渲染时跳过(用量页未显示时 ref 为空)
+          if (typeof echarts === 'undefined' || !chartByModel.value || !chartByPrincipal.value) return;
+          _chartModel = echarts.init(chartByModel.value);
+          _chartPrincipal = echarts.init(chartByPrincipal.value);
+          // by-model 后端返回 map[model]*UsageSummary（对象，键为模型名）
+          const modelData = byModel && typeof byModel === 'object' && !Array.isArray(byModel)
+            ? Object.entries(byModel).map(([name, v]) => ({ name: name || 'unknown', value: (v && v.totalTokens) || 0 }))
+            : [];
+          // by-principal 后端返回 []map，键为 principal_id / tokens
+          const princList = Array.isArray(byPrincipal) ? byPrincipal : [];
+          _chartModel.setOption({
+            tooltip: { trigger: 'item' },
+            legend: { bottom: 0 },
+            series: [{ type: 'pie', radius: ['40%', '70%'], data: modelData }],
+          });
+          _chartPrincipal.setOption({
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            grid: { left: 40, right: 20, top: 20, bottom: 40 },
+            xAxis: { type: 'category', data: princList.map(p => p.principal_id || p.principalID || 'unknown'), axisLabel: { rotate: 30 } },
+            yAxis: { type: 'value' },
+            series: [{ type: 'bar', data: princList.map(p => p.tokens || p.totalTokens || 0), itemStyle: { color: '#1f6feb' } }],
+          });
+        }
+
+        // ---- 会话管理 ----
+        const sessionSearch = reactive({ principalID: '', active: true });
+        const sessions = ref([]);
+        const sessionLoading = ref(false);
+        async function loadSessions() {
+          if (!sessionSearch.principalID) { ElementPlus.ElMessage.warning('请输入主体 ID'); return; }
+          sessionLoading.value = true;
+          try {
+            const res = await get('/admin/api/sessions', { principalID: sessionSearch.principalID, active: sessionSearch.active ? '1' : '' });
+            if (res.code === 0) { sessions.value = res.data || []; stat.sessions = res.data ? res.data.filter(s => !s.revoked).length : 0; }
+            else ElementPlus.ElMessage.error(res.message || '查询会话失败');
+          } finally { sessionLoading.value = false; }
+        }
+        async function revokeSession(row) {
+          try { await ElementPlus.ElMessageBox.confirm('确认吊销该会话？该设备将立即下线。', '吊销确认', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/sessions/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已吊销'); loadSessions(); }
+          else ElementPlus.ElMessage.error(res.message || '吊销失败');
+        }
+        async function revokeAllSessions() {
+          if (!sessionSearch.principalID) { ElementPlus.ElMessage.warning('请输入主体 ID'); return; }
+          try { await ElementPlus.ElMessageBox.confirm('确认下线该主体全部会话？', '确认', { type: 'warning' }); } catch { return; }
+          const res = await post('/admin/api/sessions/revoke-all', { principalID: sessionSearch.principalID, reason: 'admin_revoke_all' });
+          if (res.code === 0) { ElementPlus.ElMessage.success('已下线 ' + (res.data && res.data.count || 0) + ' 个会话'); loadSessions(); }
+          else ElementPlus.ElMessage.error(res.message || '操作失败');
+        }
+        async function cleanSessions() {
+          const res = await post('/admin/api/sessions/clean', {});
+          if (res.code === 0) ElementPlus.ElMessage.success('已清理 ' + (res.data && res.data.count || 0) + ' 个过期会话');
+          else ElementPlus.ElMessage.error(res.message || '清理失败');
+        }
+
+        // ---- 审计日志 ----
+        const auditSearch = reactive({ action: '', userID: '', principalKind: '', pageIndex: 1, pageSize: 20 });
+        const auditRange = ref([]);
+        const audits = ref([]);
+        const auditTotal = ref(0);
+        const auditLoading = ref(false);
+        async function loadAudits() {
+          auditLoading.value = true;
+          try {
+            const params = { pageIndex: auditSearch.pageIndex, pageSize: auditSearch.pageSize };
+            if (auditSearch.action) params.action = auditSearch.action;
+            if (auditSearch.userID) params.userID = auditSearch.userID;
+            if (auditSearch.principalKind !== '') params.principalKind = auditSearch.principalKind;
+            if (auditRange.value && auditRange.value.length === 2) { params.startTime = auditRange.value[0]; params.endTime = auditRange.value[1]; }
+            const res = await get('/admin/api/audit-logs', params);
+            if (res.code === 0) { audits.value = res.data || []; auditTotal.value = res.total || 0; stat.audits = auditTotal.value; }
+            else ElementPlus.ElMessage.error(res.message || '查询审计失败');
+          } finally { auditLoading.value = false; }
+        }
+        function resetAuditSearch() {
+          auditSearch.action = ''; auditSearch.userID = ''; auditSearch.principalKind = ''; auditRange.value = []; auditSearch.pageIndex = 1; loadAudits();
+        }
+
+        // ---- 安全中心 ----
+        const securityLoading = ref(false);
+        const alerts = reactive({ loginFailThreshold: 0, authFailThreshold: 0, windowMinutes: 0 });
+        async function loadAlerts() {
+          securityLoading.value = true;
+          try {
+            const res = await get('/admin/api/alerts/status');
+            if (res.code === 0 && res.data) Object.assign(alerts, res.data);
+            stat.loginLock = (alerts.loginFailThreshold || 0) > 0;
+          } finally { securityLoading.value = false; }
+        }
+        const riskInput = reactive({ currentIP: '203.0.113.1', tokenIP: '192.168.1.1', tokenAgeHours: 3, newDevice: true, failedAuths: 2 });
+        const riskResult = computed(() => {
+          let score = 0;
+          if (riskInput.currentIP && riskInput.tokenIP && riskInput.currentIP !== riskInput.tokenIP) score += 40;
+          if (riskInput.tokenAgeHours > 2) score += 15;
+          if (riskInput.newDevice) score += 25;
+          score += Math.min(riskInput.failedAuths * 10, 30);
+          if (score < 30) return { title: '风险评分: ' + score + ' (低)', type: 'success', desc: '正常放行。IP 一致、无异常信号。' };
+          if (score < 60) return { title: '风险评分: ' + score + ' (中)', type: 'warning', desc: '建议 step-up 认证:要求 MFA 或重新登录。' };
+          return { title: '风险评分: ' + score + ' (高)', type: 'error', desc: '拒绝访问或强制重新认证。' };
+        });
+
+        // ---- SCIM 配置 ----
+        const scimBaseURL = computed(() => location.origin);
+        const scimTest = reactive({ method: 'GET', path: '/scim/v2/Users?count=5', token: '', tenant: '', body: '', response: '' });
+        async function sendScimTest() {
+          if (!scimTest.token) { ElementPlus.ElMessage.warning('请输入 SCIM Bearer Token'); return; }
+          let url = scimTest.path;
+          let body;
+          if (scimTest.body && scimTest.method !== 'GET') {
+            try { body = JSON.parse(scimTest.body); } catch { ElementPlus.ElMessage.error('Body 不是合法 JSON'); return; }
+          }
+          const opts = { method: scimTest.method, headers: { 'Authorization': 'Bearer ' + scimTest.token, 'Content-Type': 'application/json' } };
+          if (scimTest.tenant) opts.headers['X-Tenant-ID'] = scimTest.tenant;
+          if (body !== undefined) opts.body = JSON.stringify(body);
+          try {
+            scimTest.response = '发送中...';
+            const r = await fetch(url, opts);
+            const text = await r.text();
+            scimTest.response = 'HTTP ' + r.status + '\n' + (tryPrettyJSON(text) || text);
+          } catch (e) { scimTest.response = '请求失败: ' + e.message; }
+        }
+        function tryPrettyJSON(text) {
+          try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return null; }
+        }
+
+        // ---- 系统配置 ----
+        const configSearch = reactive({ key: '' });
+        const configs = ref([]);
+        const configLoading = ref(false);
+        const configDialogVisible = ref(false);
+        const configSaving = ref(false);
+        const emptyConfig = () => ({ id: '', key: '', value: '', description: '' });
+        const configForm = reactive(emptyConfig());
+        async function loadConfigs() {
+          configLoading.value = true;
+          try {
+            const res = await get('/api/core/system/config/query', { pageIndex: 1, pageSize: 200 });
+            if (res.code === 0) {
+              let list = res.data || [];
+              if (configSearch.key) {
+                const kw = configSearch.key.toLowerCase();
+                list = list.filter(c => (c.key || '').toLowerCase().includes(kw) || (c.description || '').toLowerCase().includes(kw));
+              }
+              configs.value = list;
+            } else ElementPlus.ElMessage.error(res.message || '查询配置失败');
+          } finally { configLoading.value = false; }
+        }
+        function openConfigDialog(row) {
+          Object.assign(configForm, emptyConfig());
+          if (row) Object.assign(configForm, { id: row.id, key: row.key, value: row.value, description: row.description });
+          configDialogVisible.value = true;
+        }
+        async function saveConfig() {
+          if (!configForm.key) { ElementPlus.ElMessage.warning('请填写 Key'); return; }
+          configSaving.value = true;
+          try {
+            const payload = { key: configForm.key, value: configForm.value, description: configForm.description };
+            const url = configForm.id ? '/api/core/system/config/update' : '/api/core/system/config/add';
+            const method = configForm.id ? 'PUT' : 'POST';
+            if (configForm.id) payload.id = configForm.id;
+            const res = await request(method, url, payload);
+            if (res.code === 0) { ElementPlus.ElMessage.success('保存成功'); configDialogVisible.value = false; loadConfigs(); }
+            else ElementPlus.ElMessage.error(res.message || '保存失败');
+          } finally { configSaving.value = false; }
+        }
+        async function removeConfig(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认删除配置「${row.key}」？`, '删除确认', { type: 'warning' }); } catch { return; }
+          const res = await del('/api/core/system/config/delete', { id: row.id });
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadConfigs(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        // ---- API 测试 ----
+        const tester = reactive({ method: 'GET', path: '/admin/api/stats', params: [{ key: '', value: '' }], body: '' });
+        const testerLoading = ref(false);
+        const testerResponse = ref('');
+        const testerStatus = ref(null);
+        async function sendTest() {
+          testerLoading.value = true;
+          testerResponse.value = '发送中...';
+          try {
+            let url = tester.path;
+            const qs = tester.params.filter(p => p.key).map(p => encodeURIComponent(p.key) + '=' + encodeURIComponent(p.value)).join('&');
+            if (qs) url += (url.includes('?') ? '&' : '?') + qs;
+            const opts = { method: tester.method, headers: {} };
+            if (token.value) opts.headers['Authorization'] = 'Bearer ' + token.value;
+            let body;
+            if (tester.body && tester.method !== 'GET') {
+              try { body = JSON.parse(tester.body); } catch { ElementPlus.ElMessage.error('Body 不是合法 JSON'); testerLoading.value = false; return; }
+              opts.headers['Content-Type'] = 'application/json';
+              opts.body = JSON.stringify(body);
+            }
+            const r = await fetch(url, opts);
+            const text = await r.text();
+            testerStatus.value = r.status;
+            testerResponse.value = 'HTTP ' + r.status + ' ' + r.statusText + '\n' + (tryPrettyJSON(text) || text);
+          } catch (e) {
+            testerResponse.value = '请求失败: ' + e.message;
+          } finally { testerLoading.value = false; }
+        }
+
         // ---- 工具 ----
         function fmtTime(v) {
           if (!v) return '-';
@@ -549,7 +1266,19 @@
         }
 
         async function loadAll() {
-          await Promise.all([loadUsers(), loadRoles(), loadTenants()]);
+          await Promise.all([loadUsers(), loadRoles(), loadTenants(), loadDashboardStats()]);
+        }
+
+        // 仪表盘统计(走管理端聚合 API,失败不影响登录)
+        async function loadDashboardStats() {
+          try {
+            const res = await get('/admin/api/stats');
+            if (res.code === 0 && res.data) {
+              stat.sessions = res.data.sessionCount || 0;
+              stat.todayTokens = res.data.todayTokens || 0;
+            }
+          } catch { /* ignore */ }
+          loadAlerts().catch(() => {});
         }
 
         // ---- HTTP 封装 ----
@@ -601,6 +1330,11 @@
             await loadProfile().catch(() => {});
             if (token.value) await loadAll();
           }
+          // 窗口尺寸变化时重绘用量图表
+          window.addEventListener('resize', () => {
+            if (_chartModel) _chartModel.resize();
+            if (_chartPrincipal) _chartPrincipal.resize();
+          });
         });
 
         return {
@@ -612,6 +1346,25 @@
           roles,
           roleSearch, roleLoading, roleDialogVisible, roleSaving, roleFormRef, roleRules, roleForm, loadRoles, openRoleDialog, saveRole, removeRole,
           tenantSearch, tenants, tenantTotal, tenantLoading, tenantDialogVisible, tenantSaving, tenantFormRef, tenantRules, tenantForm, loadTenants, openTenantDialog, saveTenant, toggleTenantEnable, removeTenant,
+          // AI Key
+          providers, providerLoading, providerDialogVisible, providerSaving, providerForm, loadProviders, openProviderDialog, saveProvider, removeProvider,
+          keysDrawerVisible, keysDrawerProvider, aiKeys, keyLoading, loadKeys, openKeysDrawer, keyDialogVisible, keyForm, keySaving, saveKey, toggleKey, removeKey,
+          rotateDialogVisible, rotateLoading, rotateTarget, rotateValue, openRotateKey, doRotateKey,
+          // Usage
+          usageRange, usageLoading, usageSummary, loadUsage, chartByModel, chartByPrincipal,
+          usageRecent, usageRecentLoading, usageRecentLimit, loadUsageRecent,
+          // Sessions
+          sessionSearch, sessions, sessionLoading, loadSessions, revokeSession, revokeAllSessions, cleanSessions,
+          // Audit
+          auditSearch, auditRange, audits, auditTotal, auditLoading, loadAudits, resetAuditSearch,
+          // Security
+          securityLoading, alerts, loadAlerts, riskInput, riskResult,
+          // SCIM
+          scimBaseURL, scimTest, sendScimTest,
+          // System Config
+          configSearch, configs, configLoading, configDialogVisible, configSaving, configForm, loadConfigs, openConfigDialog, saveConfig, removeConfig,
+          // API Tester
+          tester, testerLoading, testerResponse, testerStatus, sendTest,
         };
       }
     });
