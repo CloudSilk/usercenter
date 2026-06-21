@@ -79,7 +79,31 @@ func main() {
 	constants.SetEnabelTenant(ucconfig.DefaultConfig.EnableTenant)
 	model.SetDefaultPwd(ucconfig.DefaultConfig.DefaultPwd)
 	model.SetLoginLock(ucconfig.DefaultConfig.LoginLock.MaxErrCount, ucconfig.DefaultConfig.LoginLock.LockMinutes)
+	// 首次部署：users 表为空时自动播种平台租户 + 超级管理员角色 + 初始管理员。
+	// 口令取 defaultPwd 配置，未配置则随机生成并打印；初始账号强制首登改密。
+	seedBootstrapAdmin(ucconfig.DefaultConfig.PlatformTenantID, ucconfig.DefaultConfig.SuperAdminRoleID, ucconfig.DefaultConfig.DefaultPwd)
 	Start(GetPort("ATALI_PORT", 48080))
+}
+
+// seedBootstrapAdmin 调用领域层播种初始管理员；非首次部署（已有用户）为 no-op。
+// 未配置 defaultPwd 时生成的随机口令会显著打印，提示运维立即登录改密。
+func seedBootstrapAdmin(platformTenantID, superAdminRoleID, defaultPwd string) {
+	seeded, generated, err := model.SeedBootstrapAdmin(platformTenantID, superAdminRoleID, defaultPwd)
+	if err != nil {
+		fmt.Printf("[bootstrap] 初始管理员播种失败: %v\n", err)
+		return
+	}
+	if !seeded {
+		return // 非首次部署，已有用户
+	}
+	if generated != "" {
+		fmt.Println("==========================================================")
+		fmt.Printf("[bootstrap] 首次部署：已创建初始管理员 admin / %s\n", generated)
+		fmt.Println("[bootstrap] 请立即登录管理后台并修改密码！")
+		fmt.Println("==========================================================")
+	} else {
+		fmt.Println("[bootstrap] 首次部署：已创建初始管理员 admin（口令取自 defaultPwd 配置）")
+	}
 }
 
 // 从环境变量中获取端口号

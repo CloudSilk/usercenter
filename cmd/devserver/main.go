@@ -31,7 +31,6 @@ import (
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/principal"
 	"github.com/CloudSilk/usercenter/internal/scim"
-	"github.com/CloudSilk/usercenter/internal/store"
 	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/model"
 	"github.com/CloudSilk/usercenter/utils/middleware"
@@ -74,8 +73,18 @@ func main() {
 	model.SetDefaultPwd("")
 	model.SetLoginLock(5, 15)
 
-	// 4. 无用户时播种超级管理员（platform 租户 + super_admin 角色 + admin 账号）
-	seedAdminIfEmpty()
+	// 4. 首次播种初始管理员（复用生产同款 model.SeedBootstrapAdmin）
+	if seeded, g, err := model.SeedBootstrapAdmin(devPlatformTenantID, devSuperAdminRoleID, devAdminPwd); err != nil {
+		fmt.Println("[devserver] 播种失败:", err)
+	} else if !seeded {
+		fmt.Println("[devserver] 已有用户，跳过播种")
+	} else {
+		pwd := devAdminPwd
+		if g != "" {
+			pwd = g
+		}
+		fmt.Printf("[devserver] 已播种管理员：%s / %s\n", devAdminUser, pwd)
+	}
 
 	// 5. HTTP 服务（与生产 Start() 路由一致，去掉 Dubbo/Swagger）
 	port := 48080
@@ -83,64 +92,6 @@ func main() {
 		fmt.Sscanf(v, "%d", &port)
 	}
 	startHTTP(port)
-}
-
-func seedAdminIfEmpty() {
-	var count int64
-	if err := store.DB().Model(&model.User{}).Count(&count).Error; err != nil {
-		fmt.Println("[devserver] 统计用户失败:", err)
-		return
-	}
-	if count > 0 {
-		fmt.Printf("[devserver] 已有 %d 个用户，跳过播种\n", count)
-		return
-	}
-
-	// 平台租户（Expired 必须显式赋值，否则 time.Time 零值 '0000-00-00' 会被 MySQL 严格模式拒绝）
-	tenant := &model.Tenant{}
-	tenant.ID = devPlatformTenantID
-	tenant.Name = "平台"
-	tenant.Enable = true
-	tenant.IsMust = true
-	tenant.Expired = time.Now().AddDate(10, 0, 0)
-	if err := store.DB().Create(tenant).Error; err != nil {
-		fmt.Println("[devserver] 创建平台租户失败:", err)
-		return
-	}
-
-	// 超级管理员角色（ID=1，匹配 isSuperAdmin 的 "1" / "super_admin" 判定）
-	role := &model.Role{}
-	role.ID = devSuperAdminRoleID
-	role.Name = "super_admin"
-	role.TenantID = devPlatformTenantID
-	role.IsMust = true
-	role.Description = "超级管理员（devserver 播种）"
-	if err := store.DB().Create(role).Error; err != nil {
-		fmt.Println("[devserver] 创建 super_admin 角色失败:", err)
-		return
-	}
-
-	// 管理员账号
-	pwd, err := model.EncryptedPassword(devAdminPwd)
-	if err != nil {
-		fmt.Println("[devserver] 密码哈希失败:", err)
-		return
-	}
-	u := &model.User{}
-	u.UserName = devAdminUser
-	u.Password = pwd
-	u.Nickname = "管理员"
-	u.Enable = true
-	u.TenantID = devPlatformTenantID
-	if err := store.DB().Create(u).Error; err != nil {
-		fmt.Println("[devserver] 创建 admin 用户失败:", err)
-		return
-	}
-	if err := store.DB().Create(&model.UserRole{UserID: u.ID, RoleID: devSuperAdminRoleID}).Error; err != nil {
-		fmt.Println("[devserver] 关联用户角色失败:", err)
-		return
-	}
-	fmt.Printf("[devserver] 已播种管理员：%s / %s（租户=%s，角色=%s）\n", devAdminUser, devAdminPwd, devPlatformTenantID, devSuperAdminRoleID)
 }
 
 func startHTTP(port int) {
