@@ -22,6 +22,7 @@ import (
 	"github.com/CloudSilk/usercenter/docs"
 	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/provider"
 	"github.com/CloudSilk/usercenter/utils/middleware"
@@ -73,6 +74,10 @@ func main() {
 	}
 	model.InitDB(dbClient, true)
 	token.InitTokenCache(ucconfig.DefaultConfig.Token.Key, ucconfig.DefaultConfig.Token.RedisAddr, ucconfig.DefaultConfig.Token.RedisName, ucconfig.DefaultConfig.Token.RedisPwd, ucconfig.DefaultConfig.Token.Expired)
+	// AI Key 加密密钥：优先显式配置，否则从 token.key 派生（SHA-256），保证部署内确定。
+	if !apikey.SetEncryptionKeyFrom(ucconfig.DefaultConfig.APIKeyEncKey) {
+		apikey.SetEncryptionKeyFrom(ucconfig.DefaultConfig.Token.Key)
+	}
 	constants.SetPlatformTenantID(ucconfig.DefaultConfig.PlatformTenantID)
 	constants.SetSuperAdminRoleID(ucconfig.DefaultConfig.SuperAdminRoleID)
 	constants.SetDefaultRoleID(ucconfig.DefaultConfig.DefaultRoleID)
@@ -133,6 +138,7 @@ func Start(port int) {
 	r.Use(utils.Cors())
 	userhttp.RegisterAuthRouter(r)
 	userhttp.RegisterAdminRouter(r)
+	userhttp.RegisterAIGatewayRouter(r) // OpenAI 兼容 AI 网关：/v1/chat/completions、/v1/models
 
 	// 管理后台单页应用（Vue 3 + Element Plus CDN）。
 	// /web/ 前缀已在 middleware.AuthRequired 中放行，无需鉴权即可加载页面；

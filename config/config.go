@@ -76,6 +76,9 @@ type Config struct {
 	MiniApp          []MiniAppConfig `yaml:"miniApp"`
 	EnableTenant     bool            `yaml:"enableTenant"`
 	LoginLock        LoginLockConfig `yaml:"loginLock"`
+	// APIKeyEncKey 用于 AES-GCM 加密 AI Key 明文（32 字节十六进制/base64 或任意长度，取 SHA-256 派生）。
+	// 留空时从 token.key 派生（SHA-256），保证部署内确定且唯一。
+	APIKeyEncKey string `yaml:"apiKeyEncKey"`
 }
 
 // LoginLockConfig 登录失败锁定策略

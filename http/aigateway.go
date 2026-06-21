@@ -64,7 +64,12 @@ func ChatCompletions(c *gin.Context) {
 	start := time.Now()
 	tenantID := ucm.GetTenantID(c)
 	principalID := ucm.GetUserID(c)
-	principalKind := int32(ucm.GetPrincipalKind(c))
+	// principal.Kind() 为 1/2/3(Human/Agent/Service)，usage/audit 约定 0/1/2，做 -1 对齐。
+	pk := int32(ucm.GetPrincipalKind(c))
+	principalKind := pk - 1
+	if principalKind < 0 {
+		principalKind = 0
+	}
 
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {

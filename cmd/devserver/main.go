@@ -28,6 +28,7 @@ import (
 	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/pkg/db/mysql"
 	"github.com/CloudSilk/pkg/utils"
+	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/principal"
 	"github.com/CloudSilk/usercenter/internal/scim"
@@ -64,6 +65,8 @@ func main() {
 
 	// 2. token 缓存（内存，无 Redis）；key 必须显式配置，否则拒绝启动
 	token.InitTokenCache(devTokenKey, "", "", "", 1440)
+	// AI Key 加密密钥（devserver 用 token key 派生，与生产同款逻辑）
+	apikey.SetEncryptionKeyFrom(devTokenKey)
 
 	// 3. 全局常量
 	constants.SetPlatformTenantID(devPlatformTenantID)
@@ -100,6 +103,7 @@ func startHTTP(port int) {
 	r.Use(utils.Cors())
 	userhttp.RegisterAuthRouter(r)
 	userhttp.RegisterAdminRouter(r)
+	userhttp.RegisterAIGatewayRouter(r) // OpenAI 兼容 AI 网关
 	scim.RegisterSCIMRouter(r, devSCIMToken) // dev 挂载 SCIM，方便面板「SCIM 配置」页测试
 
 	// 内嵌管理后台单页

@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -73,6 +74,19 @@ func SetEncryptionKey(key []byte) {
 	if len(key) >= 32 {
 		encryptionKey = key[:32]
 	}
+}
+
+// SetEncryptionKeyFrom derives the 32-byte AES-GCM key from an arbitrary input
+// via SHA-256. Accepts the raw token key / configured apiKeyEncKey so callers
+// don't need to manage exact byte length. Empty input returns false and leaves
+// the key unset (decrypt/encrypt will then error explicitly).
+func SetEncryptionKeyFrom(input string) bool {
+	if input == "" {
+		return false
+	}
+	sum := sha256.Sum256([]byte(input))
+	encryptionKey = sum[:]
+	return true
 }
 
 func encryptAPIKey(plaintext string) (string, error) {
