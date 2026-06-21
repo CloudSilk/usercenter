@@ -38,7 +38,7 @@ func RecordAuditWithKind(db *gorm.DB, userID, userName string, principalKind int
 	if db == nil {
 		return
 	}
-	if err := db.Create(&AuditLog{
+	al := &AuditLog{
 		UserID:        userID,
 		UserName:      userName,
 		PrincipalKind: principalKind,
@@ -46,9 +46,12 @@ func RecordAuditWithKind(db *gorm.DB, userID, userName string, principalKind int
 		TargetID:      targetID,
 		IP:            ip,
 		Detail:        detail,
-	}).Error; err != nil {
-		log.Errorf(context.Background(), "record audit failed: %v", err)
 	}
+	if err := db.Create(al).Error; err != nil {
+		log.Errorf(context.Background(), "record audit failed: %v", err)
+		return
+	}
+	publish(al) // 广播给实时审计订阅者（SSE 大屏）
 }
 
 // AuditQuery 审计日志查询条件。各过滤字段为零值时表示不限定。

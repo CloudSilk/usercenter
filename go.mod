@@ -21,6 +21,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/nacos-group/nacos-sdk-go v1.1.4
 	github.com/patrickmn/go-cache v2.1.0+incompatible
+	github.com/prometheus/client_golang v1.12.2
 	github.com/silenceper/wechat/v2 v2.1.4
 	github.com/swaggo/gin-swagger v1.3.3
 	github.com/swaggo/swag v1.8.1
@@ -145,7 +146,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/polarismesh/polaris-go v1.3.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
-	github.com/prometheus/client_golang v1.12.2 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.32.1 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect

@@ -43,6 +43,7 @@ func RegisterAdminRouter(r *gin.Engine) {
 	registerDashboardRoutes(g)
 	registerPromptRoutes(g)
 	registerOAuthClientRoutes(g)
+	registerAuditStreamRoute(g)
 }
 
 // ---------------------------------------------------------------------------

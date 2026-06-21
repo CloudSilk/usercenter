@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/usage"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
@@ -98,9 +99,11 @@ func ChatCompletions(c *gin.Context) {
 
 	// 配额：调用前检查租户/Agent 预算
 	if allowed, _, _, _ := usage.CheckBudget(tenantID, principalID, peek.Model); !allowed {
+		observeAIQuotaExceeded()
 		recordGatewayUsage(nil, tenantID, principalID, principalKind, peek.Model, 0, 0, 0, time.Since(start), false, "quota_exceeded")
-		// 成本告警：超额写入审计，供运维与 Wave3 告警系统消费
+		// 成本告警：超额写入审计 + Webhook 推送
 		recordAudit(c, "ai_quota_exceeded", peek.Model, "principal="+principalID)
+		alert.FireWebhook("ai_quota_exceeded", map[string]any{"tenantID": tenantID, "principalID": principalID, "model": peek.Model})
 		c.JSON(http.StatusTooManyRequests, errResp("超出用量配额", http.StatusTooManyRequests))
 		return
 	}
@@ -286,6 +289,8 @@ func recordGatewayUsage(sel *apikey.KeySelection, tenantID, principalID string, 
 		}
 	}
 	usage.RecordUsage(rec)
+	// 上报 Prometheus 指标（cost 暂为 0，未来按模型计价表计算）
+	observeAIGatewayCall(model, prompt, comp, 0, success)
 }
 
 func errResp(msg string, code int) gin.H {

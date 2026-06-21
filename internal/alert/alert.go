@@ -28,6 +28,9 @@ func AlertLoginFailure(userName, ip string) {
 		log.Errorf(context.Background(),
 			"[SECURITY ALERT] 疑似暴力破解: userName=%s ip=%s 在1分钟内登录失败 %d 次",
 			userName, ip, loginFailAlertThreshold)
+		FireWebhook("brute_force_login", map[string]interface{}{
+			"userName": userName, "ip": ip, "failures": loginFailAlertThreshold,
+		})
 	}
 }
 

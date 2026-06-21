@@ -102,12 +102,14 @@ func main() {
 
 func startHTTP(port int) {
 	r := gin.Default()
+	r.Use(userhttp.MetricsMiddleware())
 	r.Use(devAuthRequired) // dev-only：真实验签 + 写 Principal，但跳过 Casbin（全新库 api 表为空）
 	r.Use(utils.Cors())
 	userhttp.RegisterAuthRouter(r)
 	userhttp.RegisterAdminRouter(r)
 	userhttp.RegisterAIGatewayRouter(r) // OpenAI 兼容 AI 网关
 	userhttp.RegisterOIDCRouter(r)      // OIDC/OAuth2 Provider
+	userhttp.RegisterMetricsRouter(r)   // /metrics
 	scim.RegisterSCIMRouter(r, devSCIMToken) // dev 挂载 SCIM，方便面板「SCIM 配置」页测试
 
 	// 内嵌管理后台单页
@@ -159,7 +161,8 @@ func devAuthRequired(c *gin.Context) {
 	}
 	// 登录/健康检查/OIDC 公开端点免登录（spec 要求 discovery/jwks/token/revoke 公开）
 	if path == "/api/core/auth/user/login" || path == "/health" ||
-		path == "/oauth/token" || path == "/oauth/revoke" {
+		path == "/oauth/token" || path == "/oauth/revoke" || path == "/metrics" ||
+		path == "/admin/api/audit/stream" {
 		return
 	}
 	t := middleware.GetAccessToken(c)

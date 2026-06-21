@@ -88,6 +88,7 @@
               <template #title><el-icon><Lock /></el-icon><span>安全审计</span></template>
               <el-menu-item index="sessions"><el-icon><Connection /></el-icon><span>会话管理</span></el-menu-item>
               <el-menu-item index="audit"><el-icon><Document /></el-icon><span>审计日志</span></el-menu-item>
+              <el-menu-item index="liveaudit"><el-icon><DataLine /></el-icon><span>实时监控</span></el-menu-item>
               <el-menu-item index="security"><el-icon><Aim /></el-icon><span>安全中心</span></el-menu-item>
             </el-sub-menu>
             <el-sub-menu index="grp-sys">
@@ -590,6 +591,38 @@
                   @size-change="(s) => { auditSearch.pageSize = s; loadAudits(); }"
                   @current-change="(p) => { auditSearch.pageIndex = p; loadAudits(); }" />
               </div>
+            </el-card>
+          </div>
+
+          <!-- ============ 实时监控（审计 SSE 大屏） ============ -->
+          <div v-show="activeMenu === 'liveaudit'">
+            <el-card class="page-card">
+              <template #header>
+                <div class="toolbar" style="margin-bottom:0">
+                  <span>实时审计事件流</span>
+                  <el-tag :type="liveConnected ? 'success' : 'info'" size="small" style="margin-left:8px">{{ liveConnected ? '已连接' : '未连接' }}</el-tag>
+                  <span class="grow"></span>
+                  <el-button size="small" :type="liveConnected ? 'danger' : 'primary'" @click="toggleLiveAudit">{{ liveConnected ? '断开' : '连接' }}</el-button>
+                  <el-button size="small" @click="liveEvents = []">清空</el-button>
+                  <el-link type="primary" href="/metrics" target="_blank" style="margin-left:8px">/metrics ↗</el-link>
+                </div>
+              </template>
+              <div style="color:#909399;font-size:12px;margin-bottom:8px">
+                通过 SSE 实时推送：用户/管理员/AI 网关的审计事件在此实时刷新。触发任一写操作（如新建用户、超额调用）即可看到事件流入。
+              </div>
+              <el-table :data="liveEvents" border stripe size="small" max-height="520">
+                <el-table-column label="时间" width="160">
+                  <template #default="{ row }"><span class="mono">{{ fmtLiveTime(row.createdAt) }}</span></template>
+                </el-table-column>
+                <el-table-column prop="action" label="操作" min-width="160" />
+                <el-table-column label="主体" width="100">
+                  <template #default="{ row }"><el-tag size="small" :type="row.principalKind===1?'warning':row.principalKind===2?'info':''">{{ ['人类','Agent','Service'][row.principalKind] || row.principalKind }}</el-tag></template>
+                </el-table-column>
+                <el-table-column prop="userName" label="操作人" min-width="120" />
+                <el-table-column prop="targetID" label="目标" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="ip" label="IP" width="130" />
+                <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
+              </el-table>
             </el-card>
           </div>
 
@@ -1388,6 +1421,37 @@
           auditSearch.action = ''; auditSearch.userID = ''; auditSearch.principalKind = ''; auditRange.value = []; auditSearch.pageIndex = 1; loadAudits();
         }
 
+        // ---- 实时监控（审计 SSE）----
+        const liveEvents = ref([]);
+        const liveConnected = ref(false);
+        let liveES = null;
+        function fmtLiveTime(v) {
+          if (!v) return '';
+          const t = dayjs(v);
+          return t.isValid() ? t.format('HH:mm:ss') : String(v);
+        }
+        function toggleLiveAudit() {
+          if (liveConnected.value) {
+            if (liveES) { liveES.close(); liveES = null; }
+            liveConnected.value = false;
+            return;
+          }
+          if (!token.value) { ElementPlus.ElMessage.warning('请先登录'); return; }
+          liveES = new EventSource('/admin/api/audit/stream?access_token=' + encodeURIComponent(token.value));
+          liveES.onopen = () => { liveConnected.value = true; };
+          liveES.onmessage = (e) => {
+            try {
+              const obj = JSON.parse(e.data);
+              liveEvents.value.unshift(obj);
+              if (liveEvents.value.length > 200) liveEvents.value.pop();
+            } catch { /* ignore */ }
+          };
+          liveES.onerror = () => {
+            // 浏览器会自动重连；这里仅更新状态（重连成功 onopen 会再置 true）
+            liveConnected.value = false;
+          };
+        }
+
         // ---- 安全中心 ----
         const securityLoading = ref(false);
         const alerts = reactive({ loginFailThreshold: 0, authFailThreshold: 0, windowMinutes: 0 });
@@ -1671,6 +1735,7 @@
           // Audit
           auditSearch, auditRange, audits, auditTotal, auditLoading, loadAudits, resetAuditSearch,
           // Security
+          liveEvents, liveConnected, toggleLiveAudit, fmtLiveTime,
           securityLoading, alerts, loadAlerts, riskInput, riskResult,
           // SCIM
           ocBase, oauthClients, ocLoading, clientDialogVisible, clientSaving, clientNewSecret, clientForm, loadOAuthClients, openClientDialog, saveOAuthClient, rotateClientSecret, removeOAuthClient,

@@ -79,6 +79,8 @@ type Config struct {
 	// APIKeyEncKey 用于 AES-GCM 加密 AI Key 明文（32 字节十六进制/base64 或任意长度，取 SHA-256 派生）。
 	// 留空时从 token.key 派生（SHA-256），保证部署内确定且唯一。
 	APIKeyEncKey string `yaml:"apiKeyEncKey"`
+	// AlertWebhookURL 告警 Webhook（Slack/钉钉/飞书/自建平台）。空则禁用推送。
+	AlertWebhookURL string `yaml:"alertWebhookURL"`
 }
 
 // LoginLockConfig 登录失败锁定策略

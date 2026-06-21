@@ -22,6 +22,7 @@ import (
 	"github.com/CloudSilk/usercenter/docs"
 	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
@@ -81,6 +82,8 @@ func main() {
 	}
 	// OIDC 密钥管理器（id_token 签名 + JWKS）。
 	auth.InitKeyManager(ucconfig.DefaultConfig.Token.Key)
+	// 告警 Webhook（可选）
+	alert.SetWebhookURL(ucconfig.DefaultConfig.AlertWebhookURL)
 	constants.SetPlatformTenantID(ucconfig.DefaultConfig.PlatformTenantID)
 	constants.SetSuperAdminRoleID(ucconfig.DefaultConfig.SuperAdminRoleID)
 	constants.SetDefaultRoleID(ucconfig.DefaultConfig.DefaultRoleID)
@@ -137,12 +140,14 @@ func Start(port int) {
 	docs.SwaggerInfo.Schemes = []string{"http", "https"}
 
 	r := gin.Default()
+	r.Use(userhttp.MetricsMiddleware()) // Prometheus 指标采集（HTTP 量/延迟）
 	r.Use(middleware.AuthRequired)
 	r.Use(utils.Cors())
 	userhttp.RegisterAuthRouter(r)
 	userhttp.RegisterAdminRouter(r)
 	userhttp.RegisterAIGatewayRouter(r)  // OpenAI 兼容 AI 网关：/v1/chat/completions、/v1/models
 	userhttp.RegisterOIDCRouter(r)       // OIDC/OAuth2 Provider：/.well-known/* /oauth/*
+	userhttp.RegisterMetricsRouter(r)    // /metrics Prometheus 抓取端点
 
 	// 管理后台单页应用（Vue 3 + Element Plus CDN）。
 	// /web/ 前缀已在 middleware.AuthRequired 中放行，无需鉴权即可加载页面；
