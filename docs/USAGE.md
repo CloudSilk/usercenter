@@ -1,6 +1,6 @@
 # UserCenter 使用手册
 
-> 版本:v2.0(Batch 1-4 全部完成)
+> 版本:v3.0(AI 网关 + OIDC IdP + 可观测性 + 运维指挥中心)
 > 适用分支:refactor/redesign-batch1
 
 ---
@@ -19,6 +19,10 @@
 10. [SDK 使用](#10-sdk-使用)
 11. [运维指南](#11-运维指南)
 12. [API 参考](#12-api-参考)
+13. [AI 网关（OpenAI 兼容代理）](#13-ai-网关openai-兼容代理)
+14. [OIDC 身份提供者](#14-oidc-身份提供者)
+15. [可观测性与告警](#15-可观测性与告警)
+16. [可视化管理后台](#16-可视化管理后台)
 
 ---
 
@@ -753,3 +757,137 @@ http://localhost:48080/swagger/usercenter/index.html
 2. **Principal 抽象 Batch 1 前置**(Agent 独立签发,token 结构冻结)
 3. **依赖瘦身**(砍多驱动,保留 Dubbo/WeChat/Nacos)
 4. **Modular Monolith**(20 领域包,model 纯委托层)
+
+---
+
+## 13. AI 网关(OpenAI 兼容代理)
+
+UserCenter 内置一个 **OpenAI 兼容的 AI 网关**：应用只认 UserCenter 一个端点 + 一张 UserCenter token，
+Key 管理 / 智能路由 / 用量计量 / 配额 / Prompt 模板全部收口在此。
+
+### 13.1 聊天补全(流式 + 整包)
+
+```
+POST /v1/chat/completions   # OpenAI 兼容
+GET  /v1/models             # 可用模型别名
+```
+
+- 按 `model` 经 `ModelRoute` 选 Key（主从池 + 故障转移，跳过 cooldown）。
+- `stream:true` 时 **SSE 逐块透传**（自动捕获 `stream_options.include_usage` 的用量）；否则整包转发。
+- 上游 **429 自动冷却该 Key（5min）并重试下一路由**。
+- 调用前校验租户/Agent **配额**（`UsageBudget`），超额返回 HTTP 429 并记 `ai_quota_exceeded` 审计。
+- 调用后记录真实用量（prompt/completion token、延迟、所用 Key）。
+
+```bash
+curl -X POST http://localhost:48080/v1/chat/completions \
+  -H "Authorization: Bearer <usercenter_token>" -H "Content-Type: application/json" \
+  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"stream":true}'
+```
+
+### 13.2 Prompt 模板
+
+```
+POST   /admin/api/prompts           # 创建（content 含 {{变量}} 占位）
+GET    /admin/api/prompts
+PUT    /admin/api/prompts/:id
+DELETE /admin/api/prompts/:id
+POST   /admin/api/prompts/:id/render   # {"vars":{"k":"v"}} → 渲染结果
+```
+
+变量采用**白名单替换**（非 text/template，杜绝注入），未提供的变量替换为空。`variables` 留空时自动从内容扫描。
+
+---
+
+## 14. OIDC 身份提供者
+
+UserCenter 可作为**标准 OIDC IdP**，第三方应用以 OAuth Client 接入做单点登录：
+
+| 端点 | 说明 |
+|------|------|
+| `GET /.well-known/openid-configuration` | 发现文档 |
+| `GET /.well-known/jwks.json` | JWKS（KeyManager 密钥标识） |
+| `POST /oauth/authorize` | 用户 Bearer → 一次性 code，支持 **PKCE S256** |
+| `POST /oauth/token` | `authorization_code` / `client_credentials` / `refresh_token` |
+| `GET /oauth/userinfo` | 用户声明（sub/name/tenant_id/role_ids） |
+| `POST /oauth/revoke` | 吊销 |
+
+- `id_token` 用 KeyManager 活跃密钥（HS256）签发；`access_token` 复用 UserCenter JWT；`refresh_token` **轮换**（用即废）。
+- OAuthClient.Secret 存 **bcrypt**，仅创建/轮转时返回明文一次。
+- 客户端认证：Basic 或 Post。
+
+### 14.1 客户端管理
+
+```
+POST   /admin/api/oauth-clients           # 创建（返回明文 secret 一次）
+GET    /admin/api/oauth-clients
+PUT    /admin/api/oauth-clients/:id
+POST   /admin/api/oauth-clients/:id/rotate-secret
+DELETE /admin/api/oauth-clients/:id
+```
+
+### 14.2 客户端凭证流程示例
+
+```bash
+curl -X POST http://localhost:48080/oauth/token \
+  -u "<client_id>:<client_secret>" \
+  -d "grant_type=client_credentials"
+# → {"access_token":"...","token_type":"Bearer","expires_in":...}
+```
+
+---
+
+## 15. 可观测性与告警
+
+### 15.1 Prometheus 指标
+
+```
+GET /metrics   # Prometheus 抓取端点（公开）
+```
+
+暴露：`usercenter_http_requests_total` / `usercenter_http_request_duration_seconds`（按 method/route/status）、
+`usercenter_aigateway_requests_total` / `_tokens_total` / `_cost_usd_total` / `_quota_exceeded_total`、
+`usercenter_users_total` / `_roles_total` / `_sessions_active` / `_tokens_today`。
+
+### 15.2 审计实时流(SSE)
+
+```
+GET /admin/api/audit/stream?access_token=<jwt>
+```
+
+新产生的审计事件（用户/管理员/AI 网关操作）实时推送给订阅者。token 走 query（EventSource 不能带 Authorization 头）。
+
+### 15.3 Webhook 告警
+
+配置 `alertWebhookURL` 后，关键事件（AI 配额超额 `ai_quota_exceeded`、暴力破解 `brute_force_login`）
+以 JSON POST 异步推送到该 URL，供 Slack/钉钉/飞书/自建平台消费。失败仅记日志，不阻塞业务。
+
+---
+
+## 16. 可视化管理后台
+
+内嵌单页应用（Vue 3 + Element Plus + ECharts，CDN 模式，`go:embed` 打包进二进制）：
+
+```
+http://<host>:48080/web/admin
+```
+
+登录后即用，Token 持久化到 localStorage。**15 个页面**，按四组导航：
+
+| 分组 | 页面 |
+|------|------|
+| 组织管理 | 仪表盘（自动刷新）、用户（批量操作）、角色、租户 |
+| AI 能力 | **AI 网关**（流式测试器 + Prompt 模板）、AI Key 管理（一键实测）、用量统计（ECharts） |
+| 安全审计 | 会话管理、审计日志、**实时监控**（SSE 大屏）、安全中心（风险评分 + **MFA TOTP 注册**） |
+| 系统集成 | OAuth 应用、SCIM 配置、系统配置、API 测试 |
+
+特性：暗色模式、ECharts 用量图表、SSE 实时审计大屏、AI Key 实测、批量用户操作。
+
+### 16.1 本地开发(devserver)
+
+无需 Nacos/Dubbo，纯 HTTP 直连本地 MySQL，自动建表 + 播种管理员：
+
+```bash
+NO_PROXY=localhost,127.0.0.1 UC_PORT=48180 go run ./cmd/devserver/
+# → http://localhost:48180/web/admin   admin / Admin@123456
+```
+
