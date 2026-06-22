@@ -7,6 +7,8 @@
   <link rel="icon" href="data:," />
   <!-- Element Plus 2.x 官方 CDN 样式 -->
   <link rel="stylesheet" href="https://unpkg.com/element-plus@2.7.8/dist/index.css" />
+  <!-- Element Plus 暗色变量（html.dark 生效） -->
+  <link rel="stylesheet" href="https://unpkg.com/element-plus@2.7.8/theme-chalk/dark/css-vars.css" />
   <style>
     html, body { height: 100%; margin: 0; }
     body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f0f2f5; }
@@ -37,6 +39,11 @@
     .el-sub-menu__title { color: #c9d1d9 !important; }
     .el-menu-layout .el-sub-menu .el-menu-item { color: #9aa4af; }
     .el-menu-layout .el-sub-menu .el-menu-item.is-active { color: #fff; }
+    /* 暗色模式覆盖：自定义浅色背景在 html.dark 下切换 */
+    html.dark body { background: #141414; }
+    html.dark .layout-main { background: #141414; }
+    html.dark .page-card { background: var(--el-bg-color); }
+    html.dark .resp-box { background: #0d0d0d; }
   </style>
 </head>
 <body>
@@ -66,6 +73,12 @@
         <span class="brand">UserCenter Admin</span>
         <el-tag type="info" effect="dark" size="small">{{ profile.userName || '-' }}</el-tag>
         <span class="spacer"></span>
+        <el-tooltip :content="isDark ? '切换浅色' : '切换暗色'" placement="bottom">
+          <el-button text style="color:#fff" @click="toggleDark"><el-icon><component :is="isDark ? 'Sunny' : 'Moon'" /></el-icon></el-button>
+        </el-tooltip>
+        <el-tooltip :content="dashAutoRefresh ? '停止自动刷新' : '仪表盘自动刷新(10s)'" placement="bottom">
+          <el-button text style="color:#fff" @click="toggleDashRefresh"><el-icon><component :is="dashAutoRefresh ? 'VideoPause' : 'VideoPlay'" /></el-icon></el-button>
+        </el-tooltip>
         <el-button text style="color:#fff" @click="logout">退出登录</el-button>
       </el-header>
       <el-container>
@@ -144,9 +157,15 @@
                 <el-button type="primary" @click="loadUsers">查询</el-button>
                 <el-button @click="resetUserSearch">重置</el-button>
                 <span class="grow"></span>
+                <template v-if="selectedUsers.length">
+                  <el-button type="success" size="small" @click="bulkUserEnable(true)">批量启用({{ selectedUsers.length }})</el-button>
+                  <el-button type="warning" size="small" @click="bulkUserEnable(false)">批量禁用</el-button>
+                  <el-button type="danger" size="small" @click="bulkUserDelete">批量删除</el-button>
+                </template>
                 <el-button type="success" @click="openUserDialog()">新增用户</el-button>
               </div>
-              <el-table :data="users" v-loading="userLoading" border stripe size="small">
+              <el-table :data="users" v-loading="userLoading" border stripe size="small" @selection-change="(s) => selectedUsers = s">
+                <el-table-column type="selection" width="40" />
                 <el-table-column prop="userName" label="用户名" min-width="120" />
                 <el-table-column prop="nickname" label="昵称" min-width="120" />
                 <el-table-column prop="mobile" label="手机号" min-width="120" />
@@ -445,8 +464,9 @@
                     <el-tag v-if="row.cooldownEnd && row.cooldownEnd > Date.now()" type="warning" size="small" style="margin-left:4px">冷却</el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" width="170" fixed="right">
+                <el-table-column label="操作" width="220" fixed="right">
                   <template #default="{ row }">
+                    <el-button link type="success" size="small" :loading="row._testing" @click="testKey(row)">实测</el-button>
                     <el-button link type="primary" size="small" @click="openRotateKey(row)">轮转</el-button>
                     <el-button link :type="row.enable ? 'warning' : 'success'" size="small" @click="toggleKey(row)">{{ row.enable ? '禁用' : '启用' }}</el-button>
                     <el-button link type="danger" size="small" @click="removeKey(row)">删除</el-button>
@@ -885,6 +905,31 @@
           if (key === 'oauth') { loadOAuthClients(); }
         }
 
+        // ---- 暗色模式 ----
+        const isDark = ref(localStorage.getItem('uc_admin_dark') === '1');
+        function applyDark() {
+          document.documentElement.classList.toggle('dark', isDark.value);
+        }
+        function toggleDark() {
+          isDark.value = !isDark.value;
+          localStorage.setItem('uc_admin_dark', isDark.value ? '1' : '0');
+          applyDark();
+        }
+
+        // ---- 仪表盘自动刷新 ----
+        const dashAutoRefresh = ref(false);
+        let dashTimer = null;
+        function toggleDashRefresh() {
+          dashAutoRefresh.value = !dashAutoRefresh.value;
+          if (dashAutoRefresh.value) {
+            activeMenu.value = 'dashboard';
+            dashTimer = setInterval(() => loadDashboardStats(), 10000);
+            loadDashboardStats();
+          } else if (dashTimer) {
+            clearInterval(dashTimer); dashTimer = null;
+          }
+        }
+
         // ---- 仪表盘统计 ----
         const stat = reactive({ users: 0, roles: 0, tenants: 0, sessions: 0, todayTokens: 0, providers: 0, audits: 0, loginLock: false });
 
@@ -894,6 +939,7 @@
         const userTotal = ref(0);
         const userLoading = ref(false);
         const roles = ref([]);
+        const selectedUsers = ref([]);
 
         async function loadUsers() {
           userLoading.value = true;
@@ -965,6 +1011,29 @@
           const res = await del('/api/core/auth/user/delete', { id: row.id });
           if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadUsers(); }
           else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        // 批量用户操作（复用单个端点，串行执行 + 统计结果）
+        async function bulkUserEnable(enable) {
+          const verb = enable ? '启用' : '禁用';
+          try { await ElementPlus.ElMessageBox.confirm(`确认${verb}选中的 ${selectedUsers.value.length} 个用户？`, '批量操作', { type: 'warning' }); } catch { return; }
+          let ok = 0;
+          for (const u of selectedUsers.value) {
+            const r = await post('/api/core/auth/user/enable', { id: u.id, enable });
+            if (r.code === 0) ok++;
+          }
+          ElementPlus.ElMessage.success(`${verb}完成：${ok}/${selectedUsers.value.length}`);
+          loadUsers();
+        }
+        async function bulkUserDelete() {
+          try { await ElementPlus.ElMessageBox.confirm(`确认删除选中的 ${selectedUsers.value.length} 个用户？此操作不可恢复。`, '批量删除', { type: 'error' }); } catch { return; }
+          let ok = 0;
+          for (const u of selectedUsers.value) {
+            const r = await del('/api/core/auth/user/delete', { id: u.id });
+            if (r.code === 0) ok++;
+          }
+          ElementPlus.ElMessage.success(`删除完成：${ok}/${selectedUsers.value.length}`);
+          loadUsers();
         }
 
         // 重置密码
@@ -1304,6 +1373,23 @@
           const res = await request('DELETE', '/admin/api/ai-keys/' + row.id);
           if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadKeys(); }
           else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        // AI Key 一键实测：真调服务商发 max_tokens=1 补全，验证可用性
+        async function testKey(row) {
+          row._testing = true;
+          try {
+            const res = await post('/admin/api/ai-keys/' + row.id + '/test', {});
+            if (res.code === 0 && res.data) {
+              const d = res.data;
+              if (d.success) {
+                ElementPlus.ElMessage.success(`✓ Key 可用 (${d.statusCode}, ${d.latencyMs}ms, ${d.model})`);
+              } else {
+                ElementPlus.ElMessageBox.alert(`Key 不可用\n状态: ${d.statusCode}\n错误: ${d.error || '未知'}\n延迟: ${d.latencyMs}ms\n响应片段: ${(d.snippet || '').slice(0, 200)}`, '实测失败', { type: 'error' });
+                if (d.error && d.error.includes('429')) loadKeys();
+              }
+            } else ElementPlus.ElMessage.error(res.message || '测试失败');
+          } finally { row._testing = false; }
         }
 
         // ---- 用量统计 ----
@@ -1700,6 +1786,7 @@
 
         // ---- 初始化 ----
         onMounted(async () => {
+          applyDark();
           if (token.value) {
             await loadProfile().catch(() => {});
             if (token.value) await loadAll();
@@ -1713,9 +1800,10 @@
 
         return {
           token, profile, loginForm, loginLoading, doLogin, logout,
-          activeMenu, onMenuSelect, stat, fmtTime,
+          activeMenu, onMenuSelect, stat, fmtTime, isDark, toggleDark, dashAutoRefresh, toggleDashRefresh,
           userSearch, users, userTotal, userLoading, loadUsers, resetUserSearch,
           userDialogVisible, userSaving, userFormRef, userRules, userForm, openUserDialog, saveUser, toggleUserEnable, removeUser,
+          selectedUsers, bulkUserEnable, bulkUserDelete,
           resetPwdVisible, resetPwdLoading, resetPwdTarget, resetPwdValue, openResetPwd, doResetPwd,
           roles,
           roleSearch, roleLoading, roleDialogVisible, roleSaving, roleFormRef, roleRules, roleForm, loadRoles, openRoleDialog, saveRole, removeRole,
@@ -1726,7 +1814,7 @@
           renderDialogVisible, renderInput, renderOutput, openRenderDialog, doRender,
           providers, providerLoading, providerDialogVisible, providerSaving, providerForm, loadProviders, openProviderDialog, saveProvider, removeProvider,
           keysDrawerVisible, keysDrawerProvider, aiKeys, keyLoading, loadKeys, openKeysDrawer, keyDialogVisible, keyForm, keySaving, saveKey, toggleKey, removeKey,
-          rotateDialogVisible, rotateLoading, rotateTarget, rotateValue, openRotateKey, doRotateKey,
+          rotateDialogVisible, rotateLoading, rotateTarget, rotateValue, openRotateKey, doRotateKey, testKey,
           // Usage
           usageRange, usageLoading, usageSummary, loadUsage, chartByModel, chartByPrincipal,
           usageRecent, usageRecentLoading, usageRecentLimit, loadUsageRecent,

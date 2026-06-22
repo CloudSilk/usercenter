@@ -1,8 +1,11 @@
 package http
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	apipb "github.com/CloudSilk/usercenter/proto"
@@ -265,6 +268,70 @@ func registerAIKeyRoutes(g *gin.RouterGroup) {
 		recordAudit(c, "ai_key_delete", id, "")
 		writeOK(c, nil)
 	})
+
+	// 一键实测：用该 Key 向服务商发一个 max_tokens=1 的最小补全，验证 Key 可用性。
+	// 返回 {success, statusCode, latencyMs, model, error}。
+	k.POST("/:id/test", testAIKey)
+}
+
+func testAIKey(c *gin.Context) {
+	id := c.Param("id")
+	plaintext, err := apikey.GetDecryptedKey(id)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	var key apikey.AIKey
+	if err := store.DB().First(&key, "id = ?", id).Error; err != nil {
+		writeErr(c, err)
+		return
+	}
+	provider, err := apikey.GetProviderByID(key.ProviderID)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	model := c.Query("model")
+	if model == "" {
+		model = "gpt-3.5-turbo"
+	}
+	body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],"max_tokens":1}`, model)
+	target := strings.TrimRight(provider.BaseURL, "/") + "/chat/completions"
+	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(body))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	switch strings.ToLower(provider.AuthType) {
+	case "bearer", "":
+		req.Header.Set("Authorization", "Bearer "+plaintext)
+	case "header", "apikey":
+		req.Header.Set("Authorization", plaintext)
+	default:
+		req.Header.Set("Authorization", "Bearer "+plaintext)
+	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	start := time.Now()
+	resp, err := client.Do(req)
+	latency := time.Since(start).Milliseconds()
+	if err != nil {
+		writeOK(c, gin.H{"data": gin.H{"success": false, "latencyMs": latency, "error": err.Error()}})
+		return
+	}
+	defer resp.Body.Close()
+	success := resp.StatusCode < 400
+	errCode := ""
+	if resp.StatusCode == http.StatusTooManyRequests {
+		apikey.MarkCooldown(id, 5*time.Minute)
+		errCode = "429 (Key 已冷却)"
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	recordAudit(c, "ai_key_test", id, fmt.Sprintf("status=%d success=%v", resp.StatusCode, success))
+	writeOK(c, gin.H{"data": gin.H{
+		"success": success, "statusCode": resp.StatusCode, "latencyMs": latency,
+		"model": model, "error": errCode, "snippet": string(b),
+	}})
 }
 
 // ---------------------------------------------------------------------------
