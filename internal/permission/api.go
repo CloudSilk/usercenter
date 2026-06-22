@@ -1,0 +1,308 @@
+package permission
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	commonmodel "github.com/CloudSilk/pkg/model"
+	"github.com/CloudSilk/pkg/utils"
+	"github.com/CloudSilk/pkg/utils/log"
+	"github.com/CloudSilk/usercenter/internal/store"
+	apipb "github.com/CloudSilk/usercenter/proto"
+)
+
+// API 接口定义(从 model/api.go 迁入,与 casbin 同属 internal/permission)
+type API struct {
+	commonmodel.Model
+	TenantID    string `json:"tenantID" gorm:"index;size:36"`
+	ProjectID   string `json:"projectID" gorm:"index;size:36"`
+	Path        string `json:"path" gorm:"size:200;index;comment:路径"`
+	Group       string `json:"group" gorm:"size:50;index;comment:分组"`
+	Method      string `json:"method" gorm:"size:50;index;default:POST;comment:方法"`
+	Description string `json:"description" gorm:"size:200;index;comment:中文描述"`
+	Enable      bool   `json:"enable" gorm:"index;comment:是否启用API"`
+	CheckAuth   bool   `json:"checkAuth" gorm:"index;comment:是否校验权限"`
+	CheckLogin  bool   `json:"checkLogin" gorm:"index;comment:是否校验登录"`
+	IsMust      bool   `json:"isMust" gorm:"index;comment:系统必须要有的数据"`
+}
+
+func (API) TableName() string {
+	return "api"
+}
+
+type QueryAPIRequest struct {
+	commonmodel.CommonRequest
+	Path       string `json:"path" form:"path" path:"path"`
+	Method     string `json:"method" form:"method" path:"method"`
+	Group      string `json:"group" form:"group" path:"group"`
+	CheckAuth  int    `json:"checkAuth" form:"checkAuth" path:"checkAuth"`
+	CheckLogin int    `json:"checkLogin" form:"checkLogin" path:"checkLogin"`
+}
+
+type QueryAPIResponse struct {
+	commonmodel.CommonResponse
+	Data []API `json:"data"`
+}
+
+func CreateAPI(api *API) error {
+	duplication, err := store.Client().CreateWithCheckDuplication(api, "path = ? AND method = ? and tenant_id =? and project_id = ?", api.Path, api.Method, api.TenantID, api.ProjectID)
+	if err != nil {
+		return err
+	}
+	if duplication {
+		return errors.New("存在相同api")
+	}
+	updateNotCheckAuthRule()
+	updateNotCheckLoginRule()
+	return nil
+}
+
+func DeleteApi(id string) (err error) {
+	api := &API{}
+	err = store.DB().Where("id = ?", id).First(&api).Error
+	if err != nil {
+		return err
+	}
+	err = store.DB().Delete(api).Error
+	if err != nil {
+		return err
+	}
+	ClearCasbin(1, api.Path, api.Method)
+	return nil
+}
+
+func QueryAPI(req *apipb.QueryAPIRequest, resp *apipb.QueryAPIResponse) {
+	db := store.DB().Model(&API{})
+	if req.Path != "" {
+		db = db.Where("path LIKE ?", "%"+req.Path+"%")
+	}
+	if req.Method != "" {
+		db = db.Where("method = ?", req.Method)
+	}
+	if req.Group != "" {
+		db = db.Where("`group` = ?", req.Group)
+	}
+	if req.CheckAuth > 0 {
+		db = db.Where("check_auth = ?", req.CheckAuth == 1)
+	}
+	if req.CheckLogin > 0 {
+		db = db.Where("check_login = ?", req.CheckLogin == 1)
+	}
+	if len(req.Ids) > 0 {
+		db = db.Where("id in ?", req.Ids)
+	}
+	if req.TenantID != "" {
+		db = db.Where("tenant_id = ?", req.TenantID)
+	}
+	if req.ProjectID != "" {
+		db = db.Where("project_id = ?", req.ProjectID)
+	}
+	if req.IsMust {
+		db = db.Where("is_must = ?", req.IsMust)
+	}
+	orderStr, err := utils.GenerateOrderString(req.SortConfig, "`path`")
+	if err != nil {
+		resp.Code = apipb.Code_BadRequest
+		resp.Message = err.Error()
+		return
+	}
+	var apis []API
+	resp.Records, resp.Pages, err = store.Client().PageQuery(db, req.PageSize, req.PageIndex, orderStr, &apis, nil)
+	if err != nil {
+		resp.Code = commonmodel.InternalServerError
+		resp.Message = err.Error()
+	} else {
+		resp.Data = APIsToPB(apis)
+	}
+	resp.Total = resp.Records
+}
+
+func GetAllAPIs(req *apipb.QueryAPIRequest) (apis []API, err error) {
+	db := store.DB()
+	if req.TenantID != "" {
+		db = db.Where("tenant_id = ?", req.TenantID)
+	}
+	if req.ProjectID != "" {
+		db = db.Where("project_id = ?", req.ProjectID)
+	}
+	err = db.Find(&apis).Error
+	return
+}
+
+func GetAPIById(id string) (api API, err error) {
+	err = store.DB().Where("id = ?", id).First(&api).Error
+	return
+}
+
+func UpdateAPI(api *API) error {
+	var oldA API
+	err := store.DB().Where("id = ?", api.ID).First(&oldA).Error
+	if err != nil {
+		return err
+	}
+	if oldA.Path != api.Path || oldA.Method != api.Method {
+		err = UpdateCasbinApi(oldA.Path, api.Path, oldA.Method, api.Method)
+		if err != nil {
+			return err
+		}
+	}
+	duplication, err := store.Client().UpdateWithCheckDuplicationAndOmit(store.DB(), api, false, []string{"created_at"}, "id <> ? and path = ? AND method = ? and tenant_id =? and project_id = ?", api.ID, api.Path, api.Method, api.TenantID, api.ProjectID)
+	if err != nil {
+		return err
+	}
+	if duplication {
+		return errors.New("存在相同api")
+	}
+	updateNotCheckAuthRule()
+	updateNotCheckLoginRule()
+	return nil
+}
+
+func EnableAPI(id string, enable bool) error {
+	err := store.DB().Table("api").Where("id=?", id).Update("enable", enable).Error
+	if err != nil {
+		return err
+	}
+	updateNotCheckAuthRule()
+	updateNotCheckLoginRule()
+	return nil
+}
+
+func getAllAPIsByCheck(checkAuth, checkLogin int) []API {
+	db := store.DB().Model(&API{})
+	if checkAuth > 0 {
+		db = db.Where("check_auth = ?", checkAuth == 1)
+	}
+	if checkLogin > 0 {
+		db = db.Where("check_login = ?", checkLogin == 1)
+	}
+	var apis []API
+	if err := db.Find(&apis).Error; err != nil {
+		log.Errorf(context.Background(), "getAllAPIsByCheck error: %v", err)
+		return nil
+	}
+	return apis
+}
+
+func updateNotCheckAuthRule() {
+	apis := getAllAPIsByCheck(2, 1)
+	var newRules []*CasbinRule
+	for _, api := range apis {
+		newRules = append(newRules, &CasbinRule{
+			Ptype:     "p",
+			RoleID:    "0",
+			Path:      api.Path,
+			Method:    api.Method,
+			CheckAuth: "false",
+		})
+	}
+	_, err := ClearCasbin(0, "0")
+	if err != nil {
+		log.Errorf(context.Background(), "updateNotCheckAuthRule error:%v", err)
+	}
+	if len(newRules) > 0 {
+		err = UpdateCasbin("0", newRules)
+		if err != nil {
+			log.Errorf(context.Background(), "updateNotCheckAuthRule error:%v", err)
+		}
+	}
+}
+
+func UpdateNotCheckAuthRule() {
+	updateNotCheckAuthRule()
+}
+
+func updateNotCheckLoginRule() {
+	apis := getAllAPIsByCheck(0, 2)
+	var newRules []*CasbinRule
+	for _, api := range apis {
+		newRules = append(newRules, &CasbinRule{
+			Ptype:     "p",
+			RoleID:    "-1",
+			Path:      api.Path,
+			Method:    api.Method,
+			CheckAuth: "false",
+		})
+	}
+	_, err := ClearCasbin(0, "-1")
+	if err != nil {
+		log.Errorf(context.Background(), "updateNotCheckLoginRule error:%v", err)
+	}
+	if len(newRules) > 0 {
+		err = UpdateCasbin("-1", newRules)
+		if err != nil {
+			log.Errorf(context.Background(), "updateNotCheckLoginRule error:%v", err)
+		}
+	}
+}
+
+func UpdateNotCheckLoginRule() {
+	updateNotCheckLoginRule()
+}
+
+func ExportAllApis(req *apipb.CommonExportRequest, resp *apipb.CommonExportResponse) {
+	db := store.DB().Model(&API{})
+	if req.ProjectID != "" {
+		db = db.Where("project_id = ?", req.ProjectID)
+	}
+	if req.IsMust {
+		db = db.Where("is_must = ?", req.IsMust)
+	}
+	var list []*API
+	if err := db.Find(&list).Error; err != nil {
+		resp.Code = apipb.Code_InternalServerError
+		resp.Message = err.Error()
+	} else {
+		buf, _ := json.Marshal(list)
+		resp.Data = string(buf)
+	}
+}
+
+func PBToAPI(in *apipb.APIInfo) *API {
+	if in == nil {
+		return nil
+	}
+	return &API{
+		Model: commonmodel.Model{
+			ID: in.Id,
+		},
+		ProjectID:   in.ProjectID,
+		TenantID:    in.TenantID,
+		Path:        in.Path,
+		Group:       in.Group,
+		Method:      in.Method,
+		Enable:      in.Enable,
+		Description: in.Description,
+		CheckAuth:   in.CheckAuth,
+		CheckLogin:  in.CheckLogin,
+		IsMust:      in.IsMust,
+	}
+}
+
+func APIToPB(in *API) *apipb.APIInfo {
+	if in == nil {
+		return nil
+	}
+	return &apipb.APIInfo{
+		Id:          in.ID,
+		ProjectID:   in.ProjectID,
+		TenantID:    in.TenantID,
+		Path:        in.Path,
+		Group:       in.Group,
+		Method:      in.Method,
+		Enable:      in.Enable,
+		Description: in.Description,
+		CheckAuth:   in.CheckAuth,
+		CheckLogin:  in.CheckLogin,
+		IsMust:      in.IsMust,
+	}
+}
+
+func APIsToPB(in []API) []*apipb.APIInfo {
+	var list []*apipb.APIInfo
+	for _, api := range in {
+		list = append(list, APIToPB(&api))
+	}
+	return list
+}

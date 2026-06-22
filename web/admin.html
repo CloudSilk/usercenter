@@ -1,0 +1,1926 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UserCenter Admin</title>
+  <link rel="icon" href="data:," />
+  <!-- Element Plus 2.x 官方 CDN 样式 -->
+  <link rel="stylesheet" href="https://unpkg.com/element-plus@2.7.8/dist/index.css" />
+  <!-- Element Plus 暗色变量（html.dark 生效） -->
+  <link rel="stylesheet" href="https://unpkg.com/element-plus@2.7.8/theme-chalk/dark/css-vars.css" />
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f0f2f5; }
+    #app { height: 100%; }
+    .login-wrap { height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1f6feb 0%, #2b6cb0 100%); }
+    .login-card { width: 380px; padding: 30px 30px 10px; border-radius: 8px; }
+    .login-title { text-align: center; margin: 0 0 24px; color: #303133; font-size: 22px; }
+    .layout { height: 100%; }
+    .layout-header { background: #001529; display: flex; align-items: center; color: #fff; padding: 0 20px; }
+    .layout-header .brand { font-size: 18px; font-weight: 600; margin-right: 24px; }
+    .layout-header .spacer { flex: 1; }
+    .layout-aside { background: #001935; color: #fff; }
+    .el-menu-layout { border-right: none; background: transparent; }
+    .el-menu-layout .el-menu-item { color: #c9d1d9; }
+    .el-menu-layout .el-menu-item.is-active { background: #1f6feb; color: #fff; }
+    .layout-main { padding: 16px; background: #f0f2f5; }
+    .page-card { margin-bottom: 16px; }
+    .toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+    .toolbar .grow { flex: 1; }
+    .pager { margin-top: 12px; display: flex; justify-content: flex-end; }
+    .tag-muted { color: #909399; }
+    .chart-box { width: 100%; height: 300px; }
+    .kv-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+    .resp-box { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px;
+      font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+    .mono { font-family: "Cascadia Code", Consolas, monospace; }
+    .el-sub-menu__title { color: #c9d1d9 !important; }
+    .el-menu-layout .el-sub-menu .el-menu-item { color: #9aa4af; }
+    .el-menu-layout .el-sub-menu .el-menu-item.is-active { color: #fff; }
+    /* 暗色模式覆盖：自定义浅色背景在 html.dark 下切换 */
+    html.dark body { background: #141414; }
+    html.dark .layout-main { background: #141414; }
+    html.dark .page-card { background: var(--el-bg-color); }
+    html.dark .resp-box { background: #0d0d0d; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- ============ 登录页 ============ -->
+    <div v-if="!token" class="login-wrap">
+      <el-card class="login-card">
+        <h2 class="login-title">UserCenter 管理后台</h2>
+        <el-form :model="loginForm" label-position="top" @submit.prevent="doLogin">
+          <el-form-item label="用户名">
+            <el-input v-model="loginForm.userName" placeholder="请输入用户名" clearable autocomplete="username" />
+          </el-form-item>
+          <el-form-item label="密码">
+            <el-input v-model="loginForm.password" type="password" placeholder="请输入密码" show-password autocomplete="current-password" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="loginLoading" style="width:100%" @click="doLogin">登 录</el-button>
+          </el-form-item>
+        </el-form>
+        <div style="color:#909399;font-size:12px;text-align:center;">登录后 Token 持久化到 localStorage</div>
+      </el-card>
+    </div>
+
+    <!-- ============ 主布局 ============ -->
+    <el-container v-else class="layout">
+      <el-header class="layout-header" height="56px">
+        <span class="brand">UserCenter Admin</span>
+        <el-tag type="info" effect="dark" size="small">{{ profile.userName || '-' }}</el-tag>
+        <span class="spacer"></span>
+        <el-tooltip :content="isDark ? '切换浅色' : '切换暗色'" placement="bottom">
+          <el-button text style="color:#fff" @click="toggleDark"><el-icon><component :is="isDark ? 'Sunny' : 'Moon'" /></el-icon></el-button>
+        </el-tooltip>
+        <el-tooltip :content="dashAutoRefresh ? '停止自动刷新' : '仪表盘自动刷新(10s)'" placement="bottom">
+          <el-button text style="color:#fff" @click="toggleDashRefresh"><el-icon><component :is="dashAutoRefresh ? 'VideoPause' : 'VideoPlay'" /></el-icon></el-button>
+        </el-tooltip>
+        <el-button text style="color:#fff" @click="logout">退出登录</el-button>
+      </el-header>
+      <el-container>
+        <el-aside class="layout-aside" width="200px">
+          <el-menu :default-active="activeMenu" class="el-menu-layout" @select="onMenuSelect" :unique-opened="true">
+            <el-menu-item index="dashboard"><el-icon><Odometer /></el-icon><span>仪表盘</span></el-menu-item>
+            <el-sub-menu index="grp-org">
+              <template #title><el-icon><OfficeBuilding /></el-icon><span>组织管理</span></template>
+              <el-menu-item index="users"><el-icon><User /></el-icon><span>用户管理</span></el-menu-item>
+              <el-menu-item index="roles"><el-icon><Avatar /></el-icon><span>角色管理</span></el-menu-item>
+              <el-menu-item index="tenants"><el-icon><School /></el-icon><span>租户管理</span></el-menu-item>
+            </el-sub-menu>
+            <el-sub-menu index="grp-ai">
+              <template #title><el-icon><Cpu /></el-icon><span>AI 能力</span></template>
+              <el-menu-item index="gateway"><el-icon><Promotion /></el-icon><span>AI 网关</span></el-menu-item>
+              <el-menu-item index="aikeys"><el-icon><Key /></el-icon><span>AI Key 管理</span></el-menu-item>
+              <el-menu-item index="usage"><el-icon><TrendCharts /></el-icon><span>用量统计</span></el-menu-item>
+            </el-sub-menu>
+            <el-sub-menu index="grp-sec">
+              <template #title><el-icon><Lock /></el-icon><span>安全审计</span></template>
+              <el-menu-item index="sessions"><el-icon><Connection /></el-icon><span>会话管理</span></el-menu-item>
+              <el-menu-item index="audit"><el-icon><Document /></el-icon><span>审计日志</span></el-menu-item>
+              <el-menu-item index="liveaudit"><el-icon><DataLine /></el-icon><span>实时监控</span></el-menu-item>
+              <el-menu-item index="security"><el-icon><Aim /></el-icon><span>安全中心</span></el-menu-item>
+            </el-sub-menu>
+            <el-sub-menu index="grp-sys">
+              <template #title><el-icon><Setting /></el-icon><span>系统集成</span></template>
+              <el-menu-item index="oauth"><el-icon><Connection /></el-icon><span>OAuth 应用</span></el-menu-item>
+              <el-menu-item index="scim"><el-icon><Share /></el-icon><span>SCIM 配置</span></el-menu-item>
+              <el-menu-item index="config"><el-icon><Tools /></el-icon><span>系统配置</span></el-menu-item>
+              <el-menu-item index="tester"><el-icon><Promotion /></el-icon><span>API 测试</span></el-menu-item>
+            </el-sub-menu>
+          </el-menu>
+        </el-aside>
+        <el-main class="layout-main">
+          <!-- 仪表盘 -->
+          <div v-show="activeMenu === 'dashboard'">
+            <el-row :gutter="16">
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="用户总数" :value="stat.users" /></el-card></el-col>
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="角色总数" :value="stat.roles" /></el-card></el-col>
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="租户总数" :value="stat.tenants" /></el-card></el-col>
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="活跃会话" :value="stat.sessions" /></el-card></el-col>
+            </el-row>
+            <el-row :gutter="16">
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="今日 Token 用量" :value="stat.todayTokens" /></el-card></el-col>
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="AI 服务商" :value="stat.providers" /></el-card></el-col>
+              <el-col :span="6"><el-card class="page-card"><el-statistic title="审计日志数" :value="stat.audits" /></el-card></el-col>
+              <el-col :span="6"><el-card class="page-card">
+                <div style="font-size:12px;color:#909399;margin-bottom:4px">登录保护</div>
+                <el-tag :type="stat.loginLock ? 'success' : 'info'" size="large">{{ stat.loginLock ? '已启用' : '未启用' }}</el-tag>
+              </el-card></el-col>
+            </el-row>
+            <el-card class="page-card">
+              <template #header>当前登录信息</template>
+              <el-descriptions :column="2" border>
+                <el-descriptions-item label="用户名">{{ profile.userName || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="昵称">{{ profile.nickname || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="租户ID">{{ profile.tenantID || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="邮箱">{{ profile.email || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="手机">{{ profile.mobile || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="角色">
+                  <el-tag v-for="r in profile.roleIDs" :key="r" size="small" style="margin-right:4px">{{ r }}</el-tag>
+                  <span v-if="!profile.roleIDs || !profile.roleIDs.length" class="tag-muted">无</span>
+                </el-descriptions-item>
+              </el-descriptions>
+            </el-card>
+          </div>
+
+          <!-- 用户管理 -->
+          <div v-show="activeMenu === 'users'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-input v-model="userSearch.userName" placeholder="用户名" clearable style="width:160px" @keyup.enter="loadUsers" />
+                <el-input v-model="userSearch.nickname" placeholder="昵称" clearable style="width:160px" @keyup.enter="loadUsers" />
+                <el-input v-model="userSearch.mobile" placeholder="手机号" clearable style="width:160px" @keyup.enter="loadUsers" />
+                <el-button type="primary" @click="loadUsers">查询</el-button>
+                <el-button @click="resetUserSearch">重置</el-button>
+                <span class="grow"></span>
+                <template v-if="selectedUsers.length">
+                  <el-button type="success" size="small" @click="bulkUserEnable(true)">批量启用({{ selectedUsers.length }})</el-button>
+                  <el-button type="warning" size="small" @click="bulkUserEnable(false)">批量禁用</el-button>
+                  <el-button type="danger" size="small" @click="bulkUserDelete">批量删除</el-button>
+                </template>
+                <el-button type="success" @click="openUserDialog()">新增用户</el-button>
+              </div>
+              <el-table :data="users" v-loading="userLoading" border stripe size="small" @selection-change="(s) => selectedUsers = s">
+                <el-table-column type="selection" width="40" />
+                <el-table-column prop="userName" label="用户名" min-width="120" />
+                <el-table-column prop="nickname" label="昵称" min-width="120" />
+                <el-table-column prop="mobile" label="手机号" min-width="120" />
+                <el-table-column prop="email" label="邮箱" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="title" label="职位" min-width="100" />
+                <el-table-column label="状态" width="90">
+                  <template #default="{ row }">
+                    <el-tag :type="row.enable ? 'success' : 'danger'" size="small">{{ row.enable ? '启用' : '禁用' }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="createdAt" label="创建时间" min-width="160">
+                  <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
+                </el-table-column>
+                <el-table-column label="操作" width="240" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openUserDialog(row)">编辑</el-button>
+                    <el-button link :type="row.enable ? 'warning' : 'success'" size="small" @click="toggleUserEnable(row)">{{ row.enable ? '禁用' : '启用' }}</el-button>
+                    <el-button link type="primary" size="small" @click="openResetPwd(row)">重置密码</el-button>
+                    <el-button link type="danger" size="small" @click="removeUser(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <div class="pager">
+                <el-pagination background layout="total, sizes, prev, pager, next, jumper"
+                  :total="userTotal" :page-size="userSearch.pageSize" :current-page="userSearch.pageIndex"
+                  :page-sizes="[10, 20, 50, 100]"
+                  @size-change="(s) => { userSearch.pageSize = s; loadUsers(); }"
+                  @current-change="(p) => { userSearch.pageIndex = p; loadUsers(); }" />
+              </div>
+            </el-card>
+
+            <!-- 用户编辑弹窗 -->
+            <el-dialog v-model="userDialogVisible" :title="userForm.id ? '编辑用户' : '新增用户'" width="560px">
+              <el-form :model="userForm" label-width="90px" ref="userFormRef" :rules="userRules">
+                <el-form-item label="用户名" prop="userName">
+                  <el-input v-model="userForm.userName" :disabled="!!userForm.id" />
+                </el-form-item>
+                <el-form-item label="昵称" prop="nickname">
+                  <el-input v-model="userForm.nickname" />
+                </el-form-item>
+                <el-form-item label="手机号" prop="mobile"><el-input v-model="userForm.mobile" /></el-form-item>
+                <el-form-item label="邮箱"><el-input v-model="userForm.email" /></el-form-item>
+                <el-form-item label="职位"><el-input v-model="userForm.title" /></el-form-item>
+                <el-form-item label="真实姓名"><el-input v-model="userForm.realName" /></el-form-item>
+                <el-form-item label="工号"><el-input v-model="userForm.eid" /></el-form-item>
+                <el-form-item label="状态"><el-switch v-model="userForm.enable" /></el-form-item>
+                <el-form-item label="角色">
+                  <el-select v-model="userForm.roleIDs" multiple filterable style="width:100%" placeholder="选择角色">
+                    <el-option v-for="r in roles" :key="r.id" :label="r.name" :value="r.id" />
+                  </el-select>
+                </el-form-item>
+              </el-form>
+              <template #footer>
+                <el-button @click="userDialogVisible = false">取消</el-button>
+                <el-button type="primary" :loading="userSaving" @click="saveUser">保存</el-button>
+              </template>
+            </el-dialog>
+
+            <!-- 重置密码弹窗 -->
+            <el-dialog v-model="resetPwdVisible" title="重置密码" width="420px">
+              <p style="margin-top:0">为用户 <b>{{ resetPwdTarget.userName }}</b> 重置密码。留空将生成随机密码。</p>
+              <el-input v-model="resetPwdValue" type="password" show-password placeholder="新密码（留空则随机生成）" />
+              <template #footer>
+                <el-button @click="resetPwdVisible = false">取消</el-button>
+                <el-button type="primary" :loading="resetPwdLoading" @click="doResetPwd">确认重置</el-button>
+              </template>
+            </el-dialog>
+          </div>
+
+          <!-- 角色管理 -->
+          <div v-show="activeMenu === 'roles'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-input v-model="roleSearch.name" placeholder="角色名" clearable style="width:200px" @keyup.enter="loadRoles" />
+                <el-button type="primary" @click="loadRoles">查询</el-button>
+                <span class="grow"></span>
+                <el-button type="success" @click="openRoleDialog()">新增角色</el-button>
+              </div>
+              <el-table :data="roles" v-loading="roleLoading" border stripe size="small">
+                <el-table-column prop="name" label="角色名" min-width="140" />
+                <el-table-column prop="code" label="编码" min-width="140" />
+                <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
+                <el-table-column prop="tenantName" label="租户" min-width="120" />
+                <el-table-column label="操作" width="180" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openRoleDialog(row)">编辑</el-button>
+                    <el-button link type="danger" size="small" :disabled="!row.canDel" @click="removeRole(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+
+            <el-dialog v-model="roleDialogVisible" :title="roleForm.id ? '编辑角色' : '新增角色'" width="500px">
+              <el-form :model="roleForm" label-width="80px" ref="roleFormRef" :rules="roleRules">
+                <el-form-item label="名称" prop="name"><el-input v-model="roleForm.name" /></el-form-item>
+                <el-form-item label="编码"><el-input v-model="roleForm.code" /></el-form-item>
+                <el-form-item label="描述"><el-input v-model="roleForm.description" type="textarea" :rows="2" /></el-form-item>
+              </el-form>
+              <template #footer>
+                <el-button @click="roleDialogVisible = false">取消</el-button>
+                <el-button type="primary" :loading="roleSaving" @click="saveRole">保存</el-button>
+              </template>
+            </el-dialog>
+          </div>
+
+          <!-- 租户管理 -->
+          <div v-show="activeMenu === 'tenants'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-input v-model="tenantSearch.name" placeholder="租户名" clearable style="width:200px" @keyup.enter="loadTenants" />
+                <el-button type="primary" @click="loadTenants">查询</el-button>
+                <span class="grow"></span>
+                <el-button type="success" @click="openTenantDialog()">新增租户</el-button>
+              </div>
+              <el-table :data="tenants" v-loading="tenantLoading" border stripe size="small">
+                <el-table-column prop="name" label="租户名" min-width="160" />
+                <el-table-column prop="contact" label="联系人" min-width="100" />
+                <el-table-column prop="cellPhone" label="联系电话" min-width="120" />
+                <el-table-column prop="staffSize" label="规模" width="90" />
+                <el-table-column label="状态" width="90">
+                  <template #default="{ row }">
+                    <el-tag :type="row.enable ? 'success' : 'danger'" size="small">{{ row.enable ? '启用' : '禁用' }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="userCount" label="用户数" width="90" />
+                <el-table-column prop="roleCount" label="角色数" width="90" />
+                <el-table-column label="操作" width="220" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openTenantDialog(row)">编辑</el-button>
+                    <el-button link :type="row.enable ? 'warning' : 'success'" size="small" @click="toggleTenantEnable(row)">{{ row.enable ? '禁用' : '启用' }}</el-button>
+                    <el-button link type="danger" size="small" @click="removeTenant(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <div class="pager">
+                <el-pagination background layout="total, sizes, prev, pager, next, jumper"
+                  :total="tenantTotal" :page-size="tenantSearch.pageSize" :current-page="tenantSearch.pageIndex"
+                  :page-sizes="[10, 20, 50]"
+                  @size-change="(s) => { tenantSearch.pageSize = s; loadTenants(); }"
+                  @current-change="(p) => { tenantSearch.pageIndex = p; loadTenants(); }" />
+              </div>
+            </el-card>
+
+            <el-dialog v-model="tenantDialogVisible" :title="tenantForm.id ? '编辑租户' : '新增租户'" width="540px">
+              <el-form :model="tenantForm" label-width="90px" ref="tenantFormRef" :rules="tenantRules">
+                <el-form-item label="租户名" prop="name"><el-input v-model="tenantForm.name" /></el-form-item>
+                <el-form-item label="联系人"><el-input v-model="tenantForm.contact" /></el-form-item>
+                <el-form-item label="联系电话"><el-input v-model="tenantForm.cellPhone" /></el-form-item>
+                <el-form-item label="地址"><el-input v-model="tenantForm.address" /></el-form-item>
+                <el-form-item label="规模"><el-input-number v-model="tenantForm.staffSize" :min="0" /></el-form-item>
+                <el-form-item label="状态"><el-switch v-model="tenantForm.enable" /></el-form-item>
+              </el-form>
+              <template #footer>
+                <el-button @click="tenantDialogVisible = false">取消</el-button>
+                <el-button type="primary" :loading="tenantSaving" @click="saveTenant">保存</el-button>
+              </template>
+            </el-dialog>
+          </div>
+
+          <!-- ============ AI 网关（OpenAI 兼容代理 + Prompt 模板） ============ -->
+          <div v-show="activeMenu === 'gateway'">
+            <el-card class="page-card">
+              <template #header>
+                <div class="toolbar" style="margin-bottom:0"><span>网关测试（/v1/chat/completions）</span><span class="grow"></span>
+                  <el-button size="small" @click="loadGatewayModels">刷新模型</el-button>
+                </div>
+              </template>
+              <el-form label-width="80px">
+                <el-form-item label="模型">
+                  <el-select v-model="gw.model" filterable allow-create placeholder="选择或输入模型别名" style="width:280px">
+                    <el-option v-for="m in gwModels" :key="m.id" :label="m.id" :value="m.id" />
+                  </el-select>
+                  <el-checkbox v-model="gw.stream" style="margin-left:16px">流式 (SSE)</el-checkbox>
+                </el-form-item>
+                <el-form-item label="System">
+                  <el-input v-model="gw.system" type="textarea" :rows="2" placeholder="可选 system prompt" />
+                </el-form-item>
+                <el-form-item label="消息">
+                  <el-input v-model="gw.userMsg" type="textarea" :rows="4" placeholder="用户消息" />
+                </el-form-item>
+                <el-form-item>
+                  <el-button type="primary" :loading="gw.loading" @click="sendGatewayChat">发送</el-button>
+                  <el-button @click="gw.response=''; gw.tokens=null">清空</el-button>
+                </el-form-item>
+              </el-form>
+              <div style="margin-top:8px;font-weight:600">响应</div>
+              <div class="resp-box">{{ gw.response || '(尚未发送)' }}</div>
+              <div v-if="gw.tokens" style="margin-top:8px;color:#909399;font-size:12px">用量：prompt {{ gw.tokens.prompt }} / completion {{ gw.tokens.completion }} / total {{ gw.tokens.total }}</div>
+            </el-card>
+
+            <el-card class="page-card">
+              <template #header>
+                <div class="toolbar" style="margin-bottom:0"><span>Prompt 模板</span><span class="grow"></span>
+                  <el-button size="small" @click="loadPrompts">刷新</el-button>
+                  <el-button size="small" type="success" @click="openPromptDialog()">新增模板</el-button>
+                </div>
+              </template>
+              <el-table :data="prompts" v-loading="promptLoading" border stripe size="small">
+                <el-table-column prop="name" label="名称" min-width="120" />
+                <el-table-column prop="category" label="分类" width="100" />
+                <el-table-column prop="modelAlias" label="建议模型" width="120" />
+                <el-table-column prop="variables" label="变量" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="content" label="内容预览" min-width="220" show-overflow-tooltip />
+                <el-table-column label="操作" width="180" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openPromptDialog(row)">编辑</el-button>
+                    <el-button link type="primary" size="small" @click="openRenderDialog(row)">渲染测试</el-button>
+                    <el-button link type="danger" size="small" @click="removePrompt(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+
+            <el-dialog v-model="promptDialogVisible" :title="promptForm.id ? '编辑模板' : '新增模板'" width="640px">
+              <el-form :model="promptForm" label-width="80px">
+                <el-form-item label="名称"><el-input v-model="promptForm.name" /></el-form-item>
+                <el-form-item label="分类"><el-input v-model="promptForm.category" placeholder="system / agent / rag" /></el-form-item>
+                <el-form-item label="建议模型"><el-input v-model="promptForm.modelAlias" placeholder="gpt-4o" /></el-form-item>
+                <el-form-item label="内容"><el-input v-model="promptForm.content" type="textarea" :rows="6" placeholder="含 {{变量}} 占位，例如：总结以下文本：{{text}}" /></el-form-item>
+                <el-form-item label="变量"><el-input v-model="promptForm.variables" placeholder="留空自动从内容扫描（逗号分隔）" /></el-form-item>
+                <el-form-item label="启用"><el-switch v-model="promptForm.enable" /></el-form-item>
+              </el-form>
+              <template #footer>
+                <el-button @click="promptDialogVisible = false">取消</el-button>
+                <el-button type="primary" :loading="promptSaving" @click="savePrompt">保存</el-button>
+              </template>
+            </el-dialog>
+
+            <el-dialog v-model="renderDialogVisible" title="渲染测试" width="640px">
+              <p style="margin-top:0">模板变量（每行一个 <code class="mono">key=value</code>）：</p>
+              <el-input v-model="renderInput" type="textarea" :rows="5" placeholder="name=Alice&#10;role=admin" class="mono" />
+              <el-button style="margin-top:8px" type="primary" size="small" @click="doRender">渲染</el-button>
+              <div style="margin-top:8px;font-weight:600">结果</div>
+              <div class="resp-box">{{ renderOutput || '(点击渲染)' }}</div>
+            </el-dialog>
+          </div>
+
+          <!-- ============ AI Key 管理 ============ -->
+          <div v-show="activeMenu === 'aikeys'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-button type="primary" @click="loadProviders">刷新服务商</el-button>
+                <span class="grow"></span>
+                <el-button type="success" @click="openProviderDialog()">新增服务商</el-button>
+              </div>
+              <el-table :data="providers" v-loading="providerLoading" border stripe size="small">
+                <el-table-column prop="name" label="服务商" min-width="120" />
+                <el-table-column prop="baseURL" label="BaseURL" min-width="220" show-overflow-tooltip />
+                <el-table-column prop="authType" label="鉴权方式" width="110" />
+                <el-table-column label="健康" width="80">
+                  <template #default="{ row }"><el-tag :type="row.healthy ? 'success' : 'danger'" size="small">{{ row.healthy ? '正常' : '异常' }}</el-tag></template>
+                </el-table-column>
+                <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
+                <el-table-column label="操作" width="220" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openProviderDialog(row)">编辑</el-button>
+                    <el-button link type="primary" size="small" @click="openKeysDrawer(row)">Key 管理</el-button>
+                    <el-button link type="danger" size="small" @click="removeProvider(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+
+            <el-dialog v-model="providerDialogVisible" :title="providerForm.id ? '编辑服务商' : '新增服务商'" width="520px">
+              <el-form :model="providerForm" label-width="90px">
+                <el-form-item label="名称"><el-input v-model="providerForm.name" /></el-form-item>
+                <el-form-item label="BaseURL"><el-input v-model="providerForm.baseURL" placeholder="https://api.openai.com/v1" /></el-form-item>
+                <el-form-item label="鉴权方式">
+                  <el-select v-model="providerForm.authType" style="width:100%">
+                    <el-option label="Bearer Token" value="bearer" />
+                    <el-option label="API Key Header" value="header" />
+                    <el-option label="Query Param" value="query" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="描述"><el-input v-model="providerForm.description" type="textarea" :rows="2" /></el-form-item>
+              </el-form>
+              <template #footer>
+                <el-button @click="providerDialogVisible = false">取消</el-button>
+                <el-button type="primary" :loading="providerSaving" @click="saveProvider">保存</el-button>
+              </template>
+            </el-dialog>
+
+            <el-drawer v-model="keysDrawerVisible" :title="'Key 管理 - ' + (keysDrawerProvider.name || '')" size="640px">
+              <div class="toolbar">
+                <el-button type="primary" size="small" @click="loadKeys">刷新</el-button>
+                <span class="grow"></span>
+                <el-button type="success" size="small" @click="openKeyDialog()">新增 Key</el-button>
+              </div>
+              <el-table :data="aiKeys" v-loading="keyLoading" border stripe size="small">
+                <el-table-column prop="name" label="名称" min-width="120" />
+                <el-table-column prop="keyHint" label="KeyHint" min-width="120" />
+                <el-table-column prop="priority" label="优先级" width="80" />
+                <el-table-column label="状态" width="120">
+                  <template #default="{ row }">
+                    <el-tag :type="row.enable ? 'success' : 'info'" size="small">{{ row.enable ? '启用' : '禁用' }}</el-tag>
+                    <el-tag v-if="row.cooldownEnd && row.cooldownEnd > Date.now()" type="warning" size="small" style="margin-left:4px">冷却</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="220" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="success" size="small" :loading="row._testing" @click="testKey(row)">实测</el-button>
+                    <el-button link type="primary" size="small" @click="openRotateKey(row)">轮转</el-button>
+                    <el-button link :type="row.enable ? 'warning' : 'success'" size="small" @click="toggleKey(row)">{{ row.enable ? '禁用' : '启用' }}</el-button>
+                    <el-button link type="danger" size="small" @click="removeKey(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+
+              <el-dialog v-model="keyDialogVisible" title="新增 Key" width="460px" append-to-body>
+                <el-form :model="keyForm" label-width="80px">
+                  <el-form-item label="名称"><el-input v-model="keyForm.name" /></el-form-item>
+                  <el-form-item label="密钥"><el-input v-model="keyForm.apiKey" type="password" show-password placeholder="sk-..." /></el-form-item>
+                  <el-form-item label="优先级"><el-input-number v-model="keyForm.priority" :min="0" /></el-form-item>
+                  <el-form-item label="启用"><el-switch v-model="keyForm.enable" /></el-form-item>
+                </el-form>
+                <template #footer>
+                  <el-button @click="keyDialogVisible = false">取消</el-button>
+                  <el-button type="primary" :loading="keySaving" @click="saveKey">保存</el-button>
+                </template>
+              </el-dialog>
+
+              <el-dialog v-model="rotateDialogVisible" title="轮转 Key" width="440px" append-to-body>
+                <p style="margin-top:0">为 Key <b>{{ rotateTarget.name }}</b> 替换为新密钥（旧密钥立即失效）。</p>
+                <el-input v-model="rotateValue" type="password" show-password placeholder="新的 API Key" />
+                <template #footer>
+                  <el-button @click="rotateDialogVisible = false">取消</el-button>
+                  <el-button type="primary" :loading="rotateLoading" @click="doRotateKey">确认轮转</el-button>
+                </template>
+              </el-dialog>
+            </el-drawer>
+          </div>
+
+          <!-- ============ 用量统计 ============ -->
+          <div v-show="activeMenu === 'usage'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-date-picker v-model="usageRange" type="datetimerange" range-separator="至" start-placeholder="开始" end-placeholder="结束" value-format="X" format="YYYY-MM-DD HH:mm" style="width:360px" />
+                <el-button type="primary" @click="loadUsage">查询</el-button>
+                <span class="grow"></span>
+              </div>
+              <el-row :gutter="16" v-loading="usageLoading">
+                <el-col :span="8"><el-card shadow="never"><el-statistic title="总 Token" :value="usageSummary.totalTokens" /></el-card></el-col>
+                <el-col :span="8"><el-card shadow="never"><el-statistic title="总成本($)" :precision="4" :value="usageSummary.totalCost" /></el-card></el-col>
+                <el-col :span="8"><el-card shadow="never"><el-statistic title="请求次数" :value="usageSummary.requestCount" /></el-card></el-col>
+              </el-row>
+            </el-card>
+            <el-row :gutter="16">
+              <el-col :span="12">
+                <el-card class="page-card"><template #header>按模型分布(Token)</template><div ref="chartByModel" class="chart-box"></div></el-card>
+              </el-col>
+              <el-col :span="12">
+                <el-card class="page-card"><template #header>按主体分布(Token)</template><div ref="chartByPrincipal" class="chart-box"></div></el-card>
+              </el-col>
+            </el-row>
+            <el-card class="page-card">
+              <template #header>
+                <div class="toolbar" style="margin-bottom:0">
+                  <span>最近用量明细</span>
+                  <span class="grow"></span>
+                  <el-input-number v-model="usageRecentLimit" :min="1" :max="500" size="small" />
+                  <el-button size="small" type="primary" @click="loadUsageRecent">刷新</el-button>
+                </div>
+              </template>
+              <el-table :data="usageRecent" v-loading="usageRecentLoading" border stripe size="small">
+                <el-table-column prop="model" label="模型" min-width="120" />
+                <el-table-column prop="principalID" label="主体" min-width="120" show-overflow-tooltip />
+                <el-table-column prop="promptTokens" label="输入" width="90" />
+                <el-table-column prop="completionTokens" label="输出" width="90" />
+                <el-table-column prop="totalTokens" label="合计" width="90" />
+                <el-table-column prop="cost" label="成本" width="90" />
+                <el-table-column label="结果" width="80"><template #default="{ row }"><el-tag :type="row.success ? 'success' : 'danger'" size="small">{{ row.success ? '成功' : '失败' }}</el-tag></template></el-table-column>
+                <el-table-column prop="latencyMs" label="延迟(ms)" width="100" />
+                <el-table-column label="时间" min-width="150"><template #default="{ row }">{{ fmtTime(row.createdAt) }}</template></el-table-column>
+              </el-table>
+            </el-card>
+          </div>
+
+          <!-- ============ 会话管理 ============ -->
+          <div v-show="activeMenu === 'sessions'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-input v-model="sessionSearch.principalID" placeholder="主体 ID(用户/Agent ID)" clearable style="width:240px" @keyup.enter="loadSessions" />
+                <el-checkbox v-model="sessionSearch.active">仅活跃</el-checkbox>
+                <el-button type="primary" @click="loadSessions">查询</el-button>
+                <span class="grow"></span>
+                <el-button type="warning" @click="revokeAllSessions">下线该主体全部会话</el-button>
+                <el-button @click="cleanSessions">清理过期会话</el-button>
+              </div>
+              <el-table :data="sessions" v-loading="sessionLoading" border stripe size="small">
+                <el-table-column prop="deviceName" label="设备" min-width="140" show-overflow-tooltip />
+                <el-table-column label="类型" width="90">
+                  <template #default="{ row }">{{ ['Web','Android','iPhone','iPad'][row.deviceType] || row.deviceType }}</template>
+                </el-table-column>
+                <el-table-column prop="ip" label="IP" width="130" />
+                <el-table-column prop="location" label="位置" min-width="120" show-overflow-tooltip />
+                <el-table-column prop="userAgent" label="UserAgent" min-width="200" show-overflow-tooltip />
+                <el-table-column label="状态" width="90">
+                  <template #default="{ row }"><el-tag :type="row.revoked ? 'info' : 'success'" size="small">{{ row.revoked ? '已吊销' : '活跃' }}</el-tag></template>
+                </el-table-column>
+                <el-table-column label="最后活跃" min-width="150"><template #default="{ row }">{{ fmtTime(row.lastActiveAt) }}</template></el-table-column>
+                <el-table-column label="操作" width="100" fixed="right">
+                  <template #default="{ row }">
+                    <el-button v-if="!row.revoked" link type="danger" size="small" @click="revokeSession(row)">吊销</el-button>
+                    <span v-else class="tag-muted">-</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+          </div>
+
+          <!-- ============ 审计日志 ============ -->
+          <div v-show="activeMenu === 'audit'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-input v-model="auditSearch.action" placeholder="操作类型" clearable style="width:160px" />
+                <el-input v-model="auditSearch.userID" placeholder="操作人ID" clearable style="width:160px" />
+                <el-select v-model="auditSearch.principalKind" placeholder="主体类型" clearable style="width:140px">
+                  <el-option label="人类" :value="0" />
+                  <el-option label="Agent" :value="1" />
+                  <el-option label="Service" :value="2" />
+                </el-select>
+                <el-date-picker v-model="auditRange" type="datetimerange" range-separator="至" start-placeholder="开始" end-placeholder="结束" value-format="X" format="YYYY-MM-DD HH:mm" />
+                <el-button type="primary" @click="loadAudits">查询</el-button>
+                <el-button @click="resetAuditSearch">重置</el-button>
+              </div>
+              <el-table :data="audits" v-loading="auditLoading" border stripe size="small">
+                <el-table-column label="时间" min-width="150"><template #default="{ row }">{{ fmtTime(row.createdAt) }}</template></el-table-column>
+                <el-table-column prop="action" label="操作" min-width="140" />
+                <el-table-column label="主体类型" width="100">
+                  <template #default="{ row }">
+                    <el-tag size="small" :type="row.principalKind===1?'warning':row.principalKind===2?'info':''">{{ ['人类','Agent','Service'][row.principalKind] || row.principalKind }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="userName" label="操作人" min-width="120" />
+                <el-table-column prop="targetID" label="目标对象" min-width="140" show-overflow-tooltip />
+                <el-table-column prop="ip" label="IP" width="130" />
+                <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
+              </el-table>
+              <div class="pager">
+                <el-pagination background layout="total, sizes, prev, pager, next, jumper"
+                  :total="auditTotal" :page-size="auditSearch.pageSize" :current-page="auditSearch.pageIndex"
+                  :page-sizes="[10, 20, 50, 100]"
+                  @size-change="(s) => { auditSearch.pageSize = s; loadAudits(); }"
+                  @current-change="(p) => { auditSearch.pageIndex = p; loadAudits(); }" />
+              </div>
+            </el-card>
+          </div>
+
+          <!-- ============ 实时监控（审计 SSE 大屏） ============ -->
+          <div v-show="activeMenu === 'liveaudit'">
+            <el-card class="page-card">
+              <template #header>
+                <div class="toolbar" style="margin-bottom:0">
+                  <span>实时审计事件流</span>
+                  <el-tag :type="liveConnected ? 'success' : 'info'" size="small" style="margin-left:8px">{{ liveConnected ? '已连接' : '未连接' }}</el-tag>
+                  <span class="grow"></span>
+                  <el-button size="small" :type="liveConnected ? 'danger' : 'primary'" @click="toggleLiveAudit">{{ liveConnected ? '断开' : '连接' }}</el-button>
+                  <el-button size="small" @click="liveEvents = []">清空</el-button>
+                  <el-link type="primary" href="/metrics" target="_blank" style="margin-left:8px">/metrics ↗</el-link>
+                </div>
+              </template>
+              <div style="color:#909399;font-size:12px;margin-bottom:8px">
+                通过 SSE 实时推送：用户/管理员/AI 网关的审计事件在此实时刷新。触发任一写操作（如新建用户、超额调用）即可看到事件流入。
+              </div>
+              <el-table :data="liveEvents" border stripe size="small" max-height="520">
+                <el-table-column label="时间" width="160">
+                  <template #default="{ row }"><span class="mono">{{ fmtLiveTime(row.createdAt) }}</span></template>
+                </el-table-column>
+                <el-table-column prop="action" label="操作" min-width="160" />
+                <el-table-column label="主体" width="100">
+                  <template #default="{ row }"><el-tag size="small" :type="row.principalKind===1?'warning':row.principalKind===2?'info':''">{{ ['人类','Agent','Service'][row.principalKind] || row.principalKind }}</el-tag></template>
+                </el-table-column>
+                <el-table-column prop="userName" label="操作人" min-width="120" />
+                <el-table-column prop="targetID" label="目标" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="ip" label="IP" width="130" />
+                <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
+              </el-table>
+            </el-card>
+          </div>
+
+          <!-- ============ 安全中心 ============ -->
+          <div v-show="activeMenu === 'security'">
+            <el-row :gutter="16">
+              <el-col :span="12">
+                <el-card class="page-card">
+                  <template #header>登录保护策略</template>
+                  <el-descriptions :column="1" border v-loading="securityLoading">
+                    <el-descriptions-item label="登录失败锁定阈值">{{ alerts.loginFailThreshold }} 次</el-descriptions-item>
+                    <el-descriptions-item label="鉴权失败告警阈值">{{ alerts.authFailThreshold }} 次</el-descriptions-item>
+                    <el-descriptions-item label="统计窗口">{{ alerts.windowMinutes }} 分钟</el-descriptions-item>
+                    <el-descriptions-item label="IP 限流">{{ alerts.loginFailThreshold }} 次/窗口触发告警</el-descriptions-item>
+                  </el-descriptions>
+                  <div style="color:#909399;font-size:12px;margin-top:8px">
+                    配置在 Nacos / loginLock 段。修改后重启生效。连接失败登录仍会被记录到审计日志。
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :span="12">
+                <el-card class="page-card">
+                  <template #header>Zero Trust 风险评分（演示）</template>
+                  <el-form label-width="120px" size="small">
+                    <el-form-item label="当前 IP"><el-input v-model="riskInput.currentIP" /></el-form-item>
+                    <el-form-item label="签发 IP"><el-input v-model="riskInput.tokenIP" /></el-form-item>
+                    <el-form-item label="Token 年龄(小时)"><el-input-number v-model="riskInput.tokenAgeHours" :min="0" /></el-form-item>
+                    <el-form-item label="新设备"><el-switch v-model="riskInput.newDevice" /></el-form-item>
+                    <el-form-item label="近期失败次数"><el-input-number v-model="riskInput.failedAuths" :min="0" /></el-form-item>
+                  </el-form>
+                  <el-alert :title="riskResult.title" :type="riskResult.type" :description="riskResult.desc" show-icon :closable="false" />
+                </el-card>
+              </el-col>
+            </el-row>
+
+            <el-card class="page-card">
+              <template #header>
+                <div class="toolbar" style="margin-bottom:0"><span>MFA 多因子（TOTP 注册）</span><span class="grow"></span>
+                  <el-button size="small" type="primary" @click="enrollMFA">生成绑定密钥</el-button>
+                  <el-button size="small" @click="loadMFAFactors">刷新已绑定</el-button>
+                </div>
+              </template>
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <div v-if="mfaSecret" style="text-align:center">
+                    <canvas ref="mfaQrCanvas"></canvas>
+                    <div class="mono" style="font-size:11px;color:#909399;margin-top:8px;word-break:break-all">{{ mfaSecret }}</div>
+                    <div style="margin-top:8px">
+                      <el-input v-model="mfaName" size="small" placeholder="设备名（如 iPhone）" style="width:160px" />
+                      <el-input v-model="mfaCode" size="small" placeholder="6 位验证码" style="width:140px;margin-left:8px" maxlength="6" />
+                      <el-button size="small" type="success" :loading="mfaConfirming" style="margin-left:8px" @click="confirmMFA">确认绑定</el-button>
+                    </div>
+                  </div>
+                  <div v-else style="color:#909399;font-size:13px">点击「生成绑定密钥」开始：用 Google Authenticator / 1Password 扫描二维码，再输入 6 位验证码确认。</div>
+                </el-col>
+                <el-col :span="12">
+                  <div style="font-weight:600;margin-bottom:8px">已绑定的因子</div>
+                  <el-table :data="mfaFactors" border size="small">
+                    <el-table-column prop="name" label="名称" min-width="120"><template #default="{ row }">{{ row.name || '-' }}</template></el-table-column>
+                    <el-table-column prop="type" label="类型" width="100" />
+                    <el-table-column label="状态" width="80"><template #default="{ row }"><el-tag :type="row.enable ? 'success':'info'" size="small">{{ row.enable ? '启用' : '禁用' }}</el-tag></template></el-table-column>
+                    <el-table-column label="操作" width="90"><template #default="{ row }"><el-button link type="danger" size="small" @click="unbindMFA(row)">解绑</el-button></template></el-table-column>
+                  </el-table>
+                  <div v-if="!mfaFactors.length" style="color:#c0c4cc;font-size:12px;margin-top:8px">尚未绑定任何因子</div>
+                </el-col>
+              </el-row>
+            </el-card>
+          </div>
+
+          <!-- ============ OAuth 应用（OIDC Client 管理） ============ -->
+          <div v-show="activeMenu === 'oauth'">
+            <el-card class="page-card">
+              <template #header>usercenter 作为 OIDC 身份提供者（IdP）</template>
+              <el-descriptions :column="1" border>
+                <el-descriptions-item label="发现文档"><span class="mono">{{ ocBase }}/​.well-known/openid-configuration</span></el-descriptions-item>
+                <el-descriptions-item label="JWKS"><span class="mono">{{ ocBase }}/​.well-known/jwks.json</span></el-descriptions-item>
+                <el-descriptions-item label="授权端点"><span class="mono">{{ ocBase }}/oauth/authorize</span>（POST，需用户 Bearer）</el-descriptions-item>
+                <el-descriptions-item label="令牌端点"><span class="mono">{{ ocBase }}/oauth/token</span>（authorization_code / client_credentials / refresh_token）</el-descriptions-item>
+                <el-descriptions-item label="UserInfo"><span class="mono">{{ ocBase }}/oauth/userinfo</span></el-descriptions-item>
+              </el-descriptions>
+            </el-card>
+            <el-card class="page-card">
+              <div class="toolbar">
+                <span>OAuth 客户端</span><span class="grow"></span>
+                <el-button type="success" @click="openClientDialog()">新建客户端</el-button>
+                <el-button @click="loadOAuthClients">刷新</el-button>
+              </div>
+              <el-table :data="oauthClients" v-loading="ocLoading" border stripe size="small">
+                <el-table-column prop="id" label="Client ID" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="name" label="名称" min-width="120" />
+                <el-table-column prop="redirectURIs" label="回调地址" min-width="220" show-overflow-tooltip />
+                <el-table-column prop="grantTypes" label="授权类型" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="scopes" label="Scopes" min-width="120" show-overflow-tooltip />
+                <el-table-column label="状态" width="80"><template #default="{ row }"><el-tag :type="row.enable ? 'success' : 'info'" size="small">{{ row.enable ? '启用' : '禁用' }}</el-tag></template></el-table-column>
+                <el-table-column label="操作" width="200" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openClientDialog(row)">编辑</el-button>
+                    <el-button link type="warning" size="small" @click="rotateClientSecret(row)">轮转密钥</el-button>
+                    <el-button link type="danger" size="small" @click="removeOAuthClient(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+
+            <el-dialog v-model="clientDialogVisible" :title="clientForm.id ? '编辑客户端' : '新建客户端'" width="560px">
+              <el-form :model="clientForm" label-width="100px">
+                <el-form-item label="Client ID"><el-input v-model="clientForm.id" placeholder="留空自动生成" /></el-form-item>
+                <el-form-item label="名称"><el-input v-model="clientForm.name" /></el-form-item>
+                <el-form-item label="回调地址"><el-input v-model="clientForm.redirectURIs" type="textarea" :rows="2" placeholder="逗号分隔，如 https://app.com/callback" /></el-form-item>
+                <el-form-item label="授权类型"><el-input v-model="clientForm.grantTypes" placeholder="authorization_code,client_credentials,refresh_token" /></el-form-item>
+                <el-form-item label="Scopes"><el-input v-model="clientForm.scopes" placeholder="openid profile email" /></el-form-item>
+              </el-form>
+              <el-alert v-if="clientNewSecret" type="warning" :closable="false" show-icon
+                title="客户端密钥（仅显示一次，请立即保存）" :description="clientNewSecret" style="margin-bottom:8px" />
+              <template #footer>
+                <el-button @click="clientDialogVisible = false">关闭</el-button>
+                <el-button v-if="!clientForm.id" type="primary" :loading="clientSaving" @click="saveOAuthClient">创建</el-button>
+                <el-button v-else type="primary" :loading="clientSaving" @click="saveOAuthClient">保存</el-button>
+              </template>
+            </el-dialog>
+          </div>
+
+          <!-- ============ SCIM 配置 ============ -->
+          <div v-show="activeMenu === 'scim'">
+            <el-card class="page-card">
+              <template #header>SCIM 2.0 端点</template>
+              <el-descriptions :column="1" border>
+                <el-descriptions-item label="Base URL"><span class="mono">{{ scimBaseURL }}</span></el-descriptions-item>
+                <el-descriptions-item label="Users 端点"><span class="mono">{{ scimBaseURL }}/scim/v2/Users</span></el-descriptions-item>
+                <el-descriptions-item label="Groups 端点"><span class="mono">{{ scimBaseURL }}/scim/v2/Groups</span></el-descriptions-item>
+                <el-descriptions-item label="鉴权">Bearer Token（服务端固定 Token，见 main.go RegisterSCIMRouter）</el-descriptions-item>
+              </el-descriptions>
+            </el-card>
+            <el-card class="page-card">
+              <template #header>SCIM 测试请求</template>
+              <div class="toolbar">
+                <el-select v-model="scimTest.method" style="width:110px">
+                  <el-option label="GET (查询)" value="GET" />
+                  <el-option label="POST (创建)" value="POST" />
+                  <el-option label="PUT (替换)" value="PUT" />
+                  <el-option label="PATCH (改)" value="PATCH" />
+                  <el-option label="DELETE" value="DELETE" />
+                </el-select>
+                <el-input v-model="scimTest.path" placeholder="/scim/v2/Users?filter=userName eq 'test'" style="flex:1" class="mono" />
+                <el-input v-model="scimTest.token" placeholder="SCIM Bearer Token" style="width:240px" />
+                <el-input v-model="scimTest.tenant" placeholder="X-Tenant-ID" style="width:160px" />
+                <el-button type="primary" @click="sendScimTest">发送</el-button>
+              </div>
+              <el-input v-model="scimTest.body" type="textarea" :rows="6" placeholder='POST/PUT/PATCH 的 JSON body，例如 {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"alice","active":true}' class="mono" />
+              <div style="margin-top:8px;font-weight:600">响应：</div>
+              <div class="resp-box">{{ scimTest.response || '(尚未发送)' }}</div>
+            </el-card>
+          </div>
+
+          <!-- ============ 系统配置 ============ -->
+          <div v-show="activeMenu === 'config'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-input v-model="configSearch.key" placeholder="key/名称" clearable style="width:240px" @keyup.enter="loadConfigs" />
+                <el-button type="primary" @click="loadConfigs">查询</el-button>
+                <span class="grow"></span>
+                <el-button type="success" @click="openConfigDialog()">新增配置</el-button>
+              </div>
+              <el-table :data="configs" v-loading="configLoading" border stripe size="small">
+                <el-table-column prop="key" label="Key" min-width="160" />
+                <el-table-column prop="value" label="Value" min-width="200" show-overflow-tooltip />
+                <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
+                <el-table-column label="操作" width="160" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openConfigDialog(row)">编辑</el-button>
+                    <el-button link type="danger" size="small" @click="removeConfig(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+
+            <el-dialog v-model="configDialogVisible" :title="configForm.id ? '编辑配置' : '新增配置'" width="520px">
+              <el-form :model="configForm" label-width="80px">
+                <el-form-item label="Key"><el-input v-model="configForm.key" :disabled="!!configForm.id" /></el-form-item>
+                <el-form-item label="Value"><el-input v-model="configForm.value" type="textarea" :rows="3" /></el-form-item>
+                <el-form-item label="描述"><el-input v-model="configForm.description" /></el-form-item>
+              </el-form>
+              <template #footer>
+                <el-button @click="configDialogVisible = false">取消</el-button>
+                <el-button type="primary" :loading="configSaving" @click="saveConfig">保存</el-button>
+              </template>
+            </el-dialog>
+          </div>
+
+          <!-- ============ API 测试 ============ -->
+          <div v-show="activeMenu === 'tester'">
+            <el-card class="page-card">
+              <div class="toolbar">
+                <el-select v-model="tester.method" style="width:110px">
+                  <el-option v-for="m in ['GET','POST','PUT','DELETE']" :key="m" :label="m" :value="m" />
+                </el-select>
+                <el-input v-model="tester.path" placeholder="/api/core/auth/user/query 或 /admin/api/stats" style="flex:1" class="mono" />
+                <el-button type="primary" :loading="testerLoading" @click="sendTest">发送</el-button>
+              </div>
+              <el-tabs>
+                <el-tab-pane label="查询参数">
+                  <div v-for="(p, i) in tester.params" :key="i" class="kv-row">
+                    <el-input v-model="p.key" placeholder="参数名" style="width:200px" />
+                    <el-input v-model="p.value" placeholder="参数值" style="flex:1" />
+                    <el-button link type="danger" @click="tester.params.splice(i,1)">删除</el-button>
+                  </div>
+                  <el-button size="small" @click="tester.params.push({key:'',value:''})">+ 添加参数</el-button>
+                </el-tab-pane>
+                <el-tab-pane label="请求体(JSON)">
+                  <el-input v-model="tester.body" type="textarea" :rows="8" class="mono" placeholder='{ "key": "value" }' />
+                </el-tab-pane>
+              </el-tabs>
+            </el-card>
+            <el-card class="page-card">
+              <template #header>
+                <div class="toolbar" style="margin-bottom:0">
+                  <span>响应</span>
+                  <span class="grow"></span>
+                  <el-tag :type="testerStatus === 0 ? 'success' : 'danger'" size="small" v-if="testerStatus !== null">code: {{ testerStatus }}</el-tag>
+                </div>
+              </template>
+              <div class="resp-box">{{ testerResponse || '(尚未发送)' }}</div>
+            </el-card>
+          </div>
+        </el-main>
+      </el-container>
+    </el-container>
+  </div>
+
+  <!-- Vue 3 + Element Plus + 图标 + dayjs CDN -->
+  <script src="https://unpkg.com/vue@3.4.38/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus@2.7.8/dist/index.full.min.js"></script>
+  <script src="https://unpkg.com/@element-plus/icons-vue@2.3.1/dist/index.iife.min.js"></script>
+  <script src="https://unpkg.com/dayjs@1.11.13/dayjs.min.js"></script>
+  <script src="https://unpkg.com/echarts@5.5.1/dist/echarts.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script>
+    const { createApp, reactive, ref, onMounted, computed } = Vue;
+
+    const TOKEN_KEY = 'uc_admin_token';
+
+    const app = createApp({
+      setup() {
+        // ---- 鉴权 ----
+        const token = ref(localStorage.getItem(TOKEN_KEY) || '');
+        const profile = reactive({});
+        const loginForm = reactive({ userName: '', password: '' });
+        const loginLoading = ref(false);
+
+        async function doLogin() {
+          if (!loginForm.userName || !loginForm.password) {
+            ElementPlus.ElMessage.warning('请输入用户名和密码');
+            return;
+          }
+          loginLoading.value = true;
+          try {
+            const res = await post('/api/core/auth/user/login', { userName: loginForm.userName, password: loginForm.password });
+            if (res.code !== 0) {
+              ElementPlus.ElMessage.error(res.message || '登录失败');
+              return;
+            }
+            token.value = res.data;
+            localStorage.setItem(TOKEN_KEY, token.value);
+            ElementPlus.ElMessage.success('登录成功');
+            await loadProfile();
+            await loadAll();
+          } finally {
+            loginLoading.value = false;
+          }
+        }
+
+        function logout() {
+          post('/api/core/auth/user/logout', {}).catch(() => {}).finally(() => {
+            token.value = '';
+            localStorage.removeItem(TOKEN_KEY);
+            Object.keys(profile).forEach(k => delete profile[k]);
+            loginForm.password = '';
+          });
+        }
+
+        async function loadProfile() {
+          try {
+            const res = await get('/api/core/auth/user/profile');
+            if (res.code === 0 && res.data) Object.assign(profile, res.data);
+          } catch (e) { /* ignore */ }
+        }
+
+        // ---- 导航 ----
+        const activeMenu = ref('dashboard');
+        function onMenuSelect(key) {
+          activeMenu.value = key;
+          // 进入页面时懒加载该页数据
+          if (key === 'gateway') { loadGatewayModels(); loadPrompts(); }
+          if (key === 'oauth') { loadOAuthClients(); }
+          if (key === 'security') { loadAlerts(); loadMFAFactors(); }
+        }
+
+        // ---- 暗色模式 ----
+        const isDark = ref(localStorage.getItem('uc_admin_dark') === '1');
+        function applyDark() {
+          document.documentElement.classList.toggle('dark', isDark.value);
+        }
+        function toggleDark() {
+          isDark.value = !isDark.value;
+          localStorage.setItem('uc_admin_dark', isDark.value ? '1' : '0');
+          applyDark();
+        }
+
+        // ---- 仪表盘自动刷新 ----
+        const dashAutoRefresh = ref(false);
+        let dashTimer = null;
+        function toggleDashRefresh() {
+          dashAutoRefresh.value = !dashAutoRefresh.value;
+          if (dashAutoRefresh.value) {
+            activeMenu.value = 'dashboard';
+            dashTimer = setInterval(() => loadDashboardStats(), 10000);
+            loadDashboardStats();
+          } else if (dashTimer) {
+            clearInterval(dashTimer); dashTimer = null;
+          }
+        }
+
+        // ---- 仪表盘统计 ----
+        const stat = reactive({ users: 0, roles: 0, tenants: 0, sessions: 0, todayTokens: 0, providers: 0, audits: 0, loginLock: false });
+
+        // ---- 用户管理 ----
+        const userSearch = reactive({ userName: '', nickname: '', mobile: '', pageIndex: 1, pageSize: 10 });
+        const users = ref([]);
+        const userTotal = ref(0);
+        const userLoading = ref(false);
+        const roles = ref([]);
+        const selectedUsers = ref([]);
+
+        async function loadUsers() {
+          userLoading.value = true;
+          try {
+            const params = { pageIndex: userSearch.pageIndex, pageSize: userSearch.pageSize };
+            if (userSearch.userName) params.userName = userSearch.userName;
+            if (userSearch.nickname) params.nickname = userSearch.nickname;
+            if (userSearch.mobile) params.mobile = userSearch.mobile;
+            const res = await get('/api/core/auth/user/query', params);
+            if (res.code === 0) {
+              users.value = res.data || [];
+              userTotal.value = res.records || 0;
+              stat.users = userTotal.value;
+            } else {
+              ElementPlus.ElMessage.error(res.message || '查询用户失败');
+            }
+          } finally { userLoading.value = false; }
+        }
+        function resetUserSearch() {
+          userSearch.userName = ''; userSearch.nickname = ''; userSearch.mobile = '';
+          userSearch.pageIndex = 1; loadUsers();
+        }
+
+        const userDialogVisible = ref(false);
+        const userSaving = ref(false);
+        const userFormRef = ref(null);
+        const userRules = {
+          userName: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+          nickname: [{ required: true, message: '请输入昵称', trigger: 'blur' }],
+        };
+        const emptyUser = () => ({ id: '', userName: '', nickname: '', mobile: '', email: '', title: '', realName: '', eid: '', enable: true, roleIDs: [] });
+        const userForm = reactive(emptyUser());
+        function openUserDialog(row) {
+          Object.assign(userForm, emptyUser());
+          if (row) {
+            Object.assign(userForm, { id: row.id, userName: row.userName, nickname: row.nickname, mobile: row.mobile, email: row.email, title: row.title, realName: row.realName, eid: row.eid, enable: row.enable, roleIDs: (row.roleIDs || []).slice() });
+          }
+          userDialogVisible.value = true;
+        }
+        async function saveUser() {
+          if (!userFormRef.value) return;
+          await userFormRef.value.validate(async (valid) => {
+            if (!valid) return;
+            userSaving.value = true;
+            try {
+              const payload = { ...userForm };
+              const url = payload.id ? '/api/core/auth/user/update' : '/api/core/auth/user/add';
+              const method = payload.id ? 'PUT' : 'POST';
+              const res = await request(method, url, payload);
+              if (res.code === 0) {
+                ElementPlus.ElMessage.success(payload.id ? '更新成功' : '新增成功');
+                userDialogVisible.value = false;
+                loadUsers();
+              } else {
+                ElementPlus.ElMessage.error(res.message || '保存失败');
+              }
+            } finally { userSaving.value = false; }
+          });
+        }
+        async function toggleUserEnable(row) {
+          const res = await post('/api/core/auth/user/enable', { id: row.id, enable: !row.enable });
+          if (res.code === 0) { ElementPlus.ElMessage.success('操作成功'); loadUsers(); }
+          else ElementPlus.ElMessage.error(res.message || '操作失败');
+        }
+        async function removeUser(row) {
+          try {
+            await ElementPlus.ElMessageBox.confirm(`确认删除用户「${row.userName}」？`, '删除确认', { type: 'warning' });
+          } catch { return; }
+          const res = await del('/api/core/auth/user/delete', { id: row.id });
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadUsers(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        // 批量用户操作（复用单个端点，串行执行 + 统计结果）
+        async function bulkUserEnable(enable) {
+          const verb = enable ? '启用' : '禁用';
+          try { await ElementPlus.ElMessageBox.confirm(`确认${verb}选中的 ${selectedUsers.value.length} 个用户？`, '批量操作', { type: 'warning' }); } catch { return; }
+          let ok = 0;
+          for (const u of selectedUsers.value) {
+            const r = await post('/api/core/auth/user/enable', { id: u.id, enable });
+            if (r.code === 0) ok++;
+          }
+          ElementPlus.ElMessage.success(`${verb}完成：${ok}/${selectedUsers.value.length}`);
+          loadUsers();
+        }
+        async function bulkUserDelete() {
+          try { await ElementPlus.ElMessageBox.confirm(`确认删除选中的 ${selectedUsers.value.length} 个用户？此操作不可恢复。`, '批量删除', { type: 'error' }); } catch { return; }
+          let ok = 0;
+          for (const u of selectedUsers.value) {
+            const r = await del('/api/core/auth/user/delete', { id: u.id });
+            if (r.code === 0) ok++;
+          }
+          ElementPlus.ElMessage.success(`删除完成：${ok}/${selectedUsers.value.length}`);
+          loadUsers();
+        }
+
+        // 重置密码
+        const resetPwdVisible = ref(false);
+        const resetPwdLoading = ref(false);
+        const resetPwdTarget = reactive({});
+        const resetPwdValue = ref('');
+        function openResetPwd(row) {
+          Object.assign(resetPwdTarget, row);
+          resetPwdValue.value = '';
+          resetPwdVisible.value = true;
+        }
+        async function doResetPwd() {
+          resetPwdLoading.value = true;
+          try {
+            const res = await post('/api/core/auth/user/resetpwd', { id: resetPwdTarget.id, password: resetPwdValue.value });
+            if (res.code === 0) { ElementPlus.ElMessage.success('重置成功'); resetPwdVisible.value = false; }
+            else ElementPlus.ElMessage.error(res.message || '重置失败');
+          } finally { resetPwdLoading.value = false; }
+        }
+
+        // ---- 角色管理 ----
+        const roleSearch = reactive({ name: '' });
+        const roleLoading = ref(false);
+        const roleDialogVisible = ref(false);
+        const roleSaving = ref(false);
+        const roleFormRef = ref(null);
+        const roleRules = { name: [{ required: true, message: '请输入角色名', trigger: 'blur' }] };
+        const emptyRole = () => ({ id: '', name: '', code: '', description: '' });
+        const roleForm = reactive(emptyRole());
+
+        async function loadRoles() {
+          roleLoading.value = true;
+          try {
+            const res = await get('/api/core/auth/role/query', { name: roleSearch.name });
+            if (res.code === 0) {
+              roles.value = res.data || [];
+              stat.roles = roles.value.length;
+            } else ElementPlus.ElMessage.error(res.message || '查询角色失败');
+          } finally { roleLoading.value = false; }
+        }
+        function openRoleDialog(row) {
+          Object.assign(roleForm, emptyRole());
+          if (row) Object.assign(roleForm, { id: row.id, name: row.name, code: row.code, description: row.description });
+          roleDialogVisible.value = true;
+        }
+        async function saveRole() {
+          if (!roleFormRef.value) return;
+          await roleFormRef.value.validate(async (valid) => {
+            if (!valid) return;
+            roleSaving.value = true;
+            try {
+              const payload = { ...roleForm };
+              const url = payload.id ? '/api/core/auth/role/update' : '/api/core/auth/role/add';
+              const method = payload.id ? 'PUT' : 'POST';
+              const res = await request(method, url, payload);
+              if (res.code === 0) { ElementPlus.ElMessage.success('保存成功'); roleDialogVisible.value = false; loadRoles(); }
+              else ElementPlus.ElMessage.error(res.message || '保存失败');
+            } finally { roleSaving.value = false; }
+          });
+        }
+        async function removeRole(row) {
+          try {
+            await ElementPlus.ElMessageBox.confirm(`确认删除角色「${row.name}」？`, '删除确认', { type: 'warning' });
+          } catch { return; }
+          const res = await del('/api/core/auth/role/delete', { id: row.id });
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadRoles(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        // ---- 租户管理 ----
+        const tenantSearch = reactive({ name: '', pageIndex: 1, pageSize: 10 });
+        const tenants = ref([]);
+        const tenantTotal = ref(0);
+        const tenantLoading = ref(false);
+        const tenantDialogVisible = ref(false);
+        const tenantSaving = ref(false);
+        const tenantFormRef = ref(null);
+        const tenantRules = { name: [{ required: true, message: '请输入租户名', trigger: 'blur' }] };
+        const emptyTenant = () => ({ id: '', name: '', contact: '', cellPhone: '', address: '', staffSize: 0, enable: true });
+        const tenantForm = reactive(emptyTenant());
+
+        async function loadTenants() {
+          tenantLoading.value = true;
+          try {
+            const res = await get('/api/core/auth/tenant/query', { name: tenantSearch.name, pageIndex: tenantSearch.pageIndex, pageSize: tenantSearch.pageSize });
+            if (res.code === 0) {
+              tenants.value = res.data || [];
+              tenantTotal.value = res.records || 0;
+              stat.tenants = tenantTotal.value;
+            } else ElementPlus.ElMessage.error(res.message || '查询租户失败');
+          } finally { tenantLoading.value = false; }
+        }
+        function openTenantDialog(row) {
+          Object.assign(tenantForm, emptyTenant());
+          if (row) Object.assign(tenantForm, { id: row.id, name: row.name, contact: row.contact, cellPhone: row.cellPhone, address: row.address, staffSize: row.staffSize, enable: row.enable });
+          tenantDialogVisible.value = true;
+        }
+        async function saveTenant() {
+          if (!tenantFormRef.value) return;
+          await tenantFormRef.value.validate(async (valid) => {
+            if (!valid) return;
+            tenantSaving.value = true;
+            try {
+              const payload = { ...tenantForm };
+              const url = payload.id ? '/api/core/auth/tenant/update' : '/api/core/auth/tenant/add';
+              const method = payload.id ? 'PUT' : 'POST';
+              const res = await request(method, url, payload);
+              if (res.code === 0) { ElementPlus.ElMessage.success('保存成功'); tenantDialogVisible.value = false; loadTenants(); }
+              else ElementPlus.ElMessage.error(res.message || '保存失败');
+            } finally { tenantSaving.value = false; }
+          });
+        }
+        async function toggleTenantEnable(row) {
+          const res = await post('/api/core/auth/tenant/enable', { id: row.id, enable: !row.enable });
+          if (res.code === 0) { ElementPlus.ElMessage.success('操作成功'); loadTenants(); }
+          else ElementPlus.ElMessage.error(res.message || '操作失败');
+        }
+        async function removeTenant(row) {
+          try {
+            await ElementPlus.ElMessageBox.confirm(`确认删除租户「${row.name}」？`, '删除确认', { type: 'warning' });
+          } catch { return; }
+          const res = await del('/api/core/auth/tenant/delete', { id: row.id });
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadTenants(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        // ---- AI 网关：模型/聊天测试 + Prompt 模板 ----
+        const gw = reactive({ model: '', system: '', userMsg: '', stream: true, loading: false, response: '', tokens: null });
+        const gwModels = ref([]);
+        async function loadGatewayModels() {
+          try {
+            const res = await get('/v1/models');
+            if (!res.error) gwModels.value = res.data || [];
+          } catch { /* ignore */ }
+        }
+        async function sendGatewayChat() {
+          if (!gw.model) { ElementPlus.ElMessage.warning('请选择模型'); return; }
+          if (!gw.userMsg && !gw.system) { ElementPlus.ElMessage.warning('请输入消息'); return; }
+          gw.loading = true; gw.response = ''; gw.tokens = null;
+          const messages = [];
+          if (gw.system) messages.push({ role: 'system', content: gw.system });
+          messages.push({ role: 'user', content: gw.userMsg });
+          const body = { model: gw.model, messages, stream: gw.stream };
+          if (gw.stream) body.stream_options = { include_usage: true };
+          try {
+            const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+            if (token.value) opts.headers['Authorization'] = 'Bearer ' + token.value;
+            opts.body = JSON.stringify(body);
+            const r = await fetch('/v1/chat/completions', opts);
+            if (!r.ok) { gw.response = 'HTTP ' + r.status + ' ' + (await r.text()); return; }
+            if (gw.stream) {
+              // SSE 逐块读取，实时显示 + 捕获 usage
+              const reader = r.body.getReader(); const dec = new TextDecoder();
+              let buf = ''; let content = '';
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += dec.decode(value, { stream: true });
+                const lines = buf.split('\n'); buf = lines.pop();
+                for (const line of lines) {
+                  const s = line.trim();
+                  if (!s.startsWith('data:')) continue;
+                  const payload = s.slice(5).trim();
+                  if (payload === '[DONE]') continue;
+                  try {
+                    const obj = JSON.parse(payload);
+                    if (obj.usage) gw.tokens = { prompt: obj.usage.prompt_tokens, completion: obj.usage.completion_tokens, total: obj.usage.total_tokens };
+                    const delta = obj.choices && obj.choices[0] && obj.choices[0].delta && obj.choices[0].delta.content;
+                    if (delta) { content += delta; gw.response = content; }
+                  } catch { /* partial */ }
+                }
+              }
+              if (!content) gw.response = '(流式响应为空)';
+            } else {
+              const text = await r.text();
+              try {
+                const obj = JSON.parse(text);
+                gw.response = (obj.choices && obj.choices[0] && obj.choices[0].message && obj.choices[0].message.content) || text;
+                if (obj.usage) gw.tokens = { prompt: obj.usage.prompt_tokens, completion: obj.usage.completion_tokens, total: obj.usage.total_tokens };
+              } catch { gw.response = text; }
+            }
+          } catch (e) { gw.response = '请求失败: ' + e.message; }
+          finally { gw.loading = false; }
+        }
+
+        const prompts = ref([]);
+        const promptLoading = ref(false);
+        const promptDialogVisible = ref(false);
+        const promptSaving = ref(false);
+        const emptyPrompt = () => ({ id: '', name: '', category: '', modelAlias: '', content: '', variables: '', enable: true });
+        const promptForm = reactive(emptyPrompt());
+        const renderDialogVisible = ref(false);
+        const renderInput = ref('');
+        const renderOutput = ref('');
+        let renderTargetId = '';
+        async function loadPrompts() {
+          promptLoading.value = true;
+          try {
+            const res = await get('/admin/api/prompts');
+            if (res.code === 0) prompts.value = res.data || [];
+            else ElementPlus.ElMessage.error(res.message || '查询失败');
+          } finally { promptLoading.value = false; }
+        }
+        function openPromptDialog(row) {
+          Object.assign(promptForm, emptyPrompt());
+          if (row) Object.assign(promptForm, { id: row.id, name: row.name, category: row.category, modelAlias: row.modelAlias, content: row.content, variables: row.variables, enable: row.enable });
+          promptDialogVisible.value = true;
+        }
+        async function savePrompt() {
+          if (!promptForm.name || !promptForm.content) { ElementPlus.ElMessage.warning('请填写名称和内容'); return; }
+          promptSaving.value = true;
+          try {
+            const url = promptForm.id ? '/admin/api/prompts/' + promptForm.id : '/admin/api/prompts';
+            const method = promptForm.id ? 'PUT' : 'POST';
+            const res = await request(method, url, { ...promptForm });
+            if (res.code === 0) { ElementPlus.ElMessage.success('保存成功'); promptDialogVisible.value = false; loadPrompts(); }
+            else ElementPlus.ElMessage.error(res.message || '保存失败');
+          } finally { promptSaving.value = false; }
+        }
+        async function removePrompt(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认删除模板「${row.name}」？`, '删除确认', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/prompts/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadPrompts(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+        function openRenderDialog(row) {
+          renderTargetId = row.id; renderInput.value = ''; renderOutput.value = '';
+          // 预填变量名=占位
+          if (row.variables) renderInput.value = row.variables.split(',').map(v => v.trim() + '=').join('\n');
+          renderDialogVisible.value = true;
+        }
+        async function doRender() {
+          const vars = {};
+          renderInput.value.split('\n').forEach(line => {
+            const i = line.indexOf('='); if (i > 0) vars[line.slice(0, i).trim()] = line.slice(i + 1);
+          });
+          const res = await post('/admin/api/prompts/' + renderTargetId + '/render', { vars });
+          if (res.code === 0) renderOutput.value = (res.data && res.data.rendered) || '(空)';
+          else ElementPlus.ElMessage.error(res.message || '渲染失败');
+        }
+
+        // ---- AI Key 管理 ----
+        const providers = ref([]);
+        const providerLoading = ref(false);
+        const providerDialogVisible = ref(false);
+        const providerSaving = ref(false);
+        const emptyProvider = () => ({ id: '', name: '', baseURL: '', authType: 'bearer', description: '' });
+        const providerForm = reactive(emptyProvider());
+
+        async function loadProviders() {
+          providerLoading.value = true;
+          try {
+            const res = await get('/admin/api/ai-providers');
+            if (res.code === 0) { providers.value = res.data || []; stat.providers = providers.value.length; }
+            else ElementPlus.ElMessage.error(res.message || '查询服务商失败');
+          } finally { providerLoading.value = false; }
+        }
+        function openProviderDialog(row) {
+          Object.assign(providerForm, emptyProvider());
+          if (row) Object.assign(providerForm, { id: row.id, name: row.name, baseURL: row.baseURL, authType: row.authType, description: row.description });
+          providerDialogVisible.value = true;
+        }
+        async function saveProvider() {
+          providerSaving.value = true;
+          try {
+            const payload = { ...providerForm };
+            const url = payload.id ? '/admin/api/ai-providers/' + payload.id : '/admin/api/ai-providers';
+            const method = payload.id ? 'PUT' : 'POST';
+            const res = await request(method, url, payload);
+            if (res.code === 0) { ElementPlus.ElMessage.success('保存成功'); providerDialogVisible.value = false; loadProviders(); }
+            else ElementPlus.ElMessage.error(res.message || '保存失败');
+          } finally { providerSaving.value = false; }
+        }
+        async function removeProvider(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认删除服务商「${row.name}」？关联的 Key 将一并失效。`, '删除确认', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/ai-providers/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadProviders(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        const keysDrawerVisible = ref(false);
+        const keysDrawerProvider = reactive({});
+        const aiKeys = ref([]);
+        const keyLoading = ref(false);
+        const keyDialogVisible = ref(false);
+        const keySaving = ref(false);
+        const emptyKey = () => ({ name: '', apiKey: '', priority: 0, enable: true });
+        const keyForm = reactive(emptyKey());
+        const rotateDialogVisible = ref(false);
+        const rotateLoading = ref(false);
+        const rotateTarget = reactive({});
+        const rotateValue = ref('');
+
+        function openKeysDrawer(row) {
+          Object.assign(keysDrawerProvider, row);
+          aiKeys.value = [];
+          keysDrawerVisible.value = true;
+          loadKeys();
+        }
+        async function loadKeys() {
+          if (!keysDrawerProvider.id) return;
+          keyLoading.value = true;
+          try {
+            const res = await get('/admin/api/ai-keys', { providerID: keysDrawerProvider.id });
+            if (res.code === 0) aiKeys.value = res.data || [];
+            else ElementPlus.ElMessage.error(res.message || '查询 Key 失败');
+          } finally { keyLoading.value = false; }
+        }
+        function openKeyDialog() { Object.assign(keyForm, emptyKey()); keyDialogVisible.value = true; }
+        async function saveKey() {
+          if (!keyForm.name || !keyForm.apiKey) { ElementPlus.ElMessage.warning('请填写名称和密钥'); return; }
+          keySaving.value = true;
+          try {
+            const res = await post('/admin/api/ai-keys', { providerID: keysDrawerProvider.id, name: keyForm.name, apiKey: keyForm.apiKey, priority: keyForm.priority, enable: keyForm.enable });
+            if (res.code === 0) { ElementPlus.ElMessage.success('新增成功'); keyDialogVisible.value = false; loadKeys(); }
+            else ElementPlus.ElMessage.error(res.message || '保存失败');
+          } finally { keySaving.value = false; }
+        }
+        async function toggleKey(row) {
+          const res = await request('PUT', '/admin/api/ai-keys/' + row.id, { providerID: row.providerID, name: row.name, priority: row.priority, enable: !row.enable });
+          if (res.code === 0) { ElementPlus.ElMessage.success('操作成功'); loadKeys(); }
+          else ElementPlus.ElMessage.error(res.message || '操作失败');
+        }
+        function openRotateKey(row) { Object.assign(rotateTarget, row); rotateValue.value = ''; rotateDialogVisible.value = true; }
+        async function doRotateKey() {
+          if (!rotateValue.value) { ElementPlus.ElMessage.warning('请输入新密钥'); return; }
+          rotateLoading.value = true;
+          try {
+            const res = await post('/admin/api/ai-keys/' + rotateTarget.id + '/rotate', { newAPIKey: rotateValue.value });
+            if (res.code === 0) { ElementPlus.ElMessage.success('轮转成功'); rotateDialogVisible.value = false; loadKeys(); }
+            else ElementPlus.ElMessage.error(res.message || '轮转失败');
+          } finally { rotateLoading.value = false; }
+        }
+        async function removeKey(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认删除 Key「${row.name}」？`, '删除确认', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/ai-keys/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadKeys(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        // AI Key 一键实测：真调服务商发 max_tokens=1 补全，验证可用性
+        async function testKey(row) {
+          row._testing = true;
+          try {
+            const res = await post('/admin/api/ai-keys/' + row.id + '/test', {});
+            if (res.code === 0 && res.data) {
+              const d = res.data;
+              if (d.success) {
+                ElementPlus.ElMessage.success(`✓ Key 可用 (${d.statusCode}, ${d.latencyMs}ms, ${d.model})`);
+              } else {
+                ElementPlus.ElMessageBox.alert(`Key 不可用\n状态: ${d.statusCode}\n错误: ${d.error || '未知'}\n延迟: ${d.latencyMs}ms\n响应片段: ${(d.snippet || '').slice(0, 200)}`, '实测失败', { type: 'error' });
+                if (d.error && d.error.includes('429')) loadKeys();
+              }
+            } else ElementPlus.ElMessage.error(res.message || '测试失败');
+          } finally { row._testing = false; }
+        }
+
+        // ---- 用量统计 ----
+        const usageRange = ref([]);
+        const usageLoading = ref(false);
+        const usageSummary = reactive({ totalTokens: 0, totalCost: 0, requestCount: 0 });
+        const chartByModel = ref(null);
+        const chartByPrincipal = ref(null);
+        const usageRecent = ref([]);
+        const usageRecentLoading = ref(false);
+        const usageRecentLimit = ref(50);
+        let _chartModel = null, _chartPrincipal = null;
+
+        async function loadUsage() {
+          usageLoading.value = true;
+          try {
+            const params = {};
+            if (usageRange.value && usageRange.value.length === 2) { params.startTime = usageRange.value[0]; params.endTime = usageRange.value[1]; }
+            const [sum, byModel, byPrincipal, recent] = await Promise.all([
+              get('/admin/api/usage/summary', params),
+              get('/admin/api/usage/by-model', params),
+              get('/admin/api/usage/by-principal', params),
+              get('/admin/api/usage/recent', { limit: usageRecentLimit.value }),
+            ]);
+            if (sum.code === 0 && sum.data) Object.assign(usageSummary, { totalTokens: sum.data.totalTokens || 0, totalCost: sum.data.totalCost || 0, requestCount: sum.data.requestCount || 0 });
+            stat.todayTokens = usageSummary.totalTokens;
+            usageRecent.value = recent.code === 0 ? (recent.data || []) : [];
+            renderUsageCharts(byModel.data || [], byPrincipal.data || []);
+          } finally { usageLoading.value = false; }
+        }
+        async function loadUsageRecent() {
+          usageRecentLoading.value = true;
+          try {
+            const res = await get('/admin/api/usage/recent', { limit: usageRecentLimit.value });
+            if (res.code === 0) usageRecent.value = res.data || [];
+          } finally { usageRecentLoading.value = false; }
+        }
+        function renderUsageCharts(byModel, byPrincipal) {
+          // ECharts 尚未加载或容器未渲染时跳过(用量页未显示时 ref 为空)
+          if (typeof echarts === 'undefined' || !chartByModel.value || !chartByPrincipal.value) return;
+          _chartModel = echarts.init(chartByModel.value);
+          _chartPrincipal = echarts.init(chartByPrincipal.value);
+          // by-model 后端返回 map[model]*UsageSummary（对象，键为模型名）
+          const modelData = byModel && typeof byModel === 'object' && !Array.isArray(byModel)
+            ? Object.entries(byModel).map(([name, v]) => ({ name: name || 'unknown', value: (v && v.totalTokens) || 0 }))
+            : [];
+          // by-principal 后端返回 []map，键为 principal_id / tokens
+          const princList = Array.isArray(byPrincipal) ? byPrincipal : [];
+          _chartModel.setOption({
+            tooltip: { trigger: 'item' },
+            legend: { bottom: 0 },
+            series: [{ type: 'pie', radius: ['40%', '70%'], data: modelData }],
+          });
+          _chartPrincipal.setOption({
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            grid: { left: 40, right: 20, top: 20, bottom: 40 },
+            xAxis: { type: 'category', data: princList.map(p => p.principal_id || p.principalID || 'unknown'), axisLabel: { rotate: 30 } },
+            yAxis: { type: 'value' },
+            series: [{ type: 'bar', data: princList.map(p => p.tokens || p.totalTokens || 0), itemStyle: { color: '#1f6feb' } }],
+          });
+        }
+
+        // ---- 会话管理 ----
+        const sessionSearch = reactive({ principalID: '', active: true });
+        const sessions = ref([]);
+        const sessionLoading = ref(false);
+        async function loadSessions() {
+          if (!sessionSearch.principalID) { ElementPlus.ElMessage.warning('请输入主体 ID'); return; }
+          sessionLoading.value = true;
+          try {
+            const res = await get('/admin/api/sessions', { principalID: sessionSearch.principalID, active: sessionSearch.active ? '1' : '' });
+            if (res.code === 0) { sessions.value = res.data || []; stat.sessions = res.data ? res.data.filter(s => !s.revoked).length : 0; }
+            else ElementPlus.ElMessage.error(res.message || '查询会话失败');
+          } finally { sessionLoading.value = false; }
+        }
+        async function revokeSession(row) {
+          try { await ElementPlus.ElMessageBox.confirm('确认吊销该会话？该设备将立即下线。', '吊销确认', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/sessions/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已吊销'); loadSessions(); }
+          else ElementPlus.ElMessage.error(res.message || '吊销失败');
+        }
+        async function revokeAllSessions() {
+          if (!sessionSearch.principalID) { ElementPlus.ElMessage.warning('请输入主体 ID'); return; }
+          try { await ElementPlus.ElMessageBox.confirm('确认下线该主体全部会话？', '确认', { type: 'warning' }); } catch { return; }
+          const res = await post('/admin/api/sessions/revoke-all', { principalID: sessionSearch.principalID, reason: 'admin_revoke_all' });
+          if (res.code === 0) { ElementPlus.ElMessage.success('已下线 ' + (res.data && res.data.count || 0) + ' 个会话'); loadSessions(); }
+          else ElementPlus.ElMessage.error(res.message || '操作失败');
+        }
+        async function cleanSessions() {
+          const res = await post('/admin/api/sessions/clean', {});
+          if (res.code === 0) ElementPlus.ElMessage.success('已清理 ' + (res.data && res.data.count || 0) + ' 个过期会话');
+          else ElementPlus.ElMessage.error(res.message || '清理失败');
+        }
+
+        // ---- 审计日志 ----
+        const auditSearch = reactive({ action: '', userID: '', principalKind: '', pageIndex: 1, pageSize: 20 });
+        const auditRange = ref([]);
+        const audits = ref([]);
+        const auditTotal = ref(0);
+        const auditLoading = ref(false);
+        async function loadAudits() {
+          auditLoading.value = true;
+          try {
+            const params = { pageIndex: auditSearch.pageIndex, pageSize: auditSearch.pageSize };
+            if (auditSearch.action) params.action = auditSearch.action;
+            if (auditSearch.userID) params.userID = auditSearch.userID;
+            if (auditSearch.principalKind !== '') params.principalKind = auditSearch.principalKind;
+            if (auditRange.value && auditRange.value.length === 2) { params.startTime = auditRange.value[0]; params.endTime = auditRange.value[1]; }
+            const res = await get('/admin/api/audit-logs', params);
+            if (res.code === 0) { audits.value = res.data || []; auditTotal.value = res.total || 0; stat.audits = auditTotal.value; }
+            else ElementPlus.ElMessage.error(res.message || '查询审计失败');
+          } finally { auditLoading.value = false; }
+        }
+        function resetAuditSearch() {
+          auditSearch.action = ''; auditSearch.userID = ''; auditSearch.principalKind = ''; auditRange.value = []; auditSearch.pageIndex = 1; loadAudits();
+        }
+
+        // ---- 实时监控（审计 SSE）----
+        const liveEvents = ref([]);
+        const liveConnected = ref(false);
+        let liveES = null;
+        function fmtLiveTime(v) {
+          if (!v) return '';
+          const t = dayjs(v);
+          return t.isValid() ? t.format('HH:mm:ss') : String(v);
+        }
+        function toggleLiveAudit() {
+          if (liveConnected.value) {
+            if (liveES) { liveES.close(); liveES = null; }
+            liveConnected.value = false;
+            return;
+          }
+          if (!token.value) { ElementPlus.ElMessage.warning('请先登录'); return; }
+          liveES = new EventSource('/admin/api/audit/stream?access_token=' + encodeURIComponent(token.value));
+          liveES.onopen = () => { liveConnected.value = true; };
+          liveES.onmessage = (e) => {
+            try {
+              const obj = JSON.parse(e.data);
+              liveEvents.value.unshift(obj);
+              if (liveEvents.value.length > 200) liveEvents.value.pop();
+            } catch { /* ignore */ }
+          };
+          liveES.onerror = () => {
+            // 浏览器会自动重连；这里仅更新状态（重连成功 onopen 会再置 true）
+            liveConnected.value = false;
+          };
+        }
+
+        // ---- MFA TOTP 注册 ----
+        const mfaSecret = ref('');
+        const mfaURI = ref('');
+        const mfaCode = ref('');
+        const mfaName = ref('');
+        const mfaFactors = ref([]);
+        const mfaConfirming = ref(false);
+        const mfaQrCanvas = ref(null);
+        async function enrollMFA() {
+          const res = await post('/admin/api/mfa/totp/enroll', {});
+          if (res.code === 0 && res.data) {
+            mfaSecret.value = res.data.secret;
+            mfaURI.value = res.data.uri;
+            mfaCode.value = ''; mfaName.value = '';
+            // 下一帧渲染二维码（canvas ref 已就绪）
+            Vue.nextTick(() => {
+              if (window.QRCode && mfaQrCanvas.value) {
+                mfaQrCanvas.value.getContext('2d').clearRect(0, 0, 200, 200);
+                window.QRCode.toCanvas(mfaQrCanvas.value, mfaURI.value, { width: 200 }, () => {});
+              }
+            });
+          } else ElementPlus.ElMessage.error(res.message || '生成失败');
+        }
+        async function confirmMFA() {
+          if (!/^\d{6}$/.test(mfaCode.value)) { ElementPlus.ElMessage.warning('请输入 6 位验证码'); return; }
+          mfaConfirming.value = true;
+          try {
+            const res = await post('/admin/api/mfa/totp/confirm', { secret: mfaSecret.value, code: mfaCode.value, name: mfaName.value });
+            if (res.code === 0 && res.data) { ElementPlus.ElMessage.success('绑定成功'); mfaSecret.value = ''; mfaCode.value = ''; loadMFAFactors(); }
+            else ElementPlus.ElMessage.error(res.message || '验证码不正确');
+          } finally { mfaConfirming.value = false; }
+        }
+        async function loadMFAFactors() {
+          const res = await get('/admin/api/mfa/factors');
+          if (res.code === 0) mfaFactors.value = res.data || [];
+        }
+        async function unbindMFA(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认解绑「${row.name || row.type}」？`, '解绑', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/mfa/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已解绑'); loadMFAFactors(); }
+          else ElementPlus.ElMessage.error(res.message || '解绑失败');
+        }
+
+        // ---- 安全中心 ----
+        const securityLoading = ref(false);
+        const alerts = reactive({ loginFailThreshold: 0, authFailThreshold: 0, windowMinutes: 0 });
+        async function loadAlerts() {
+          securityLoading.value = true;
+          try {
+            const res = await get('/admin/api/alerts/status');
+            if (res.code === 0 && res.data) Object.assign(alerts, res.data);
+            stat.loginLock = (alerts.loginFailThreshold || 0) > 0;
+          } finally { securityLoading.value = false; }
+        }
+        const riskInput = reactive({ currentIP: '203.0.113.1', tokenIP: '192.168.1.1', tokenAgeHours: 3, newDevice: true, failedAuths: 2 });
+        const riskResult = computed(() => {
+          let score = 0;
+          if (riskInput.currentIP && riskInput.tokenIP && riskInput.currentIP !== riskInput.tokenIP) score += 40;
+          if (riskInput.tokenAgeHours > 2) score += 15;
+          if (riskInput.newDevice) score += 25;
+          score += Math.min(riskInput.failedAuths * 10, 30);
+          if (score < 30) return { title: '风险评分: ' + score + ' (低)', type: 'success', desc: '正常放行。IP 一致、无异常信号。' };
+          if (score < 60) return { title: '风险评分: ' + score + ' (中)', type: 'warning', desc: '建议 step-up 认证:要求 MFA 或重新登录。' };
+          return { title: '风险评分: ' + score + ' (高)', type: 'error', desc: '拒绝访问或强制重新认证。' };
+        });
+
+        // ---- OAuth 应用（OIDC Client 管理）----
+        const ocBase = computed(() => location.origin);
+        const oauthClients = ref([]);
+        const ocLoading = ref(false);
+        const clientDialogVisible = ref(false);
+        const clientSaving = ref(false);
+        const clientNewSecret = ref('');
+        const emptyClient = () => ({ id: '', name: '', redirectURIs: '', grantTypes: 'authorization_code,client_credentials,refresh_token', scopes: 'openid profile' });
+        const clientForm = reactive(emptyClient());
+        async function loadOAuthClients() {
+          ocLoading.value = true;
+          try {
+            const res = await get('/admin/api/oauth-clients');
+            if (res.code === 0) oauthClients.value = res.data || [];
+            else ElementPlus.ElMessage.error(res.message || '查询失败');
+          } finally { ocLoading.value = false; }
+        }
+        function openClientDialog(row) {
+          clientNewSecret.value = '';
+          Object.assign(clientForm, emptyClient());
+          if (row) Object.assign(clientForm, { id: row.id, name: row.name, redirectURIs: row.redirectURIs, grantTypes: row.grantTypes, scopes: row.scopes });
+          clientDialogVisible.value = true;
+        }
+        async function saveOAuthClient() {
+          if (!clientForm.name) { ElementPlus.ElMessage.warning('请填写名称'); return; }
+          clientSaving.value = true;
+          try {
+            if (clientForm.id) {
+              // 编辑：不传 secret
+              const res = await request('PUT', '/admin/api/oauth-clients/' + clientForm.id, { name: clientForm.name, redirectURIs: clientForm.redirectURIs, grantTypes: clientForm.grantTypes, scopes: clientForm.scopes });
+              if (res.code === 0) { ElementPlus.ElMessage.success('已保存'); clientDialogVisible.value = false; loadOAuthClients(); }
+              else ElementPlus.ElMessage.error(res.message || '保存失败');
+            } else {
+              // 新建：返回明文 secret 一次
+              const res = await post('/admin/api/oauth-clients', { ...clientForm });
+              if (res.code === 0) {
+                clientNewSecret.value = (res.data && res.data.secret) || '';
+                ElementPlus.ElMessage.success('已创建，请保存密钥');
+                loadOAuthClients();
+              } else ElementPlus.ElMessage.error(res.message || '创建失败');
+            }
+          } finally { clientSaving.value = false; }
+        }
+        async function rotateClientSecret(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`轮转「${row.name}」的密钥？旧密钥立即失效。`, '确认', { type: 'warning' }); } catch { return; }
+          const res = await post('/admin/api/oauth-clients/' + row.id + '/rotate-secret', {});
+          if (res.code === 0) {
+            ElementPlus.ElMessageBox.alert((res.data && res.data.secret) || '', '新密钥（仅显示一次）', { type: 'warning' });
+          } else ElementPlus.ElMessage.error(res.message || '轮转失败');
+        }
+        async function removeOAuthClient(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认删除客户端「${row.name}」？`, '删除确认', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/oauth-clients/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadOAuthClients(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        // ---- SCIM 配置 ----
+        const scimBaseURL = computed(() => location.origin);
+        const scimTest = reactive({ method: 'GET', path: '/scim/v2/Users?count=5', token: '', tenant: '', body: '', response: '' });
+        async function sendScimTest() {
+          if (!scimTest.token) { ElementPlus.ElMessage.warning('请输入 SCIM Bearer Token'); return; }
+          let url = scimTest.path;
+          let body;
+          if (scimTest.body && scimTest.method !== 'GET') {
+            try { body = JSON.parse(scimTest.body); } catch { ElementPlus.ElMessage.error('Body 不是合法 JSON'); return; }
+          }
+          const opts = { method: scimTest.method, headers: { 'Authorization': 'Bearer ' + scimTest.token, 'Content-Type': 'application/json' } };
+          if (scimTest.tenant) opts.headers['X-Tenant-ID'] = scimTest.tenant;
+          if (body !== undefined) opts.body = JSON.stringify(body);
+          try {
+            scimTest.response = '发送中...';
+            const r = await fetch(url, opts);
+            const text = await r.text();
+            scimTest.response = 'HTTP ' + r.status + '\n' + (tryPrettyJSON(text) || text);
+          } catch (e) { scimTest.response = '请求失败: ' + e.message; }
+        }
+        function tryPrettyJSON(text) {
+          try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return null; }
+        }
+
+        // ---- 系统配置 ----
+        const configSearch = reactive({ key: '' });
+        const configs = ref([]);
+        const configLoading = ref(false);
+        const configDialogVisible = ref(false);
+        const configSaving = ref(false);
+        const emptyConfig = () => ({ id: '', key: '', value: '', description: '' });
+        const configForm = reactive(emptyConfig());
+        async function loadConfigs() {
+          configLoading.value = true;
+          try {
+            const res = await get('/api/core/system/config/query', { pageIndex: 1, pageSize: 200 });
+            if (res.code === 0) {
+              let list = res.data || [];
+              if (configSearch.key) {
+                const kw = configSearch.key.toLowerCase();
+                list = list.filter(c => (c.key || '').toLowerCase().includes(kw) || (c.description || '').toLowerCase().includes(kw));
+              }
+              configs.value = list;
+            } else ElementPlus.ElMessage.error(res.message || '查询配置失败');
+          } finally { configLoading.value = false; }
+        }
+        function openConfigDialog(row) {
+          Object.assign(configForm, emptyConfig());
+          if (row) Object.assign(configForm, { id: row.id, key: row.key, value: row.value, description: row.description });
+          configDialogVisible.value = true;
+        }
+        async function saveConfig() {
+          if (!configForm.key) { ElementPlus.ElMessage.warning('请填写 Key'); return; }
+          configSaving.value = true;
+          try {
+            const payload = { key: configForm.key, value: configForm.value, description: configForm.description };
+            const url = configForm.id ? '/api/core/system/config/update' : '/api/core/system/config/add';
+            const method = configForm.id ? 'PUT' : 'POST';
+            if (configForm.id) payload.id = configForm.id;
+            const res = await request(method, url, payload);
+            if (res.code === 0) { ElementPlus.ElMessage.success('保存成功'); configDialogVisible.value = false; loadConfigs(); }
+            else ElementPlus.ElMessage.error(res.message || '保存失败');
+          } finally { configSaving.value = false; }
+        }
+        async function removeConfig(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认删除配置「${row.key}」？`, '删除确认', { type: 'warning' }); } catch { return; }
+          const res = await del('/api/core/system/config/delete', { id: row.id });
+          if (res.code === 0) { ElementPlus.ElMessage.success('已删除'); loadConfigs(); }
+          else ElementPlus.ElMessage.error(res.message || '删除失败');
+        }
+
+        // ---- API 测试 ----
+        const tester = reactive({ method: 'GET', path: '/admin/api/stats', params: [{ key: '', value: '' }], body: '' });
+        const testerLoading = ref(false);
+        const testerResponse = ref('');
+        const testerStatus = ref(null);
+        async function sendTest() {
+          testerLoading.value = true;
+          testerResponse.value = '发送中...';
+          try {
+            let url = tester.path;
+            const qs = tester.params.filter(p => p.key).map(p => encodeURIComponent(p.key) + '=' + encodeURIComponent(p.value)).join('&');
+            if (qs) url += (url.includes('?') ? '&' : '?') + qs;
+            const opts = { method: tester.method, headers: {} };
+            if (token.value) opts.headers['Authorization'] = 'Bearer ' + token.value;
+            let body;
+            if (tester.body && tester.method !== 'GET') {
+              try { body = JSON.parse(tester.body); } catch { ElementPlus.ElMessage.error('Body 不是合法 JSON'); testerLoading.value = false; return; }
+              opts.headers['Content-Type'] = 'application/json';
+              opts.body = JSON.stringify(body);
+            }
+            const r = await fetch(url, opts);
+            const text = await r.text();
+            testerStatus.value = r.status;
+            testerResponse.value = 'HTTP ' + r.status + ' ' + r.statusText + '\n' + (tryPrettyJSON(text) || text);
+          } catch (e) {
+            testerResponse.value = '请求失败: ' + e.message;
+          } finally { testerLoading.value = false; }
+        }
+
+        // ---- 工具 ----
+        function fmtTime(v) {
+          if (!v) return '-';
+          const t = typeof v === 'number' ? dayjs(v > 1e12 ? v : v * 1000) : dayjs(v);
+          return t.isValid() ? t.format('YYYY-MM-DD HH:mm') : String(v);
+        }
+
+        async function loadAll() {
+          await Promise.all([loadUsers(), loadRoles(), loadTenants(), loadDashboardStats()]);
+        }
+
+        // 仪表盘统计(走管理端聚合 API,失败不影响登录)
+        async function loadDashboardStats() {
+          try {
+            const res = await get('/admin/api/stats');
+            if (res.code === 0 && res.data) {
+              stat.sessions = res.data.sessionCount || 0;
+              stat.todayTokens = res.data.todayTokens || 0;
+            }
+          } catch { /* ignore */ }
+          loadAlerts().catch(() => {});
+        }
+
+        // ---- HTTP 封装 ----
+        async function request(method, url, body) {
+          const opts = { method, headers: {} };
+          if (token.value) opts.headers['Authorization'] = 'Bearer ' + token.value;
+          if (body !== undefined && method !== 'GET') {
+            opts.headers['Content-Type'] = 'application/json';
+            opts.body = JSON.stringify(body);
+          }
+          const r = await fetch(url, opts);
+          if (r.status === 401) { handleUnauthorized(); throw new Error('unauthorized'); }
+          const text = await r.text();
+          try { return JSON.parse(text); } catch { return { code: -1, message: text || 'invalid response' }; }
+        }
+        function get(url, params) {
+          if (params) {
+            const qs = Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
+            if (qs) url += (url.includes('?') ? '&' : '?') + qs;
+          }
+          return request('GET', url);
+        }
+        function post(url, body) { return request('POST', url, body); }
+        function del(url, body) {
+          // DELETE 带 body:用 POST 风格发送 JSON
+          return requestWithBody('DELETE', url, body);
+        }
+        async function requestWithBody(method, url, body) {
+          const opts = { method, headers: {} };
+          if (token.value) opts.headers['Authorization'] = 'Bearer ' + token.value;
+          if (body !== undefined) {
+            opts.headers['Content-Type'] = 'application/json';
+            opts.body = JSON.stringify(body);
+          }
+          const r = await fetch(url, opts);
+          if (r.status === 401) { handleUnauthorized(); throw new Error('unauthorized'); }
+          const text = await r.text();
+          try { return JSON.parse(text); } catch { return { code: -1, message: text }; };
+        }
+        function handleUnauthorized() {
+          token.value = '';
+          localStorage.removeItem(TOKEN_KEY);
+          ElementPlus.ElMessage.error('登录已失效，请重新登录');
+        }
+
+        // ---- 初始化 ----
+        onMounted(async () => {
+          applyDark();
+          if (token.value) {
+            await loadProfile().catch(() => {});
+            if (token.value) await loadAll();
+          }
+          // 窗口尺寸变化时重绘用量图表
+          window.addEventListener('resize', () => {
+            if (_chartModel) _chartModel.resize();
+            if (_chartPrincipal) _chartPrincipal.resize();
+          });
+        });
+
+        return {
+          token, profile, loginForm, loginLoading, doLogin, logout,
+          activeMenu, onMenuSelect, stat, fmtTime, isDark, toggleDark, dashAutoRefresh, toggleDashRefresh,
+          userSearch, users, userTotal, userLoading, loadUsers, resetUserSearch,
+          userDialogVisible, userSaving, userFormRef, userRules, userForm, openUserDialog, saveUser, toggleUserEnable, removeUser,
+          selectedUsers, bulkUserEnable, bulkUserDelete,
+          resetPwdVisible, resetPwdLoading, resetPwdTarget, resetPwdValue, openResetPwd, doResetPwd,
+          roles,
+          roleSearch, roleLoading, roleDialogVisible, roleSaving, roleFormRef, roleRules, roleForm, loadRoles, openRoleDialog, saveRole, removeRole,
+          tenantSearch, tenants, tenantTotal, tenantLoading, tenantDialogVisible, tenantSaving, tenantFormRef, tenantRules, tenantForm, loadTenants, openTenantDialog, saveTenant, toggleTenantEnable, removeTenant,
+          // AI Key
+          gw, gwModels, loadGatewayModels, sendGatewayChat,
+          prompts, promptLoading, promptDialogVisible, promptSaving, promptForm, loadPrompts, openPromptDialog, savePrompt, removePrompt,
+          renderDialogVisible, renderInput, renderOutput, openRenderDialog, doRender,
+          providers, providerLoading, providerDialogVisible, providerSaving, providerForm, loadProviders, openProviderDialog, saveProvider, removeProvider,
+          keysDrawerVisible, keysDrawerProvider, aiKeys, keyLoading, loadKeys, openKeysDrawer, keyDialogVisible, keyForm, keySaving, saveKey, toggleKey, removeKey,
+          rotateDialogVisible, rotateLoading, rotateTarget, rotateValue, openRotateKey, doRotateKey, testKey,
+          // Usage
+          usageRange, usageLoading, usageSummary, loadUsage, chartByModel, chartByPrincipal,
+          usageRecent, usageRecentLoading, usageRecentLimit, loadUsageRecent,
+          // Sessions
+          sessionSearch, sessions, sessionLoading, loadSessions, revokeSession, revokeAllSessions, cleanSessions,
+          // Audit
+          auditSearch, auditRange, audits, auditTotal, auditLoading, loadAudits, resetAuditSearch,
+          // Security
+          liveEvents, liveConnected, toggleLiveAudit, fmtLiveTime,
+          mfaSecret, mfaCode, mfaName, mfaFactors, mfaConfirming, mfaQrCanvas, enrollMFA, confirmMFA, loadMFAFactors, unbindMFA,
+          securityLoading, alerts, loadAlerts, riskInput, riskResult,
+          // SCIM
+          ocBase, oauthClients, ocLoading, clientDialogVisible, clientSaving, clientNewSecret, clientForm, loadOAuthClients, openClientDialog, saveOAuthClient, rotateClientSecret, removeOAuthClient,
+          scimBaseURL, scimTest, sendScimTest,
+          // System Config
+          configSearch, configs, configLoading, configDialogVisible, configSaving, configForm, loadConfigs, openConfigDialog, saveConfig, removeConfig,
+          // API Tester
+          tester, testerLoading, testerResponse, testerStatus, sendTest,
+        };
+      }
+    });
+
+    // 注册 Element Plus 及图标
+    app.use(ElementPlus);
+    for (const [key, comp] of Object.entries(ElementPlusIconsVue)) {
+      app.component(key, comp);
+    }
+    app.mount('#app');
+  </script>
+</body>
+</html>

@@ -12,8 +12,9 @@ import (
 	"github.com/CloudSilk/pkg/db"
 	commonmodel "github.com/CloudSilk/pkg/model"
 	glebsqlite "github.com/glebarez/sqlite"
+	"github.com/CloudSilk/usercenter/internal/auth/token"
+	"github.com/CloudSilk/usercenter/internal/permission"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	"github.com/CloudSilk/usercenter/model/token"
 	"gorm.io/gorm"
 )
 
@@ -93,7 +94,7 @@ func TestLoginLockoutAfterMaxFailures(t *testing.T) {
 	wrong := &apipb.LoginRequest{UserName: "lockuser", Password: "wrong"}
 
 	// 连续 MaxErrCount 次错误密码
-	for i := 0; i < int(loginLockMaxErrCount); i++ {
+	for i := 0; i < int(int(5)); i++ {
 		resp := &apipb.LoginResponse{}
 		Login(wrong, resp)
 		if resp.Code != apipb.Code_UserNameOrPasswordIsWrong {
@@ -105,7 +106,7 @@ func TestLoginLockoutAfterMaxFailures(t *testing.T) {
 	resp := &apipb.LoginResponse{}
 	Login(&apipb.LoginRequest{UserName: "lockuser", Password: "Abc12345"}, resp)
 	if resp.Code != apipb.Code_UserDisabled {
-		t.Fatalf("expected locked/disabled after %d failures, got %v", loginLockMaxErrCount, resp.Code)
+		t.Fatalf("expected locked/disabled after %d failures, got %v", int(5), resp.Code)
 	}
 
 	var dbu User
@@ -217,8 +218,8 @@ func TestAuthenticateInvalidTokenOnProtectedURL(t *testing.T) {
 func TestAuthenticateCacheHitIsConsistent(t *testing.T) {
 	// 同一 (sub,obj,act) 连续判定两次，结果应一致（命中缓存或未命中都应一致）
 	url := "/api/cachecheck/test"
-	c1, err1 := enforceCached("nonexistent-role", url, "GET")
-	c2, err2 := enforceCached("nonexistent-role", url, "GET")
+	c1, err1 := permission.EnforceCached("nonexistent-role", url, "GET")
+	c2, err2 := permission.EnforceCached("nonexistent-role", url, "GET")
 	if err1 != nil || err2 != nil {
 		t.Fatalf("enforceCached errors: %v %v", err1, err2)
 	}

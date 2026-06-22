@@ -5,7 +5,7 @@ import (
 
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/model"
-	"github.com/CloudSilk/usercenter/model/token"
+	"github.com/CloudSilk/usercenter/internal/auth/token"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 

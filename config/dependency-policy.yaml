@@ -1,0 +1,82 @@
+# dependency-policy.yaml — ADR-003 依赖治理(REDESIGN #21)
+# 每条依赖必须带 reason + owner + review-cycle
+# 新增不在 allowed 列表的依赖 → CI 阻断
+# banned 命中 → CI 阻断
+
+allowed:
+  - name: dubbo.apache.org/dubbo-go/v3
+    reason: "14 个 Provider RPC 层"
+    owner: "@backend-infra"
+    review: quarterly
+  - name: github.com/casbin/casbin/v2
+    reason: "RBAC/ABAC 权限引擎核心"
+    owner: "@auth-team"
+    review: never
+  - name: github.com/gin-gonic/gin
+    reason: "HTTP 路由框架"
+    owner: "@backend-infra"
+    review: never
+  - name: github.com/golang-jwt/jwt/v5
+    reason: "JWT 签发与验证"
+    owner: "@auth-team"
+    review: never
+  - name: github.com/golang-jwt/jwt/v4
+    reason: "旧 JWT 兼容(待迁移到 v5)"
+    owner: "@auth-team"
+    review: quarterly
+  - name: github.com/CloudSilk/pkg
+    reason: "内部基础库(DB/model/utils)"
+    owner: "@backend-infra"
+    review: never
+  - name: gorm.io/gorm
+    reason: "ORM"
+    owner: "@backend-infra"
+    review: never
+  - name: gorm.io/driver/mysql
+    reason: "生产 MySQL 驱动"
+    owner: "@backend-infra"
+    review: never
+  - name: github.com/glebarez/sqlite
+    reason: "测试用 SQLite 驱动(pure Go)"
+    owner: "@qa"
+    review: never
+  - name: github.com/silenceper/wechat/v2
+    reason: "微信登录(access_token 管理是安全敏感基础设施)"
+    owner: "@auth-team"
+    review: never
+  - name: github.com/nacos-group/nacos-sdk-go
+    reason: "配置中心 + 服务注册"
+    owner: "@backend-infra"
+    review: quarterly
+  - name: github.com/go-redis/redis/v8
+    reason: "Redis 客户端(token 缓存 + Casbin watcher)"
+    owner: "@backend-infra"
+    review: never
+  - name: github.com/patrickmn/go-cache
+    reason: "进程内缓存(告警/鉴权缓存)"
+    owner: "@backend-infra"
+    review: quarterly
+  - name: github.com/elithrar/simple-scrypt
+    reason: "密码哈希(过渡期,迁移到 Argon2id 后移除)"
+    owner: "@auth-team"
+    review: quarterly
+  - name: golang.org/x/crypto
+    reason: "Argon2id 密码哈希"
+    owner: "@auth-team"
+    review: never
+  - name: github.com/google/uuid
+    reason: "UUID 生成"
+    owner: "@backend-infra"
+    review: never
+  - name: github.com/go-playground/validator/v10
+    reason: "请求参数校验"
+    owner: "@backend-infra"
+    review: never
+
+banned:
+  - name: github.com/jinzhu/copier
+    reason: "反射拷贝,已改用显式映射(internal/tenant CopyTenant)"
+  - pattern: "gorm.io/driver/sqlserver"
+    reason: "无 SQL Server 生产部署"
+  - pattern: "gorm.io/driver/postgres"
+    reason: "无 PostgreSQL 生产部署"

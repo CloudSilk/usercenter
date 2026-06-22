@@ -181,7 +181,7 @@ func DeleteUser(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, e
 	if err := ucmodel.DeleteUser(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	ucmodel.RecordAudit(middleware.GetUserID(c), middleware.GetUserName(c), ucmodel.AuditActionDeleteUser, req.Id, c.ClientIP(), "")
+	ucmodel.RecordAuditWithKind(middleware.GetUserID(c), middleware.GetUserName(c), int32(middleware.GetPrincipalKind(c)), ucmodel.AuditActionDeleteUser, req.Id, c.ClientIP(), "")
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
@@ -327,7 +327,7 @@ func ResetPwd(c *gin.Context) {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
 	} else {
-		ucmodel.RecordAudit(middleware.GetUserID(c), middleware.GetUserName(c), ucmodel.AuditActionResetPwd, req.Id, c.ClientIP(), "")
+		ucmodel.RecordAuditWithKind(middleware.GetUserID(c), middleware.GetUserName(c), int32(middleware.GetPrincipalKind(c)), ucmodel.AuditActionResetPwd, req.Id, c.ClientIP(), "")
 	}
 	c.JSON(http.StatusOK, resp)
 }

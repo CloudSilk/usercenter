@@ -1,0 +1,18 @@
+# Buf 代码生成配置(REDESIGN #3:proto 单契约源 → OpenAPI)
+# 选型:proto-selector agent 推荐 Buf + protoc-gen-openapiv2
+version: v2
+plugins:
+  # Go 消息代码(已有,保持兼容)
+  - local: protoc-gen-go
+    out: proto
+    opt: paths=source_relative
+  # Dubbo Triple(已有,保持兼容)
+  - local: protoc-gen-go-triple
+    out: proto
+    opt: paths=source_relative
+  # OpenAPI/Swagger(新增:替代 swaggo 手写注解)
+  - remote: buf.build/grpc-ecosystem/openapiv2
+    out: docs
+    opt:
+      - json_names_for_fields=false
+      - logtostderr=true

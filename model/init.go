@@ -6,23 +6,32 @@ import (
 	"github.com/CloudSilk/pkg/db"
 	"github.com/CloudSilk/pkg/db/mysql"
 	"github.com/CloudSilk/pkg/db/sqlite"
+	"github.com/CloudSilk/usercenter/internal/apikey"
+	"github.com/CloudSilk/usercenter/internal/auth"
+	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/prompt"
+	"github.com/CloudSilk/usercenter/internal/session"
+	"github.com/CloudSilk/usercenter/internal/store"
+	"github.com/CloudSilk/usercenter/internal/usage"
 )
 
 var dbClient db.DBClientInterface
 
-// Init Init
 func Init(connStr string, debug bool) {
 	dbClient = mysql.NewMysql(connStr, debug)
+	store.SetDB(dbClient)
 	initDB(debug)
 }
 
 func InitSqlite(database string, debug bool) {
 	dbClient = sqlite.NewSqlite2("", "", database, "", debug)
+	store.SetDB(dbClient)
 	initDB(debug)
 }
 
 func InitDB(client db.DBClientInterface, debug bool) {
 	dbClient = client
+	store.SetDB(dbClient)
 	initDB(debug)
 }
 
@@ -31,18 +40,10 @@ func initDB(debug bool) {
 		fmt.Println(AutoMigrate())
 	}
 	InitCasbin()
-	roles, err := GetAllRole("", true)
-	if err != nil {
-		panic(err)
-	}
-	for _, role := range roles {
-		updateRoleAuth(role.ID)
-	}
 	updateNotCheckAuthRule()
 	updateNotCheckLoginRule()
 }
 
-// AutoMigrate 自动生成表
 func AutoMigrate() error {
 	return dbClient.DB().AutoMigrate(&CasbinRule{}, &API{}, &Menu{}, &MenuParameter{}, &MenuFunc{},
 		&MenuFuncApi{}, &Role{}, &RoleMenu{}, &User{}, &UserRole{}, &UserWechatOpenIDMap{}, &APP{},
@@ -50,29 +51,13 @@ func AutoMigrate() error {
 		&Project{}, &ProjectFormComponent{},
 		&Dictionaries{}, &Language{}, &SystemConfig{}, &WebSite{}, &WechatConfig{},
 		&AuditLog{},
+		// REDESIGN 新增域表：AI Key/路由、用量计量、会话、ABAC、MFA、OAuth、Prompt 模板。
+		// 此前这些表不在迁移清单内，全新部署的库访问对应功能会报 Table doesn't exist。
+		&apikey.AIProvider{}, &apikey.AIKey{}, &apikey.ModelRoute{},
+		&usage.UsageRecord{}, &usage.UsageBudget{},
+		&session.Session{},
+		&permission.ABACPolicy{},
+		&auth.MFAFactor{}, &auth.RefreshToken{}, &auth.OAuthClient{}, &auth.ConsentRecord{},
+		&prompt.PromptTemplate{},
 	)
-}
-
-var DefaultPwd = ""
-
-// 登录失败锁定参数（默认值，可由 SetLoginLock 覆盖）
-var (
-	loginLockMaxErrCount int32 = 5
-	loginLockLockMinutes int   = 15
-)
-
-func SetDefaultPwd(defaultPwd string) {
-	if defaultPwd != "" {
-		DefaultPwd = defaultPwd
-	}
-}
-
-// SetLoginLock 设置登录失败锁定参数：最大连续失败次数与锁定时长（分钟）
-func SetLoginLock(maxErrCount int, lockMinutes int) {
-	if maxErrCount > 0 {
-		loginLockMaxErrCount = int32(maxErrCount)
-	}
-	if lockMinutes > 0 {
-		loginLockLockMinutes = lockMinutes
-	}
 }
