@@ -249,14 +249,37 @@
                 <el-table-column prop="code" label="编码" min-width="140" />
                 <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
                 <el-table-column prop="tenantName" label="租户" min-width="120" />
-                <el-table-column label="操作" width="180" fixed="right">
+                <el-table-column label="操作" width="240" fixed="right">
                   <template #default="{ row }">
                     <el-button link type="primary" size="small" @click="openRoleDialog(row)">编辑</el-button>
+                    <el-button link type="success" size="small" @click="openAuthTree(row)">授权菜单</el-button>
                     <el-button link type="danger" size="small" :disabled="!row.canDel" @click="removeRole(row)">删除</el-button>
                   </template>
                 </el-table-column>
               </el-table>
             </el-card>
+
+            <!-- 菜单授权树 -->
+            <el-dialog v-model="authTreeVisible" :title="'菜单授权 - ' + (authTreeRole.name || '')" width="560px">
+              <div v-loading="authTreeLoading">
+                <el-tree
+                  ref="authTreeRef"
+                  :data="menuTreeData"
+                  show-checkbox
+                  node-key="id"
+                  :props="{ label: 'name', children: 'children' }"
+                  :default-checked-keys="authTreeChecked"
+                  :default-expand-all="true"
+                  check-strictly />
+                <div style="color:#909399;font-size:12px;margin-top:8px">
+                  勾选的菜单将授予该角色。新勾选的菜单默认功能为 view，已有功能的菜单保留原配置。
+                </div>
+              </div>
+              <template #footer>
+                <el-button @click="authTreeVisible = false">取消</el-button>
+                <el-button type="primary" :loading="authTreeSaving" @click="saveAuthTree">保存授权</el-button>
+              </template>
+            </el-dialog>
 
             <el-dialog v-model="roleDialogVisible" :title="roleForm.id ? '编辑角色' : '新增角色'" width="500px">
               <el-form :model="roleForm" label-width="80px" ref="roleFormRef" :rules="roleRules">
@@ -1139,6 +1162,50 @@
           else ElementPlus.ElMessage.error(res.message || '删除失败');
         }
 
+        // ---- 菜单授权树（复用 /menu/tree + /role/detail + /role/update）----
+        const authTreeVisible = ref(false);
+        const authTreeLoading = ref(false);
+        const authTreeSaving = ref(false);
+        const authTreeRef = ref(null);
+        const authTreeRole = reactive({});
+        const menuTreeData = ref([]);
+        const authTreeChecked = ref([]);
+        const authTreeFuncs = {}; // menuID -> funcs（已分配的保留）
+
+        async function openAuthTree(row) {
+          Object.assign(authTreeRole, row);
+          authTreeChecked.value = [];
+          authTreeVisible.value = true;
+          authTreeLoading.value = true;
+          try {
+            // 并行加载全菜单树 + 角色已分配菜单
+            const [treeRes, detailRes] = await Promise.all([
+              get('/api/core/auth/menu/tree'),
+              get('/api/core/auth/role/detail', { id: row.id }),
+            ]);
+            menuTreeData.value = (treeRes.code === 0 && treeRes.data) || [];
+            // 收集已分配的 menuID + funcs
+            const rms = (detailRes.code === 0 && detailRes.data && detailRes.data.roleMenus) || [];
+            Object.keys(authTreeFuncs).forEach(k => delete authTreeFuncs[k]);
+            const checked = [];
+            rms.forEach(rm => { if (rm.menuID) { authTreeFuncs[rm.menuID] = rm.funcs || 'view'; checked.push(rm.menuID); } });
+            // 下一帧再设 checked（等 tree 渲染）
+            Vue.nextTick(() => { authTreeRef.value && authTreeRef.value.setCheckedKeys(checked); });
+          } finally { authTreeLoading.value = false; }
+        }
+
+        async function saveAuthTree() {
+          if (!authTreeRef.value) return;
+          const checked = authTreeRef.value.getCheckedKeys().filter(id => !!id);
+          const roleMenus = checked.map(id => ({ menuID: id, funcs: authTreeFuncs[id] || 'view', show: true }));
+          authTreeSaving.value = true;
+          try {
+            const res = await request('PUT', '/api/core/auth/role/update', { id: authTreeRole.id, name: authTreeRole.name, roleMenus });
+            if (res.code === 0) { ElementPlus.ElMessage.success(`已授权 ${roleMenus.length} 个菜单`); authTreeVisible.value = false; loadRoles(); }
+            else ElementPlus.ElMessage.error(res.message || '保存失败');
+          } finally { authTreeSaving.value = false; }
+        }
+
         // ---- 租户管理 ----
         const tenantSearch = reactive({ name: '', pageIndex: 1, pageSize: 10 });
         const tenants = ref([]);
@@ -1885,6 +1952,7 @@
           resetPwdVisible, resetPwdLoading, resetPwdTarget, resetPwdValue, openResetPwd, doResetPwd,
           roles,
           roleSearch, roleLoading, roleDialogVisible, roleSaving, roleFormRef, roleRules, roleForm, loadRoles, openRoleDialog, saveRole, removeRole,
+          authTreeVisible, authTreeLoading, authTreeSaving, authTreeRef, authTreeRole, menuTreeData, authTreeChecked, openAuthTree, saveAuthTree,
           tenantSearch, tenants, tenantTotal, tenantLoading, tenantDialogVisible, tenantSaving, tenantFormRef, tenantRules, tenantForm, loadTenants, openTenantDialog, saveTenant, toggleTenantEnable, removeTenant,
           // AI Key
           gw, gwModels, loadGatewayModels, sendGatewayChat,
