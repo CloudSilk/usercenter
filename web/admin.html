@@ -170,6 +170,9 @@
                   <el-button type="warning" size="small" @click="bulkUserEnable(false)">批量禁用</el-button>
                   <el-button type="danger" size="small" @click="bulkUserDelete">批量删除</el-button>
                 </template>
+                <el-button @click="exportUsers"><el-icon><Download /></el-icon>&nbsp;导出</el-button>
+                <el-button @click="$refs.importUserInput.click()"><el-icon><Upload /></el-icon>&nbsp;导入</el-button>
+                <input ref="importUserInput" type="file" accept=".json" style="display:none" @change="importUsers" />
                 <el-button type="success" @click="openUserDialog()">新增用户</el-button>
               </div>
               <el-table :data="users" v-loading="userLoading" border stripe size="small" @selection-change="(s) => selectedUsers = s">
@@ -1146,6 +1149,34 @@
           loadUsers();
         }
 
+        // 导入/导出（复用 /user/export、/user/import）
+        async function exportUsers() {
+          try {
+            const r = await fetch('/api/core/auth/user/export', { headers: { Authorization: 'Bearer ' + token.value } });
+            if (!r.ok) { ElementPlus.ElMessage.error('导出失败 HTTP ' + r.status); return; }
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'users.json'; a.click();
+            URL.revokeObjectURL(url);
+            ElementPlus.ElMessage.success('已导出');
+          } catch (e) { ElementPlus.ElMessage.error('导出失败: ' + e.message); }
+        }
+        async function importUsers(e) {
+          const f = e.target.files && e.target.files[0];
+          if (!f) return;
+          const fd = new FormData();
+          fd.append('files', f);
+          try {
+            const r = await fetch('/api/core/auth/user/import', {
+              method: 'POST', headers: { Authorization: 'Bearer ' + token.value }, body: fd,
+            });
+            const res = await r.json().catch(() => ({ code: -1, message: r.statusText }));
+            if (res.code === 0) { ElementPlus.ElMessage.success('导入成功'); loadUsers(); }
+            else ElementPlus.ElMessage.error(res.message || '导入失败');
+          } finally { e.target.value = ''; }
+        }
+
         // 重置密码
         const resetPwdVisible = ref(false);
         const resetPwdLoading = ref(false);
@@ -2002,7 +2033,7 @@
           activeMenu, onMenuSelect, stat, fmtTime, isDark, toggleDark, dashAutoRefresh, toggleDashRefresh,
           userSearch, users, userTotal, userLoading, loadUsers, resetUserSearch,
           userDialogVisible, userSaving, userFormRef, userRules, userForm, openUserDialog, saveUser, toggleUserEnable, removeUser,
-          selectedUsers, bulkUserEnable, bulkUserDelete,
+          selectedUsers, bulkUserEnable, bulkUserDelete, exportUsers, importUsers,
           resetPwdVisible, resetPwdLoading, resetPwdTarget, resetPwdValue, openResetPwd, doResetPwd,
           roles,
           roleSearch, roleLoading, roleDialogVisible, roleSaving, roleFormRef, roleRules, roleForm, loadRoles, openRoleDialog, saveRole, removeRole,
