@@ -6,6 +6,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"io"
@@ -19,6 +20,17 @@ func SetPIIKey(key []byte) {
 	if len(key) >= 32 {
 		piiKey = key[:32]
 	}
+}
+
+// SetPIIKeyFrom 从任意输入(如 token.key)经 SHA-256 派生 32 字节密钥。
+// 空输入返回 false，EncryptPII/DecryptPII 将显式报错。
+func SetPIIKeyFrom(input string) bool {
+	if input == "" {
+		return false
+	}
+	sum := sha256.Sum256([]byte(input))
+	piiKey = sum[:]
+	return true
 }
 
 // EncryptPII 加密敏感字段(身份证/手机/邮箱)

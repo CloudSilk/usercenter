@@ -677,6 +677,39 @@
                 </el-card>
               </el-col>
             </el-row>
+
+            <el-card class="page-card">
+              <template #header>
+                <div class="toolbar" style="margin-bottom:0"><span>MFA 多因子（TOTP 注册）</span><span class="grow"></span>
+                  <el-button size="small" type="primary" @click="enrollMFA">生成绑定密钥</el-button>
+                  <el-button size="small" @click="loadMFAFactors">刷新已绑定</el-button>
+                </div>
+              </template>
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <div v-if="mfaSecret" style="text-align:center">
+                    <canvas ref="mfaQrCanvas"></canvas>
+                    <div class="mono" style="font-size:11px;color:#909399;margin-top:8px;word-break:break-all">{{ mfaSecret }}</div>
+                    <div style="margin-top:8px">
+                      <el-input v-model="mfaName" size="small" placeholder="设备名（如 iPhone）" style="width:160px" />
+                      <el-input v-model="mfaCode" size="small" placeholder="6 位验证码" style="width:140px;margin-left:8px" maxlength="6" />
+                      <el-button size="small" type="success" :loading="mfaConfirming" style="margin-left:8px" @click="confirmMFA">确认绑定</el-button>
+                    </div>
+                  </div>
+                  <div v-else style="color:#909399;font-size:13px">点击「生成绑定密钥」开始：用 Google Authenticator / 1Password 扫描二维码，再输入 6 位验证码确认。</div>
+                </el-col>
+                <el-col :span="12">
+                  <div style="font-weight:600;margin-bottom:8px">已绑定的因子</div>
+                  <el-table :data="mfaFactors" border size="small">
+                    <el-table-column prop="name" label="名称" min-width="120"><template #default="{ row }">{{ row.name || '-' }}</template></el-table-column>
+                    <el-table-column prop="type" label="类型" width="100" />
+                    <el-table-column label="状态" width="80"><template #default="{ row }"><el-tag :type="row.enable ? 'success':'info'" size="small">{{ row.enable ? '启用' : '禁用' }}</el-tag></template></el-table-column>
+                    <el-table-column label="操作" width="90"><template #default="{ row }"><el-button link type="danger" size="small" @click="unbindMFA(row)">解绑</el-button></template></el-table-column>
+                  </el-table>
+                  <div v-if="!mfaFactors.length" style="color:#c0c4cc;font-size:12px;margin-top:8px">尚未绑定任何因子</div>
+                </el-col>
+              </el-row>
+            </el-card>
           </div>
 
           <!-- ============ OAuth 应用（OIDC Client 管理） ============ -->
@@ -845,6 +878,7 @@
   <script src="https://unpkg.com/@element-plus/icons-vue@2.3.1/dist/index.iife.min.js"></script>
   <script src="https://unpkg.com/dayjs@1.11.13/dayjs.min.js"></script>
   <script src="https://unpkg.com/echarts@5.5.1/dist/echarts.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <script>
     const { createApp, reactive, ref, onMounted, computed } = Vue;
 
@@ -903,6 +937,7 @@
           // 进入页面时懒加载该页数据
           if (key === 'gateway') { loadGatewayModels(); loadPrompts(); }
           if (key === 'oauth') { loadOAuthClients(); }
+          if (key === 'security') { loadAlerts(); loadMFAFactors(); }
         }
 
         // ---- 暗色模式 ----
@@ -1538,6 +1573,49 @@
           };
         }
 
+        // ---- MFA TOTP 注册 ----
+        const mfaSecret = ref('');
+        const mfaURI = ref('');
+        const mfaCode = ref('');
+        const mfaName = ref('');
+        const mfaFactors = ref([]);
+        const mfaConfirming = ref(false);
+        const mfaQrCanvas = ref(null);
+        async function enrollMFA() {
+          const res = await post('/admin/api/mfa/totp/enroll', {});
+          if (res.code === 0 && res.data) {
+            mfaSecret.value = res.data.secret;
+            mfaURI.value = res.data.uri;
+            mfaCode.value = ''; mfaName.value = '';
+            // 下一帧渲染二维码（canvas ref 已就绪）
+            Vue.nextTick(() => {
+              if (window.QRCode && mfaQrCanvas.value) {
+                mfaQrCanvas.value.getContext('2d').clearRect(0, 0, 200, 200);
+                window.QRCode.toCanvas(mfaQrCanvas.value, mfaURI.value, { width: 200 }, () => {});
+              }
+            });
+          } else ElementPlus.ElMessage.error(res.message || '生成失败');
+        }
+        async function confirmMFA() {
+          if (!/^\d{6}$/.test(mfaCode.value)) { ElementPlus.ElMessage.warning('请输入 6 位验证码'); return; }
+          mfaConfirming.value = true;
+          try {
+            const res = await post('/admin/api/mfa/totp/confirm', { secret: mfaSecret.value, code: mfaCode.value, name: mfaName.value });
+            if (res.code === 0 && res.data) { ElementPlus.ElMessage.success('绑定成功'); mfaSecret.value = ''; mfaCode.value = ''; loadMFAFactors(); }
+            else ElementPlus.ElMessage.error(res.message || '验证码不正确');
+          } finally { mfaConfirming.value = false; }
+        }
+        async function loadMFAFactors() {
+          const res = await get('/admin/api/mfa/factors');
+          if (res.code === 0) mfaFactors.value = res.data || [];
+        }
+        async function unbindMFA(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认解绑「${row.name || row.type}」？`, '解绑', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/mfa/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已解绑'); loadMFAFactors(); }
+          else ElementPlus.ElMessage.error(res.message || '解绑失败');
+        }
+
         // ---- 安全中心 ----
         const securityLoading = ref(false);
         const alerts = reactive({ loginFailThreshold: 0, authFailThreshold: 0, windowMinutes: 0 });
@@ -1824,6 +1902,7 @@
           auditSearch, auditRange, audits, auditTotal, auditLoading, loadAudits, resetAuditSearch,
           // Security
           liveEvents, liveConnected, toggleLiveAudit, fmtLiveTime,
+          mfaSecret, mfaCode, mfaName, mfaFactors, mfaConfirming, mfaQrCanvas, enrollMFA, confirmMFA, loadMFAFactors, unbindMFA,
           securityLoading, alerts, loadAlerts, riskInput, riskResult,
           // SCIM
           ocBase, oauthClients, ocLoading, clientDialogVisible, clientSaving, clientNewSecret, clientForm, loadOAuthClients, openClientDialog, saveOAuthClient, rotateClientSecret, removeOAuthClient,

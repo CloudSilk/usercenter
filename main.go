@@ -82,6 +82,8 @@ func main() {
 	}
 	// OIDC 密钥管理器（id_token 签名 + JWKS）。
 	auth.InitKeyManager(ucconfig.DefaultConfig.Token.Key)
+	// PII 字段加密密钥（MFA secret / 敏感字段），派生自 token.key
+	auth.SetPIIKeyFrom(ucconfig.DefaultConfig.Token.Key)
 	// 告警 Webhook（可选）
 	alert.SetWebhookURL(ucconfig.DefaultConfig.AlertWebhookURL)
 	constants.SetPlatformTenantID(ucconfig.DefaultConfig.PlatformTenantID)

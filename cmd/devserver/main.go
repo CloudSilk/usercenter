@@ -70,6 +70,8 @@ func main() {
 	apikey.SetEncryptionKeyFrom(devTokenKey)
 	// OIDC 密钥管理器
 	auth.InitKeyManager(devTokenKey)
+	// PII 加密密钥
+	auth.SetPIIKeyFrom(devTokenKey)
 
 	// 3. 全局常量
 	constants.SetPlatformTenantID(devPlatformTenantID)
