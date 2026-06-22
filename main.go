@@ -86,6 +86,14 @@ func main() {
 	auth.SetPIIKeyFrom(ucconfig.DefaultConfig.Token.Key)
 	// 告警 Webhook（可选）
 	alert.SetWebhookURL(ucconfig.DefaultConfig.AlertWebhookURL)
+	// 社交登录配置（GitHub/Google 等）
+	socialCfgs := make([]userhttp.SocialLoginConfig, 0, len(ucconfig.DefaultConfig.SocialLogins))
+	for _, s := range ucconfig.DefaultConfig.SocialLogins {
+		socialCfgs = append(socialCfgs, userhttp.SocialLoginConfig{
+			Provider: s.Provider, ClientID: s.ClientID, ClientSecret: s.ClientSecret, RedirectURI: s.RedirectURI,
+		})
+	}
+	userhttp.SetSocialLogins(socialCfgs)
 	constants.SetPlatformTenantID(ucconfig.DefaultConfig.PlatformTenantID)
 	constants.SetSuperAdminRoleID(ucconfig.DefaultConfig.SuperAdminRoleID)
 	constants.SetDefaultRoleID(ucconfig.DefaultConfig.DefaultRoleID)
@@ -149,6 +157,7 @@ func Start(port int) {
 	userhttp.RegisterAdminRouter(r)
 	userhttp.RegisterAIGatewayRouter(r)  // OpenAI 兼容 AI 网关：/v1/chat/completions、/v1/models
 	userhttp.RegisterOIDCRouter(r)       // OIDC/OAuth2 Provider：/.well-known/* /oauth/*
+	userhttp.RegisterSocialLoginRouter(r) // 社交登录画廊：/api/oauth/:provider/{login,callback}
 	userhttp.RegisterMetricsRouter(r)    // /metrics Prometheus 抓取端点
 
 	// 管理后台单页应用（Vue 3 + Element Plus CDN）。

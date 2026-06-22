@@ -64,6 +64,14 @@
           </el-form-item>
         </el-form>
         <div style="color:#909399;font-size:12px;text-align:center;">登录后 Token 持久化到 localStorage</div>
+        <div v-if="socialProviders.length" style="margin-top:16px;border-top:1px solid #ebeef5;padding-top:14px">
+          <div style="color:#909399;font-size:12px;text-align:center;margin-bottom:8px">使用第三方账号登录</div>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+            <el-button v-for="p in socialProviders" :key="p" size="small" @click="socialLogin(p)">
+              <span style="text-transform:capitalize">{{ p }} 登录</span>
+            </el-button>
+          </div>
+        </div>
       </el-card>
     </div>
 
@@ -733,6 +741,16 @@
                 </el-col>
               </el-row>
             </el-card>
+
+            <el-card class="page-card">
+              <template #header><span>外部身份（社交账号绑定）</span></template>
+              <el-table :data="myIdentities" border size="small">
+                <el-table-column prop="provider" label="Provider" width="140"><template #default="{ row }"><el-tag size="small">{{ row.provider }}</el-tag></template></el-table-column>
+                <el-table-column prop="providerLogin" label="第三方账号" min-width="200" show-overflow-tooltip />
+                <el-table-column label="操作" width="100"><template #default="{ row }"><el-button link type="danger" size="small" @click="unbindIdentity(row)">解绑</el-button></template></el-table-column>
+              </el-table>
+              <div v-if="!myIdentities.length" style="color:#c0c4cc;font-size:12px;margin-top:8px">尚未绑定任何第三方账号</div>
+            </el-card>
           </div>
 
           <!-- ============ OAuth 应用（OIDC Client 管理） ============ -->
@@ -914,6 +932,7 @@
         const profile = reactive({});
         const loginForm = reactive({ userName: '', password: '' });
         const loginLoading = ref(false);
+        const socialProviders = ref([]);
 
         async function doLogin() {
           if (!loginForm.userName || !loginForm.password) {
@@ -953,6 +972,39 @@
           } catch (e) { /* ignore */ }
         }
 
+        // 社交登录
+        async function loadSocialProviders() {
+          try {
+            const res = await get('/api/social/providers');
+            if (res.code === 0) socialProviders.value = res.data || [];
+          } catch { /* ignore */ }
+        }
+        function socialLogin(provider) {
+          window.location.href = '/api/oauth/' + provider + '/login?redirect=' + encodeURIComponent(window.location.origin + window.location.pathname);
+        }
+        // 回跳携带 social_token 时自动登录
+        function consumeSocialToken() {
+          const p = new URLSearchParams(window.location.search);
+          const t = p.get('social_token');
+          if (t) {
+            token.value = t; localStorage.setItem(TOKEN_KEY, t);
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+        }
+
+        // 外部身份（当前用户绑定）
+        const myIdentities = ref([]);
+        async function loadMyIdentities() {
+          const res = await get('/admin/api/identities');
+          if (res.code === 0) myIdentities.value = res.data || [];
+        }
+        async function unbindIdentity(row) {
+          try { await ElementPlus.ElMessageBox.confirm(`确认解绑 ${row.provider} 账号？`, '解绑', { type: 'warning' }); } catch { return; }
+          const res = await request('DELETE', '/admin/api/identities/' + row.id);
+          if (res.code === 0) { ElementPlus.ElMessage.success('已解绑'); loadMyIdentities(); }
+          else ElementPlus.ElMessage.error(res.message || '解绑失败');
+        }
+
         // ---- 导航 ----
         const activeMenu = ref('dashboard');
         function onMenuSelect(key) {
@@ -960,7 +1012,7 @@
           // 进入页面时懒加载该页数据
           if (key === 'gateway') { loadGatewayModels(); loadPrompts(); }
           if (key === 'oauth') { loadOAuthClients(); }
-          if (key === 'security') { loadAlerts(); loadMFAFactors(); }
+          if (key === 'security') { loadAlerts(); loadMFAFactors(); loadMyIdentities(); }
         }
 
         // ---- 暗色模式 ----
@@ -1932,6 +1984,8 @@
         // ---- 初始化 ----
         onMounted(async () => {
           applyDark();
+          consumeSocialToken();
+          loadSocialProviders();
           if (token.value) {
             await loadProfile().catch(() => {});
             if (token.value) await loadAll();
@@ -1944,7 +1998,7 @@
         });
 
         return {
-          token, profile, loginForm, loginLoading, doLogin, logout,
+          token, profile, loginForm, loginLoading, socialProviders, socialLogin, doLogin, logout,
           activeMenu, onMenuSelect, stat, fmtTime, isDark, toggleDark, dashAutoRefresh, toggleDashRefresh,
           userSearch, users, userTotal, userLoading, loadUsers, resetUserSearch,
           userDialogVisible, userSaving, userFormRef, userRules, userForm, openUserDialog, saveUser, toggleUserEnable, removeUser,
@@ -1971,6 +2025,7 @@
           // Security
           liveEvents, liveConnected, toggleLiveAudit, fmtLiveTime,
           mfaSecret, mfaCode, mfaName, mfaFactors, mfaConfirming, mfaQrCanvas, enrollMFA, confirmMFA, loadMFAFactors, unbindMFA,
+          myIdentities, loadMyIdentities, unbindIdentity,
           securityLoading, alerts, loadAlerts, riskInput, riskResult,
           // SCIM
           ocBase, oauthClients, ocLoading, clientDialogVisible, clientSaving, clientNewSecret, clientForm, loadOAuthClients, openClientDialog, saveOAuthClient, rotateClientSecret, removeOAuthClient,

@@ -111,6 +111,7 @@ func startHTTP(port int) {
 	userhttp.RegisterAdminRouter(r)
 	userhttp.RegisterAIGatewayRouter(r) // OpenAI 兼容 AI 网关
 	userhttp.RegisterOIDCRouter(r)      // OIDC/OAuth2 Provider
+	userhttp.RegisterSocialLoginRouter(r) // 社交登录画廊
 	userhttp.RegisterMetricsRouter(r)   // /metrics
 	scim.RegisterSCIMRouter(r, devSCIMToken) // dev 挂载 SCIM，方便面板「SCIM 配置」页测试
 
@@ -158,7 +159,8 @@ func serveAdminHTML(c *gin.Context) {
 func devAuthRequired(c *gin.Context) {
 	path := c.Request.URL.Path
 	if strings.HasPrefix(path, "/swagger/") || strings.HasPrefix(path, "/web/") ||
-		strings.HasPrefix(path, "/scim/") || strings.HasPrefix(path, "/.well-known/") {
+		strings.HasPrefix(path, "/scim/") || strings.HasPrefix(path, "/.well-known/") ||
+		strings.HasPrefix(path, "/api/oauth/") || path == "/api/social/providers" {
 		return
 	}
 	// 登录/健康检查/OIDC 公开端点免登录（spec 要求 discovery/jwks/token/revoke 公开）

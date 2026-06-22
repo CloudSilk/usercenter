@@ -834,6 +834,31 @@ curl -X POST http://localhost:48080/oauth/token \
 # → {"access_token":"...","token_type":"Bearer","expires_in":...}
 ```
 
+### 14.3 社交登录画廊（GitHub/Google）
+
+UserCenter 可聚合第三方社交登录。配置 `socialLogins` 后：
+
+```yaml
+socialLogins:
+  - provider: github
+    clientID: <gh-client-id>
+    clientSecret: <gh-secret>
+    redirectURI: http://host/api/oauth/github/callback
+  - provider: google
+    clientID: <g-client-id>
+    clientSecret: <g-secret>
+    redirectURI: http://host/api/oauth/google/callback
+```
+
+```
+GET /api/oauth/:provider/login?redirect=<front>   跳转 provider 授权页（带 state CSRF）
+GET /api/oauth/:provider/callback                  换 token→取 profile→匹配/创建用户→签发 token→回跳前端?social_token=
+GET /api/social/providers                          已配置 provider 列表（公开，登录页用）
+```
+
+回调按 `(provider, sub) → email → 新建` 顺序匹配用户并绑定外部身份（`user_external_identity` 表）。
+面板「安全中心」可查看/解绑外部身份；登录页显示已配置的社交登录按钮。
+
 ---
 
 ## 15. 可观测性与告警
