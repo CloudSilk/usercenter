@@ -8,6 +8,7 @@ import (
 	"github.com/CloudSilk/pkg/db/sqlite"
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/auth"
+	"github.com/CloudSilk/usercenter/internal/identity"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/prompt"
 	"github.com/CloudSilk/usercenter/internal/session"
@@ -59,5 +60,6 @@ func AutoMigrate() error {
 		&permission.ABACPolicy{},
 		&auth.MFAFactor{}, &auth.RefreshToken{}, &auth.OAuthClient{}, &auth.ConsentRecord{},
 		&prompt.PromptTemplate{},
+		&identity.UserExternalIdentity{},
 	)
 }

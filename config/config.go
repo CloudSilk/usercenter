@@ -81,6 +81,16 @@ type Config struct {
 	APIKeyEncKey string `yaml:"apiKeyEncKey"`
 	// AlertWebhookURL 告警 Webhook（Slack/钉钉/飞书/自建平台）。空则禁用推送。
 	AlertWebhookURL string `yaml:"alertWebhookURL"`
+	// SocialLogins 社交登录 provider 配置（GitHub/Google 等）。
+	SocialLogins []httpSocialLogin `yaml:"socialLogins"`
+}
+
+// httpSocialLogin 与 http.SocialLoginConfig 结构一致（避免 config 反向依赖 http 包）。
+type httpSocialLogin struct {
+	Provider     string `yaml:"provider"`
+	ClientID     string `yaml:"clientID"`
+	ClientSecret string `yaml:"clientSecret"`
+	RedirectURI  string `yaml:"redirectURI"`
 }
 
 // LoginLockConfig 登录失败锁定策略

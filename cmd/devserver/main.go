@@ -111,13 +111,13 @@ func startHTTP(port int) {
 	userhttp.RegisterAdminRouter(r)
 	userhttp.RegisterAIGatewayRouter(r) // OpenAI 兼容 AI 网关
 	userhttp.RegisterOIDCRouter(r)      // OIDC/OAuth2 Provider
+	userhttp.RegisterSocialLoginRouter(r) // 社交登录画廊
 	userhttp.RegisterMetricsRouter(r)   // /metrics
 	scim.RegisterSCIMRouter(r, devSCIMToken) // dev 挂载 SCIM，方便面板「SCIM 配置」页测试
 
-	// 内嵌管理后台单页
+	// 内嵌管理后台单页（React + Vite SPA）
 	r.GET("/web/admin", serveAdminHTML)
-	r.GET("/web/admin.html", serveAdminHTML)
-	r.GET("/web/admin/", serveAdminHTML)
+	r.GET("/web/admin/*any", serveAdminHTML)
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -144,7 +144,37 @@ func startHTTP(port int) {
 
 func serveAdminHTML(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
-	c.Data(http.StatusOK, "text/html; charset=utf-8", web.AdminHTML)
+	path := c.Request.URL.Path
+	trimmed := strings.TrimPrefix(path, "/web/admin")
+	if trimmed == "" || trimmed == "/" {
+		trimmed = "index.html"
+	} else {
+		trimmed = strings.TrimPrefix(trimmed, "/")
+	}
+	// 无文件扩展名的路径 → 直接 SPA fallback（如 /web/admin/users）
+	if !strings.Contains(trimmed, ".") {
+		trimmed = "index.html"
+	}
+	data, err := web.ReadFile(trimmed)
+	if err != nil {
+		data, err = web.ReadFile("index.html")
+		if err != nil {
+			c.String(http.StatusNotFound, "not found")
+			return
+		}
+		trimmed = "index.html"
+	}
+	contentType := "text/html; charset=utf-8"
+	if strings.HasSuffix(trimmed, ".js") {
+		contentType = "application/javascript"
+	} else if strings.HasSuffix(trimmed, ".css") {
+		contentType = "text/css"
+	} else if strings.HasSuffix(trimmed, ".svg") {
+		contentType = "image/svg+xml"
+	} else if strings.HasSuffix(trimmed, ".png") || strings.HasSuffix(trimmed, ".ico") {
+		contentType = "image/png"
+	}
+	c.Data(http.StatusOK, contentType, data)
 }
 
 // devAuthRequired 是仅供 devserver 使用的鉴权中间件。
@@ -158,7 +188,8 @@ func serveAdminHTML(c *gin.Context) {
 func devAuthRequired(c *gin.Context) {
 	path := c.Request.URL.Path
 	if strings.HasPrefix(path, "/swagger/") || strings.HasPrefix(path, "/web/") ||
-		strings.HasPrefix(path, "/scim/") || strings.HasPrefix(path, "/.well-known/") {
+		strings.HasPrefix(path, "/scim/") || strings.HasPrefix(path, "/.well-known/") ||
+		strings.HasPrefix(path, "/api/oauth/") || path == "/api/social/providers" {
 		return
 	}
 	// 登录/健康检查/OIDC 公开端点免登录（spec 要求 discovery/jwks/token/revoke 公开）

@@ -1,6 +1,6 @@
 # UserCenter 使用手册
 
-> 版本:v3.0(AI 网关 + OIDC IdP + 可观测性 + 运维指挥中心)
+> 版本:v4.0(React + shadcn/ui 多文件管理后台)
 > 适用分支:refactor/redesign-batch1
 
 ---
@@ -834,6 +834,31 @@ curl -X POST http://localhost:48080/oauth/token \
 # → {"access_token":"...","token_type":"Bearer","expires_in":...}
 ```
 
+### 14.3 社交登录画廊（GitHub/Google）
+
+UserCenter 可聚合第三方社交登录。配置 `socialLogins` 后：
+
+```yaml
+socialLogins:
+  - provider: github
+    clientID: <gh-client-id>
+    clientSecret: <gh-secret>
+    redirectURI: http://host/api/oauth/github/callback
+  - provider: google
+    clientID: <g-client-id>
+    clientSecret: <g-secret>
+    redirectURI: http://host/api/oauth/google/callback
+```
+
+```
+GET /api/oauth/:provider/login?redirect=<front>   跳转 provider 授权页（带 state CSRF）
+GET /api/oauth/:provider/callback                  换 token→取 profile→匹配/创建用户→签发 token→回跳前端?social_token=
+GET /api/social/providers                          已配置 provider 列表（公开，登录页用）
+```
+
+回调按 `(provider, sub) → email → 新建` 顺序匹配用户并绑定外部身份（`user_external_identity` 表）。
+面板「安全中心」可查看/解绑外部身份；登录页显示已配置的社交登录按钮。
+
 ---
 
 ## 15. 可观测性与告警
@@ -865,29 +890,77 @@ GET /admin/api/audit/stream?access_token=<jwt>
 
 ## 16. 可视化管理后台
 
-内嵌单页应用（Vue 3 + Element Plus + ECharts，CDN 模式，`go:embed` 打包进二进制）：
+内嵌单页应用（React + TypeScript + Vite，`go:embed` 打包进二进制）：
 
 ```
 http://<host>:48080/web/admin
 ```
 
-登录后即用，Token 持久化到 localStorage。**15 个页面**，按四组导航：
+页面内部通过 `/api/core/auth/user/login` 获取 Token 后访问受保护接口。
 
-| 分组 | 页面 |
-|------|------|
-| 组织管理 | 仪表盘（自动刷新）、用户（批量操作）、角色、租户 |
-| AI 能力 | **AI 网关**（流式测试器 + Prompt 模板）、AI Key 管理（一键实测）、用量统计（ECharts） |
-| 安全审计 | 会话管理、审计日志、**实时监控**（SSE 大屏）、安全中心（风险评分 + **MFA TOTP 注册**） |
-| 系统集成 | OAuth 应用、SCIM 配置、系统配置、API 测试 |
+### 16.1 项目结构
 
-特性：暗色模式、ECharts 用量图表、SSE 实时审计大屏、AI Key 实测、批量用户操作。
+```
+web/admin-ui/          ← React 前端工程
+├── src/               ← React + TypeScript 源码
+│   └── main.tsx       ← 入口
+├── public/            ← 静态资源（favicon 等）
+├── index.html         ← Vite 入口 HTML
+├── vite.config.ts     ← Vite 构建配置（含 API 代理）
+├── tsconfig.json      ← TypeScript 配置
+├── package.json       ← npm 依赖
+└── components.json    ← shadcn/ui 组件配置
+```
 
-### 16.1 本地开发(devserver)
+### 16.2 本地开发
 
-无需 Nacos/Dubbo，纯 HTTP 直连本地 MySQL，自动建表 + 播种管理员：
+启动后端 devserver（无需 Nacos/Dubbo，纯 HTTP 直连 MySQL）：
 
 ```bash
 NO_PROXY=localhost,127.0.0.1 UC_PORT=48180 go run ./cmd/devserver/
 # → http://localhost:48180/web/admin   admin / Admin@123456
 ```
+
+另开终端启动前端 devserver（带 HMR，自动代理 API 到后端）：
+
+```bash
+cd web/admin-ui
+npm install
+npm run dev
+# → http://localhost:5173   API 自动代理到 :48180
+```
+
+Vite 已配置 `/api`、`/admin/api`、`/v1`、`/oauth` 等前缀的自动代理
+（见 `vite.config.ts` 的 `server.proxy`），前端开发时无需后端 CORS 配置。
+
+代理目标通过环境变量覆盖：`UC_API_TARGET=http://10.0.0.1:48080 npm run dev`。
+
+### 16.3 生产构建
+
+```bash
+cd web/admin-ui
+npm install
+npm run build
+# → 输出目录：web/admin-ui/dist/
+```
+
+构建完成后重新编译 Go 二进制：
+
+```bash
+go build -o usercenter main.go
+```
+
+`//go:embed web/dist` 会将最新的 `dist/` 目录递归打包进二进制。
+`/web/admin` 路由通过 `http.FS(web.DistFS)` 直接服务内嵌资源。
+
+### 16.4 页面功能
+
+目前有 **15 个页面**，按四组导航：
+
+| 分组 | 页面 |
+|------|------|
+| 组织管理 | 仪表盘（自动刷新）、用户（批量操作）、角色、租户 |
+| AI 能力 | AI 网关（流式测试器 + Prompt 模板）、AI Key 管理（一键实测）、用量统计（ECharts） |
+| 安全审计 | 会话管理、审计日志、实时监控（SSE 大屏）、安全中心（风险评分 + MFA TOTP 注册） |
+| 系统集成 | OAuth 应用、SCIM 配置、系统配置、API 测试 |
 

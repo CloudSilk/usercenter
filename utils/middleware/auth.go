@@ -107,7 +107,8 @@ func AuthRequired(c *gin.Context) {
 	// authorize/userinfo 仍需用户 Bearer，走正常鉴权。
 	path := c.Request.URL.Path
 	if strings.HasPrefix(path, "/.well-known/") || path == "/oauth/token" || path == "/oauth/revoke" ||
-		path == "/health" || path == "/metrics" || path == "/admin/api/audit/stream" {
+		path == "/health" || path == "/metrics" || path == "/admin/api/audit/stream" ||
+		strings.HasPrefix(path, "/api/oauth/") || path == "/api/social/providers" {
 		return
 	}
 	t := GetAccessToken(c)
