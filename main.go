@@ -160,7 +160,7 @@ func Start(port int) {
 	userhttp.RegisterSocialLoginRouter(r) // 社交登录画廊：/api/oauth/:provider/{login,callback}
 	userhttp.RegisterMetricsRouter(r)    // /metrics Prometheus 抓取端点
 
-	// 管理后台单页应用（Vue 3 + Element Plus CDN）。
+	// 管理后台单页应用（React + Vite 构建产物，go:embed 打包进二进制）。
 	// /web/ 前缀已在 middleware.AuthRequired 中放行，无需鉴权即可加载页面；
 	// 页面内部通过 /api/core/auth/user/login 获取 Token 后访问受保护接口。
 	registerAdminWeb(r)
@@ -201,18 +201,42 @@ func Start(port int) {
 	fmt.Println("server exited")
 }
 
-// registerAdminWeb 挂载内嵌的管理后台单页应用。
-// 同时响应 /web/admin、/web/admin.html 与 /web/admin/，统一返回 admin.html。
+// registerAdminWeb 挂载内嵌的管理后台单页应用（React + Vite 构建产物）。
+// 使用 http.FS(DistFS) 嵌入 dist 目录，以 /web/admin 为前缀对外暴露静态资源。
 // /web/ 前缀已被 AuthRequired 放行，因此此处不触发鉴权。
 func registerAdminWeb(r *gin.Engine) {
-	r.GET("/web/admin", serveAdminHTML)
-	r.GET("/web/admin.html", serveAdminHTML)
-	r.GET("/web/admin/", serveAdminHTML)
+	// SPA fallback：返回 index.html
+	r.GET("/web/admin", func(c *gin.Context) { webSPA("index.html", c) })
+	r.GET("/web/admin/*any", func(c *gin.Context) {
+		p := c.Param("any")
+		if p == "" || p == "/" || !strings.Contains(p, ".") {
+			webSPA("index.html", c)
+			return
+		}
+		rel := strings.TrimPrefix(p, "/")
+		webSPA(rel, c)
+	})
 }
 
-// serveAdminHTML 返回内嵌的 admin.html，并设置正确的 Content-Type 与禁止缓存的响应头。
-func serveAdminHTML(c *gin.Context) {
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	c.Header("Cache-Control", "no-cache")
-	c.Data(http.StatusOK, "text/html; charset=utf-8", web.AdminHTML)
+func webSPA(name string, c *gin.Context) {
+	data, err := web.ReadFile(name)
+	if err != nil {
+		if name != "index.html" {
+			webSPA("index.html", c)
+			return
+		}
+		c.String(http.StatusNotFound, "not found")
+		return
+	}
+	contentType := "text/html; charset=utf-8"
+	if strings.HasSuffix(name, ".js") {
+		contentType = "application/javascript"
+	} else if strings.HasSuffix(name, ".css") {
+		contentType = "text/css"
+	} else if strings.HasSuffix(name, ".svg") {
+		contentType = "image/svg+xml"
+	} else if strings.HasSuffix(name, ".png") || strings.HasSuffix(name, ".ico") {
+		contentType = "image/png"
+	}
+	c.Data(http.StatusOK, contentType, data)
 }
