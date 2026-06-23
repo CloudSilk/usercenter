@@ -4,7 +4,7 @@ import (
 	"context"
 
 	commonmodel "github.com/CloudSilk/pkg/model"
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/authn"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
@@ -17,7 +17,7 @@ func (u *IdentityProvider) Authenticate(ctx context.Context, in *apipb.Authentic
 	resp := &apipb.AuthenticateResponse{
 		Code: commonmodel.Success,
 	}
-	currentUser, code, err := model.Authenticate(in.Token, in.Method, in.Url, in.CheckAuth)
+	_, currentUser, code, err := authn.AuthenticatePrincipal(in.Token, in.Method, in.Url, in.CheckAuth)
 	if code != int(apipb.Code_Success) {
 		resp.Code = apipb.Code(code)
 		if err != nil {

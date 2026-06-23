@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/project"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -15,7 +15,7 @@ func (u *ProjectProvider) Add(ctx context.Context, in *apipb.ProjectInfo) (*apip
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	id, err := model.CreateProject(model.PBToProject(in))
+	id, err := project.CreateProject(project.PBToProject(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -29,7 +29,7 @@ func (u *ProjectProvider) Update(ctx context.Context, in *apipb.ProjectInfo) (*a
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.UpdateProject(model.PBToProject(in))
+	err := project.UpdateProject(project.PBToProject(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -41,7 +41,7 @@ func (u *ProjectProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*ap
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.DeleteProject(in.Id)
+	err := project.DeleteProject(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -53,7 +53,7 @@ func (u *ProjectProvider) Query(ctx context.Context, in *apipb.QueryProjectReque
 	resp := &apipb.QueryProjectResponse{
 		Code: apipb.Code_Success,
 	}
-	model.QueryProject(in, resp, false)
+	project.QueryProject(in, resp, false)
 	return resp, nil
 }
 
@@ -61,12 +61,12 @@ func (u *ProjectProvider) GetDetail(ctx context.Context, in *apipb.GetDetailRequ
 	resp := &apipb.GetProjectDetailResponse{
 		Code: apipb.Code_Success,
 	}
-	f, err := model.GetProjectByID(in.Id)
+	f, err := project.GetProjectByID(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.ProjectToPB(f)
+		resp.Data = project.ProjectToPB(f)
 	}
 	return resp, nil
 }
@@ -76,7 +76,7 @@ func (u *ProjectProvider) Export(ctx context.Context, in *apipb.CommonExportRequ
 		Code: apipb.Code_Success,
 	}
 
-	model.ExportAllProjects(in, resp)
+	project.ExportAllProjects(in, resp)
 
 	return resp, nil
 }

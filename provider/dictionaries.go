@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/dictionaries"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -15,7 +15,7 @@ func (u *DictionariesProvider) Add(ctx context.Context, in *apipb.DictionariesIn
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	id, err := model.CreateDictionaries(model.PBToDictionariesArray(in))
+	id, err := dictionaries.CreateDictionaries(dictionaries.PBToDictionariesArray(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -29,7 +29,7 @@ func (u *DictionariesProvider) Update(ctx context.Context, in *apipb.Dictionarie
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.UpdateDictionaries(model.PBToDictionariesArray(in))
+	err := dictionaries.UpdateDictionaries(dictionaries.PBToDictionariesArray(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -41,7 +41,7 @@ func (u *DictionariesProvider) Delete(ctx context.Context, in *apipb.DelRequest)
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.DeleteDictionaries(in.Id)
+	err := dictionaries.DeleteDictionaries(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -53,7 +53,7 @@ func (u *DictionariesProvider) Query(ctx context.Context, in *apipb.QueryDiction
 	resp := &apipb.QueryDictionariesResponse{
 		Code: apipb.Code_Success,
 	}
-	model.QueryDictionaries(in, resp, false)
+	dictionaries.QueryDictionaries(in, resp, false)
 	return resp, nil
 }
 
@@ -61,12 +61,12 @@ func (u *DictionariesProvider) GetDetail(ctx context.Context, in *apipb.GetDetai
 	resp := &apipb.GetDictionariesDetailResponse{
 		Code: apipb.Code_Success,
 	}
-	f, err := model.GetDictionariesByID(in.Id)
+	f, err := dictionaries.GetDictionariesByID(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.DictionariesToPB(f)
+		resp.Data = dictionaries.DictionariesToPB(f)
 	}
 	return resp, nil
 }
@@ -76,7 +76,7 @@ func (u *DictionariesProvider) Export(ctx context.Context, in *apipb.CommonExpor
 		Code: apipb.Code_Success,
 	}
 
-	model.ExportAllDictionaries(in, resp)
+	dictionaries.ExportAllDictionaries(in, resp)
 
 	return resp, nil
 }

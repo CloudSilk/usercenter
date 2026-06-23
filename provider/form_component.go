@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/formcomponent"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -15,7 +15,7 @@ func (u *FormComponentProvider) Add(ctx context.Context, in *apipb.FormComponent
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	id, err := model.CreateFormComponent(model.PBToFormComponent(in))
+	id, err := formcomponent.CreateFormComponent(formcomponent.PBToFormComponent(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -29,7 +29,7 @@ func (u *FormComponentProvider) Update(ctx context.Context, in *apipb.FormCompon
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.UpdateFormComponent(model.PBToFormComponent(in))
+	err := formcomponent.UpdateFormComponent(formcomponent.PBToFormComponent(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -41,7 +41,7 @@ func (u *FormComponentProvider) Delete(ctx context.Context, in *apipb.DelRequest
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.DeleteFormComponent(in.Id)
+	err := formcomponent.DeleteFormComponent(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -53,7 +53,7 @@ func (u *FormComponentProvider) Query(ctx context.Context, in *apipb.QueryFormCo
 	resp := &apipb.QueryFormComponentResponse{
 		Code: apipb.Code_Success,
 	}
-	model.QueryFormComponent(in, resp, false)
+	formcomponent.QueryFormComponent(in, resp, false)
 	return resp, nil
 }
 
@@ -61,12 +61,12 @@ func (u *FormComponentProvider) GetDetail(ctx context.Context, in *apipb.GetDeta
 	resp := &apipb.GetFormComponentDetailResponse{
 		Code: apipb.Code_Success,
 	}
-	f, err := model.GetFormComponentByID(in.Id)
+	f, err := formcomponent.GetFormComponentByID(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.FormComponentToPB(f)
+		resp.Data = formcomponent.FormComponentToPB(f)
 	}
 	return resp, nil
 }

@@ -5,7 +5,9 @@ import (
 
 	"github.com/CloudSilk/pkg/constants"
 	commonmodel "github.com/CloudSilk/pkg/model"
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/tenant"
+	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -17,7 +19,7 @@ func (u *TenantProvider) Add(ctx context.Context, in *apipb.TenantInfo) (*apipb.
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.CreateTenant(model.PBToTenant(in))
+	err := tenant.CreateTenant(tenant.PBToTenant(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -34,7 +36,7 @@ func (u *TenantProvider) Update(ctx context.Context, in *apipb.TenantInfo) (*api
 		resp.Message = "平台租户不允许更新"
 		return resp, nil
 	}
-	err := model.UpdateTenant(model.PBToTenant(in))
+	err := tenant.UpdateTenant(tenant.PBToTenant(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -51,7 +53,7 @@ func (u *TenantProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*api
 		resp.Message = "平台租户不允许删除"
 		return resp, nil
 	}
-	err := model.DeleteTenant(in.Id)
+	err := tenant.DeleteTenant(in.Id, user.StatisticUserCount, permission.StatisticRoleCount)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -63,7 +65,7 @@ func (u *TenantProvider) Query(ctx context.Context, in *apipb.QueryTenantRequest
 	resp := &apipb.QueryTenantResponse{
 		Code: commonmodel.Success,
 	}
-	model.QueryTenant(in, resp)
+	tenant.QueryTenant(in, resp)
 	return resp, nil
 }
 
@@ -76,7 +78,7 @@ func (u *TenantProvider) Enable(ctx context.Context, in *apipb.EnableRequest) (*
 		resp.Message = "平台租户不允许更新"
 		return resp, nil
 	}
-	err := model.EnableTenant(in.Id, in.Enable)
+	err := tenant.EnableTenant(in.Id, in.Enable)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -88,12 +90,12 @@ func (u *TenantProvider) GetAll(ctx context.Context, in *apipb.GetAllRequest) (*
 	resp := &apipb.GetAllTenantResponse{
 		Code: commonmodel.Success,
 	}
-	users, err := model.GetAllTenant()
+	users, err := tenant.GetAllTenant()
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.TenantsToPB(users)
+		resp.Data = tenant.TenantsToPB(users)
 	}
 
 	return resp, nil
@@ -103,12 +105,12 @@ func (u *TenantProvider) GetDetail(ctx context.Context, in *apipb.GetDetailReque
 	resp := &apipb.GetTenantDetailResponse{
 		Code: commonmodel.Success,
 	}
-	tenant, err := model.GetTenantByID(in.Id)
+	tenant1, err := tenant.GetTenantByID(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	}
-	resp.Data = model.TenantToPB(tenant)
+	resp.Data = tenant.TenantToPB(tenant1)
 	return resp, nil
 }
 
@@ -116,7 +118,7 @@ func (u *TenantProvider) StatisticCount(ctx context.Context, in *apipb.Statistic
 	resp := &apipb.StatisticCountResponse{
 		Code: commonmodel.Success,
 	}
-	count, err := model.StatisticTenantCount()
+	count, err := tenant.StatisticTenantCount()
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -131,7 +133,7 @@ func (u *TenantProvider) Export(ctx context.Context, in *apipb.CommonExportReque
 		Code: apipb.Code_Success,
 	}
 
-	model.ExportAllTenants(in, resp)
+	tenant.ExportAllTenants(in, resp)
 
 	return resp, nil
 }

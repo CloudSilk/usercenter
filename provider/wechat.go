@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	commonmodel "github.com/CloudSilk/pkg/model"
-	"github.com/CloudSilk/usercenter/model"
-	apipb "github.com/CloudSilk/usercenter/proto"
+	"github.com/CloudSilk/usercenter/internal/user"
 	"github.com/CloudSilk/usercenter/wechat"
+	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
 type WechatProvider struct {
@@ -24,7 +24,7 @@ func (u *WechatProvider) SendTplMsg(ctx context.Context, in *apipb.SendTplMsgReq
 		resp.Message = "非法APP"
 		return resp, nil
 	}
-	openID, err := model.GetOpenIDByUserIDAndConfigID(in.ToUser, wechatOpenPlatformWeb.WechatConfig.ID)
+	openID, err := user.GetOpenIDByUserIDAndConfigID(in.ToUser, wechatOpenPlatformWeb.WechatConfig.ID)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()

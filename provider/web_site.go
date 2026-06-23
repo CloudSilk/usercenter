@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/website"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -15,7 +15,7 @@ func (u *WebSiteProvider) Add(ctx context.Context, in *apipb.WebSiteInfo) (*apip
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	id, err := model.CreateWebSite(model.PBToWebSite(in))
+	id, err := website.CreateWebSite(website.PBToWebSite(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -29,7 +29,7 @@ func (u *WebSiteProvider) Update(ctx context.Context, in *apipb.WebSiteInfo) (*a
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.UpdateWebSite(model.PBToWebSite(in))
+	err := website.UpdateWebSite(website.PBToWebSite(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -41,7 +41,7 @@ func (u *WebSiteProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*ap
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.DeleteWebSite(in.Id)
+	err := website.DeleteWebSite(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -53,7 +53,7 @@ func (u *WebSiteProvider) Query(ctx context.Context, in *apipb.QueryWebSiteReque
 	resp := &apipb.QueryWebSiteResponse{
 		Code: apipb.Code_Success,
 	}
-	model.QueryWebSite(in, resp, false)
+	website.QueryWebSite(in, resp, false)
 	return resp, nil
 }
 
@@ -61,12 +61,12 @@ func (u *WebSiteProvider) GetDetail(ctx context.Context, in *apipb.GetDetailRequ
 	resp := &apipb.GetWebSiteDetailResponse{
 		Code: apipb.Code_Success,
 	}
-	f, err := model.GetWebSiteByID(in.Id)
+	f, err := website.GetWebSiteByID(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.WebSiteToPB(f)
+		resp.Data = website.WebSiteToPB(f)
 	}
 	return resp, nil
 }
@@ -76,7 +76,7 @@ func (u *WebSiteProvider) Export(ctx context.Context, in *apipb.CommonExportRequ
 		Code: apipb.Code_Success,
 	}
 
-	model.ExportAllWebSites(in, resp)
+	website.ExportAllWebSites(in, resp)
 
 	return resp, nil
 }

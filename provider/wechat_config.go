@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/wechatconfig"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -15,7 +15,7 @@ func (u *WechatConfigProvider) Add(ctx context.Context, in *apipb.WechatConfigIn
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	id, err := model.CreateWechatConfig(model.PBToWechatConfig(in))
+	id, err := wechatconfig.CreateWechatConfig(wechatconfig.PBToWechatConfig(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -29,7 +29,7 @@ func (u *WechatConfigProvider) Update(ctx context.Context, in *apipb.WechatConfi
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.UpdateWechatConfig(model.PBToWechatConfig(in))
+	err := wechatconfig.UpdateWechatConfig(wechatconfig.PBToWechatConfig(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -41,7 +41,7 @@ func (u *WechatConfigProvider) Delete(ctx context.Context, in *apipb.DelRequest)
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.DeleteWechatConfig(in.Id)
+	err := wechatconfig.DeleteWechatConfig(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -53,7 +53,7 @@ func (u *WechatConfigProvider) Query(ctx context.Context, in *apipb.QueryWechatC
 	resp := &apipb.QueryWechatConfigResponse{
 		Code: apipb.Code_Success,
 	}
-	model.QueryWechatConfig(in, resp, false)
+	wechatconfig.QueryWechatConfig(in, resp, false)
 	return resp, nil
 }
 
@@ -61,12 +61,12 @@ func (u *WechatConfigProvider) GetDetail(ctx context.Context, in *apipb.GetDetai
 	resp := &apipb.GetWechatConfigDetailResponse{
 		Code: apipb.Code_Success,
 	}
-	f, err := model.GetWechatConfigByID(in.Id)
+	f, err := wechatconfig.GetWechatConfigByID(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.WechatConfigToPB(f)
+		resp.Data = wechatconfig.WechatConfigToPB(f)
 	}
 	return resp, nil
 }
@@ -76,7 +76,7 @@ func (u *WechatConfigProvider) Export(ctx context.Context, in *apipb.CommonExpor
 		Code: apipb.Code_Success,
 	}
 
-	model.ExportAllWechatConfigs(in, resp)
+	wechatconfig.ExportAllWechatConfigs(in, resp)
 
 	return resp, nil
 }

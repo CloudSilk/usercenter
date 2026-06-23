@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/app"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -16,7 +16,7 @@ func (u *APPProvider) Export(ctx context.Context, in *apipb.CommonExportRequest)
 		Code: apipb.Code_Success,
 	}
 
-	model.ExportAllAPPs(in, resp)
+	app.ExportAllAPPs(in, resp)
 
 	return resp, nil
 }

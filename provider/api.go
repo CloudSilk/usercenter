@@ -4,7 +4,7 @@ import (
 	"context"
 
 	commonmodel "github.com/CloudSilk/pkg/model"
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/permission"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -16,7 +16,7 @@ func (u *APIProvider) Add(ctx context.Context, in *apipb.APIInfo) (*apipb.Common
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.CreateAPI(model.PBToAPI(in))
+	err := permission.CreateAPI(permission.PBToAPI(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -28,7 +28,7 @@ func (u *APIProvider) Update(ctx context.Context, in *apipb.APIInfo) (*apipb.Com
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.UpdateAPI(model.PBToAPI(in))
+	err := permission.UpdateAPI(permission.PBToAPI(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -40,7 +40,7 @@ func (u *APIProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*apipb.
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.DeleteApi(in.Id)
+	err := permission.DeleteApi(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -52,7 +52,7 @@ func (u *APIProvider) Query(ctx context.Context, in *apipb.QueryAPIRequest) (*ap
 	resp := &apipb.QueryAPIResponse{
 		Code: commonmodel.Success,
 	}
-	model.QueryAPI(in, resp)
+	permission.QueryAPI(in, resp)
 	return resp, nil
 }
 
@@ -60,7 +60,7 @@ func (u *APIProvider) Enable(ctx context.Context, in *apipb.EnableRequest) (*api
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.EnableAPI(in.Id, in.Enable)
+	err := permission.EnableAPI(in.Id, in.Enable)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -72,12 +72,12 @@ func (u *APIProvider) GetAll(ctx context.Context, in *apipb.QueryAPIRequest) (*a
 	resp := &apipb.GetAllAPIResponse{
 		Code: commonmodel.Success,
 	}
-	apis, err := model.GetAllAPIs(in)
+	apis, err := permission.GetAllAPIs(in)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.APIsToPB(apis)
+		resp.Data = permission.APIsToPB(apis)
 	}
 
 	return resp, nil
@@ -87,12 +87,12 @@ func (u *APIProvider) GetDetail(ctx context.Context, in *apipb.GetDetailRequest)
 	resp := &apipb.GetAPIDetailResponse{
 		Code: commonmodel.Success,
 	}
-	api, err := model.GetAPIById(in.Id)
+	api, err := permission.GetAPIById(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	}
-	resp.Data = model.APIToPB(&api)
+	resp.Data = permission.APIToPB(&api)
 	return resp, nil
 }
 
@@ -101,7 +101,7 @@ func (u *APIProvider) Export(ctx context.Context, in *apipb.CommonExportRequest)
 		Code: apipb.Code_Success,
 	}
 
-	model.ExportAllApis(in, resp)
+	permission.ExportAllApis(in, resp)
 
 	return resp, nil
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	commonmodel "github.com/CloudSilk/pkg/model"
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -16,7 +16,7 @@ func (u *UserProvider) LoginByStaffNo(ctx context.Context, in *apipb.LoginByStaf
 	resp := &apipb.LoginByStaffNoResponse{
 		Code: commonmodel.Success,
 	}
-	model.LoginByStaffNo(in, resp)
+	user.LoginByStaffNo(in, resp)
 	return resp, nil
 }
 
@@ -25,7 +25,7 @@ func (u *UserProvider) LogoutByUserName(ctx context.Context, in *apipb.LogoutByU
 		Code: commonmodel.Success,
 	}
 
-	model.LogoutByUserName(in, resp)
+	user.LogoutByUserName(in, resp)
 
 	return resp, nil
 }
@@ -34,7 +34,7 @@ func (u *UserProvider) Login(ctx context.Context, in *apipb.LoginRequest) (*apip
 	resp := &apipb.LoginResponse{
 		Code: commonmodel.Success,
 	}
-	model.Login(in, resp)
+	user.Login(in, resp)
 	return resp, nil
 }
 
@@ -42,9 +42,9 @@ func (u *UserProvider) Add(ctx context.Context, in *apipb.UserInfo) (*apipb.Comm
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	user := model.PBToUser(in)
-	user.Password = in.Password
-	err := model.CreateUser(user, false)
+	usr := user.PBToUser(in)
+	usr.Password = in.Password
+	err := user.CreateUser(usr, false)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -56,7 +56,7 @@ func (u *UserProvider) Update(ctx context.Context, in *apipb.UserInfo) (*apipb.C
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.UpdateUser(model.PBToUser(in))
+	err := user.UpdateUser(user.PBToUser(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -68,7 +68,7 @@ func (u *UserProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*apipb
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.DeleteUser(in.Id)
+	err := user.DeleteUser(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -80,7 +80,7 @@ func (u *UserProvider) Query(ctx context.Context, in *apipb.QueryUserRequest) (*
 	resp := &apipb.QueryUserResponse{
 		Code: commonmodel.Success,
 	}
-	model.QueryUser(in, resp, false)
+	user.QueryUser(in, resp, false)
 	return resp, nil
 }
 
@@ -88,13 +88,12 @@ func (u *UserProvider) GetProfile(ctx context.Context, in *apipb.GetDetailReques
 	resp := &apipb.GetProfileResponse{
 		Code: commonmodel.Success,
 	}
-	//TODO
-	user, err := model.GetUserProfile(in.Id, true)
+	usrProfile, err := user.GetUserProfile(in.Id, true)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	}
-	resp.Data = user
+	resp.Data = usrProfile
 	return resp, nil
 }
 
@@ -102,7 +101,7 @@ func (u *UserProvider) UpdateProfile(ctx context.Context, in *apipb.UserProfile)
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.UpdateProfile(model.UserProfileToUser(in), false)
+	err := user.UpdateProfile(user.UserProfileToUser(in), false)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -114,7 +113,7 @@ func (u *UserProvider) UpdateProfileAndUserName(ctx context.Context, in *apipb.U
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.UpdateProfile(model.UserProfileToUser(in), true)
+	err := user.UpdateProfile(user.UserProfileToUser(in), true)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -126,7 +125,7 @@ func (u *UserProvider) Enable(ctx context.Context, in *apipb.EnableRequest) (*ap
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.EnableUser(in.Id, in.Enable)
+	err := user.EnableUser(in.Id, in.Enable)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -138,12 +137,12 @@ func (u *UserProvider) GetAll(ctx context.Context, in *apipb.GetAllUsersRequest)
 	resp := &apipb.GetAllUsersResponse{
 		Code: commonmodel.Success,
 	}
-	users, err := model.GetAllUsers(in)
+	users, err := user.GetAllUsers(in)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.UsersToPB(users)
+		resp.Data = user.UsersToPB(users)
 	}
 
 	return resp, nil
@@ -153,12 +152,12 @@ func (u *UserProvider) GetDetail(ctx context.Context, in *apipb.GetDetailRequest
 	resp := &apipb.GetUserDetailResponse{
 		Code: commonmodel.Success,
 	}
-	user, err := model.GetUserById(in.Id)
+	usr, err := user.GetUserById(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	}
-	resp.Data = model.UserToPB(&user)
+	resp.Data = user.UserToPB(&usr)
 	return resp, nil
 }
 
@@ -166,7 +165,7 @@ func (u *UserProvider) ResetPwd(ctx context.Context, in *apipb.GetDetailRequest)
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.ResetPwd(in.Id, model.DefaultPwd)
+	err := user.ResetPwd(in.Id, user.DefaultPwd)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -178,7 +177,7 @@ func (u *UserProvider) ChangePwd(ctx context.Context, in *apipb.ChangePwdRequest
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.UpdatePwd(in.Id, in.OldPwd, in.NewPwd)
+	err := user.UpdatePwd(in.Id, in.OldPwd, in.NewPwd)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -191,7 +190,7 @@ func (u *UserProvider) Logout(ctx context.Context, in *apipb.LogoutRequest) (*ap
 		Code: commonmodel.Success,
 	}
 	//TODO
-	err := model.Logout(in.Token)
+	err := user.Logout(in.Token)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -203,7 +202,7 @@ func (u *UserProvider) StatisticCount(ctx context.Context, in *apipb.StatisticUs
 	resp := &apipb.StatisticCountResponse{
 		Code: commonmodel.Success,
 	}
-	count, err := model.StatisticUserCount(int(in.Type), in.TenantID, in.Group)
+	count, err := user.StatisticUserCount(int(in.Type), in.TenantID, in.Group)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -218,7 +217,7 @@ func (u *UserProvider) Export(ctx context.Context, in *apipb.CommonExportRequest
 		Code: apipb.Code_Success,
 	}
 
-	model.ExportAllUsers(in, resp)
+	user.ExportAllUsers(in, resp)
 
 	return resp, nil
 }
@@ -227,7 +226,7 @@ func (u *UserProvider) UpdateBasics(ctx context.Context, in *apipb.BasicsInfo) (
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	i := &model.User{
+	i := &user.User{
 		TenantModel: commonmodel.TenantModel{
 			Model: commonmodel.Model{
 				ID: in.Id,
@@ -238,7 +237,7 @@ func (u *UserProvider) UpdateBasics(ctx context.Context, in *apipb.BasicsInfo) (
 		Nickname: in.Nickname,
 		Height:   in.Height,
 	}
-	err := model.UpdateBasics(i)
+	err := user.UpdateBasics(i)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -250,12 +249,12 @@ func (u *UserProvider) GetBasics(ctx context.Context, in *apipb.GetDetailRequest
 	resp := &apipb.GetBasicsResponse{
 		Code: commonmodel.Success,
 	}
-	user, err := model.GetUserById(in.Id)
+	usr, err := user.GetUserById(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	}
-	resp.Data = &apipb.BasicsInfo{Id: user.ID, Gender: user.Gender, Age: user.Age, Nickname: user.Nickname, Height: user.Height}
+	resp.Data = &apipb.BasicsInfo{Id: usr.ID, Gender: usr.Gender, Age: usr.Age, Nickname: usr.Nickname, Height: usr.Height}
 	return resp, nil
 }
 
@@ -263,7 +262,7 @@ func (u *UserProvider) UpdateUserAgeHeightWeight(ctx context.Context, in *apipb.
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	i := &model.User{
+	i := &user.User{
 		TenantModel: commonmodel.TenantModel{
 			Model: commonmodel.Model{
 				ID: in.Id,
@@ -273,7 +272,7 @@ func (u *UserProvider) UpdateUserAgeHeightWeight(ctx context.Context, in *apipb.
 		Height: in.Height,
 		Weight: in.Weight,
 	}
-	err := model.UpdateUserAgeHeightWeight(i)
+	err := user.UpdateUserAgeHeightWeight(i)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()

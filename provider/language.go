@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/language"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -15,7 +15,7 @@ func (u *LanguageProvider) Add(ctx context.Context, in *apipb.LanguageInfo) (*ap
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	id, err := model.CreateLanguage(model.PBToLanguage(in))
+	id, err := language.CreateLanguage(language.PBToLanguage(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -29,7 +29,7 @@ func (u *LanguageProvider) Update(ctx context.Context, in *apipb.LanguageInfo) (
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.UpdateLanguage(model.PBToLanguage(in))
+	err := language.UpdateLanguage(language.PBToLanguage(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -41,7 +41,7 @@ func (u *LanguageProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*a
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.DeleteLanguage(in.Id)
+	err := language.DeleteLanguage(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -53,7 +53,7 @@ func (u *LanguageProvider) Query(ctx context.Context, in *apipb.QueryLanguageReq
 	resp := &apipb.QueryLanguageResponse{
 		Code: apipb.Code_Success,
 	}
-	model.QueryLanguage(in, resp, false)
+	language.QueryLanguage(in, resp, false)
 	return resp, nil
 }
 
@@ -61,12 +61,12 @@ func (u *LanguageProvider) GetDetail(ctx context.Context, in *apipb.GetDetailReq
 	resp := &apipb.GetLanguageDetailResponse{
 		Code: apipb.Code_Success,
 	}
-	f, err := model.GetLanguageByID(in.Id)
+	f, err := language.GetLanguageByID(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.LanguageToPB(f)
+		resp.Data = language.LanguageToPB(f)
 	}
 	return resp, nil
 }
@@ -76,7 +76,7 @@ func (u *LanguageProvider) Export(ctx context.Context, in *apipb.CommonExportReq
 		Code: apipb.Code_Success,
 	}
 
-	model.ExportAllLanguages(in, resp)
+	language.ExportAllLanguages(in, resp)
 
 	return resp, nil
 }

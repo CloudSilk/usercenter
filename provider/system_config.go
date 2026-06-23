@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/systemconfig"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -15,7 +15,7 @@ func (u *SystemConfigProvider) Add(ctx context.Context, in *apipb.SystemConfigIn
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	id, err := model.CreateSystemConfig(model.PBToSystemConfig(in))
+	id, err := systemconfig.CreateSystemConfig(systemconfig.PBToSystemConfig(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -29,7 +29,7 @@ func (u *SystemConfigProvider) Update(ctx context.Context, in *apipb.SystemConfi
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.UpdateSystemConfig(model.PBToSystemConfig(in))
+	err := systemconfig.UpdateSystemConfig(systemconfig.PBToSystemConfig(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -41,7 +41,7 @@ func (u *SystemConfigProvider) Delete(ctx context.Context, in *apipb.DelRequest)
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	err := model.DeleteSystemConfig(in.Id)
+	err := systemconfig.DeleteSystemConfig(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -53,7 +53,7 @@ func (u *SystemConfigProvider) Query(ctx context.Context, in *apipb.QuerySystemC
 	resp := &apipb.QuerySystemConfigResponse{
 		Code: apipb.Code_Success,
 	}
-	model.QuerySystemConfig(in, resp, false)
+	systemconfig.QuerySystemConfig(in, resp, false)
 	return resp, nil
 }
 
@@ -61,12 +61,12 @@ func (u *SystemConfigProvider) GetDetail(ctx context.Context, in *apipb.GetDetai
 	resp := &apipb.GetSystemConfigDetailResponse{
 		Code: apipb.Code_Success,
 	}
-	f, err := model.GetSystemConfigByID(in.Id)
+	f, err := systemconfig.GetSystemConfigByID(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.SystemConfigToPB(f)
+		resp.Data = systemconfig.SystemConfigToPB(f)
 	}
 	return resp, nil
 }
@@ -76,7 +76,7 @@ func (u *SystemConfigProvider) Export(ctx context.Context, in *apipb.CommonExpor
 		Code: apipb.Code_Success,
 	}
 
-	model.ExportAllSystemConfigs(in, resp)
+	systemconfig.ExportAllSystemConfigs(in, resp)
 
 	return resp, nil
 }

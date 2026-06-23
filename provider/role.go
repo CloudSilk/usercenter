@@ -4,7 +4,8 @@ import (
 	"context"
 
 	commonmodel "github.com/CloudSilk/pkg/model"
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/tenant"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
 
@@ -16,7 +17,7 @@ func (u *RoleProvider) Add(ctx context.Context, in *apipb.RoleInfo) (*apipb.Comm
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.CreateRole(model.PBToRole(in))
+	err := permission.CreateRole(permission.PBToRole(in), tenant.GetTenantUserCount)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -28,7 +29,7 @@ func (u *RoleProvider) Update(ctx context.Context, in *apipb.RoleInfo) (*apipb.C
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.UpdateRole(model.PBToRole(in))
+	err := permission.UpdateRole(permission.PBToRole(in))
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -40,7 +41,7 @@ func (u *RoleProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*apipb
 	resp := &apipb.CommonResponse{
 		Code: commonmodel.Success,
 	}
-	err := model.DeleteRole(in.Id)
+	err := permission.DeleteRole(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -52,7 +53,7 @@ func (u *RoleProvider) Query(ctx context.Context, in *apipb.QueryRoleRequest) (*
 	resp := &apipb.QueryRoleResponse{
 		Code: commonmodel.Success,
 	}
-	model.QueryRole(in, resp, false)
+	permission.QueryRole(in, resp, false)
 	return resp, nil
 }
 
@@ -60,12 +61,12 @@ func (u *RoleProvider) GetAll(ctx context.Context, in *apipb.GetAllRoleRequest) 
 	resp := &apipb.GetAllRoleResponse{
 		Code: commonmodel.Success,
 	}
-	roles, err := model.GetAllRole(in.TenantID, in.ContainerComm)
+	roles, err := permission.GetAllRole(in.TenantID, in.ContainerComm)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.RolesToPB(roles)
+		resp.Data = permission.RolesToPB(roles)
 	}
 
 	return resp, nil
@@ -75,12 +76,12 @@ func (u *RoleProvider) GetDetail(ctx context.Context, in *apipb.GetDetailRequest
 	resp := &apipb.GetRoleDetailResponse{
 		Code: commonmodel.Success,
 	}
-	role, err := model.GetRoleByID(in.Id)
+	role, err := permission.GetRoleByID(in.Id)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	}
-	resp.Data = model.RoleToPB(role)
+	resp.Data = permission.RoleToPB(role)
 	return resp, nil
 }
 
@@ -88,7 +89,7 @@ func (u *RoleProvider) StatisticCount(ctx context.Context, in *apipb.StatisticRo
 	resp := &apipb.StatisticCountResponse{
 		Code: commonmodel.Success,
 	}
-	count, err := model.StatisticRoleCount(in.TenantID)
+	count, err := permission.StatisticRoleCount(in.TenantID)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -103,7 +104,7 @@ func (u *RoleProvider) Export(ctx context.Context, in *apipb.CommonExportRequest
 		Code: apipb.Code_Success,
 	}
 
-	model.ExportAllRoles(in, resp)
+	permission.ExportAllRoles(in, resp)
 
 	return resp, nil
 }
