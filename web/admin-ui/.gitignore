@@ -21,3 +21,4 @@ node_modules
 *.sln
 *.sw?
 web/admin-ui/test-results/
+web/admin-ui/e2e/*.png
