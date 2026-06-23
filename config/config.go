@@ -1,7 +1,9 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"time"
 
 	"github.com/dubbogo/gost/encoding/yaml"
 	"github.com/nacos-group/nacos-sdk-go/clients"
@@ -11,7 +13,23 @@ import (
 
 var DefaultConfig = &Config{}
 
+// retryIntervals 退避间隔（秒）
+var retryIntervals = []time.Duration{5 * time.Second, 10 * time.Second, 30 * time.Second}
+
+// Init 从 Nacos 加载配置。
+// 先尝试 Nacos，最多重试 3 次（5s/10s/30s 退避）；全部失败后尝试从 /etc/usercenter/config.yaml 本地文件回退；
+// 如果全都失败则 panic。
 func Init(nacosNamespace, nacosAddr string, port uint64, nacosUserName, nacosPwd string) {
+	// 空配置中心地址时直接尝试本地文件回退
+	if nacosAddr == "" {
+		fmt.Println("[config] Nacos 地址为空，尝试本地文件回退")
+		if err := InitFromFile("/etc/usercenter/config.yaml"); err != nil {
+			panic(fmt.Sprintf("[config] Nacos 地址为空且本地文件回退失败: %v", err))
+		}
+		fmt.Println("[config] 成功从本地文件加载配置")
+		return
+	}
+
 	sc := []constant.ServerConfig{
 		{
 			IpAddr: nacosAddr,
@@ -19,40 +37,69 @@ func Init(nacosNamespace, nacosAddr string, port uint64, nacosUserName, nacosPwd
 		},
 	}
 
-	cc := constant.ClientConfig{
-		NamespaceId:         nacosNamespace,
-		NotLoadCacheAtStart: true,
-		LogDir:              "./log",
-		CacheDir:            "./cache",
-		LogLevel:            "debug",
-		Username:            nacosUserName,
-		Password:            nacosPwd,
+	var lastErr error
+	for i, interval := range retryIntervals {
+		cc := constant.ClientConfig{
+			NamespaceId:         nacosNamespace,
+			NotLoadCacheAtStart: false, // 重启时加载 Nacos 本地磁盘缓存，提升 Nacos 不可用时的恢复能力
+			LogDir:              "./log",
+			CacheDir:            "./cache",
+			LogLevel:            "debug",
+			Username:            nacosUserName,
+			Password:            nacosPwd,
+		}
+
+		client, err := clients.NewConfigClient(
+			vo.NacosClientParam{
+				ClientConfig:  &cc,
+				ServerConfigs: sc,
+			},
+		)
+		if err != nil {
+			lastErr = err
+			fmt.Printf("[config] 创建 Nacos 客户端失败(第%d次): %v\n", i+1, err)
+			if i < len(retryIntervals)-1 {
+				fmt.Printf("[config] %v 后重试...\n", interval)
+				time.Sleep(interval)
+			}
+			continue
+		}
+
+		content, err := client.GetConfig(vo.ConfigParam{
+			DataId: "usercenter-config",
+			Group:  "nooocode",
+		})
+		if err != nil {
+			lastErr = err
+			fmt.Printf("[config] 从 Nacos 获取配置失败(第%d次): %v\n", i+1, err)
+			if i < len(retryIntervals)-1 {
+				fmt.Printf("[config] %v 后重试...\n", interval)
+				time.Sleep(interval)
+			}
+			continue
+		}
+
+		err = yaml.UnmarshalYML([]byte(content), DefaultConfig)
+		if err != nil {
+			lastErr = err
+			fmt.Printf("[config] 解析 Nacos 配置失败(第%d次): %v\n", i+1, err)
+			if i < len(retryIntervals)-1 {
+				fmt.Printf("[config] %v 后重试...\n", interval)
+				time.Sleep(interval)
+			}
+			continue
+		}
+
+		fmt.Println("[config] 成功从 Nacos 加载配置")
+		return
 	}
 
-	// a more graceful way to create config client
-	client, err := clients.NewConfigClient(
-		vo.NacosClientParam{
-			ClientConfig:  &cc,
-			ServerConfigs: sc,
-		},
-	)
-
-	if err != nil {
-		panic(err)
+	// 全部 Nacos 重试失败，尝试本地文件回退
+	fmt.Printf("[config] Nacos 重试全部失败(%v)，尝试本地文件回退...\n", lastErr)
+	if err := InitFromFile("/etc/usercenter/config.yaml"); err != nil {
+		panic(fmt.Sprintf("[config] Nacos 与本地文件回退均失败: Nacos(%v), 本地(%v)", lastErr, err))
 	}
-
-	//get config
-	content, err := client.GetConfig(vo.ConfigParam{
-		DataId: "usercenter-config",
-		Group:  "nooocode",
-	})
-	if err != nil {
-		panic(err)
-	}
-	err = yaml.UnmarshalYML([]byte(content), DefaultConfig)
-	if err != nil {
-		panic(err)
-	}
+	fmt.Println("[config] 成功从本地文件加载配置")
 }
 
 func InitFromFile(fileName string) error {
@@ -79,6 +126,12 @@ type Config struct {
 	// APIKeyEncKey 用于 AES-GCM 加密 AI Key 明文（32 字节十六进制/base64 或任意长度，取 SHA-256 派生）。
 	// 留空时从 token.key 派生（SHA-256），保证部署内确定且唯一。
 	APIKeyEncKey string `yaml:"apiKeyEncKey"`
+	// PIIEncKey 用于 AES-GCM 加密 PII 敏感字段（身份证/手机/邮箱）。
+	// 留空时从 token.key 派生（SHA-256），保证部署内确定。
+	PIIEncKey string `yaml:"piiEncKey"`
+	// OIDCSigningKey PEM 编码的 RSA 私钥,用于 id_token RS256 签名。
+	// 留空则启动时自动生成 2048-bit RSA 密钥(日志打印 kid,重启后旧 id_token 失效)。
+	OIDCSigningKey string `yaml:"oidcSigningKey"`
 	// AlertWebhookURL 告警 Webhook（Slack/钉钉/飞书/自建平台）。空则禁用推送。
 	AlertWebhookURL string `yaml:"alertWebhookURL"`
 	// SocialLogins 社交登录 provider 配置（GitHub/Google 等）。

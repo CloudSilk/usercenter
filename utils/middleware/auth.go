@@ -8,8 +8,9 @@ import (
 
 	"dubbo.apache.org/dubbo-go/v3/config"
 	"github.com/CloudSilk/pkg/model"
+	"github.com/CloudSilk/usercenter/internal/alert"
+	"github.com/CloudSilk/usercenter/internal/authn"
 	"github.com/CloudSilk/usercenter/internal/principal"
-	ucmodel "github.com/CloudSilk/usercenter/model"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/gin-gonic/gin"
 )
@@ -112,11 +113,11 @@ func AuthRequired(c *gin.Context) {
 		return
 	}
 	t := GetAccessToken(c)
-	currentUser, code, err := ucmodel.Authenticate(t, c.Request.Method, c.Request.URL.Path, true)
+	p, currentUser, code, err := authn.AuthenticatePrincipal(t, c.Request.Method, c.Request.URL.Path, true)
 
 	if code != model.Success {
 		if code == model.Unauthorized {
-			ucmodel.AlertAuthFailure(c.ClientIP(), c.Request.URL.Path)
+			alert.AlertAuthFailure(c.ClientIP(), c.Request.URL.Path)
 		}
 		message := ""
 		if err != nil {
@@ -130,7 +131,6 @@ func AuthRequired(c *gin.Context) {
 	}
 
 	// 阶段3:Principal 为一等身份,CurrentUser 向后兼容
-	p := principal.FromTokenAndUser(t, currentUser)
 	if p != nil {
 		c.Set("Principal", p)
 	}

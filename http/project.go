@@ -7,8 +7,8 @@ import (
 	"net/http"
 
 	"github.com/CloudSilk/pkg/constants"
+	"github.com/CloudSilk/usercenter/internal/project"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	"github.com/CloudSilk/usercenter/model"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -26,7 +26,7 @@ func AddProject(c *gin.Context, req *apipb.ProjectInfo) (*apipb.CommonResponse, 
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
-	id, err := model.CreateProject(model.PBToProject(req))
+	id, err := project.CreateProject(project.PBToProject(req))
 	if err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -41,7 +41,7 @@ func AddProject(c *gin.Context, req *apipb.ProjectInfo) (*apipb.CommonResponse, 
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/project/update [put]
 func UpdateProject(c *gin.Context, req *apipb.ProjectInfo) (*apipb.CommonResponse, error) {
-	if err := model.UpdateProject(model.PBToProject(req)); err != nil {
+	if err := project.UpdateProject(project.PBToProject(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -55,7 +55,7 @@ func UpdateProject(c *gin.Context, req *apipb.ProjectInfo) (*apipb.CommonRespons
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/project/delete [delete]
 func DeleteProject(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
-	if err := model.DeleteProject(req.Id); err != nil {
+	if err := project.DeleteProject(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -75,7 +75,7 @@ func QueryProject(c *gin.Context, req *apipb.QueryProjectRequest) (*apipb.QueryP
 		req.TenantID = tenantID
 	}
 	resp := &apipb.QueryProjectResponse{Code: apipb.Code_Success}
-	model.QueryProject(req, resp, false)
+	project.QueryProject(req, resp, false)
 	return resp, nil
 }
 
@@ -94,12 +94,12 @@ func GetProjectDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	data, err := model.GetProjectByID(idStr)
+	data, err := project.GetProjectByID(idStr)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.ProjectToPB(data)
+		resp.Data = project.ProjectToPB(data)
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -112,14 +112,14 @@ func GetProjectDetail(c *gin.Context) {
 // @Router /api/core/auth/project/all [get]
 func GetAllProject(c *gin.Context) {
 	resp := &apipb.QueryProjectResponse{Code: apipb.Code_Success}
-	list, err := model.GetAllProjects()
+	list, err := project.GetAllProjects()
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	resp.Data = model.ProjectsToPB(list)
+	resp.Data = project.ProjectsToPB(list)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -157,9 +157,9 @@ func ImportProject(c *gin.Context) {
 	}
 	successCount, failCount := 0, 0
 	for _, f := range list {
-		if err := model.UpdateProjectAll(model.PBToProject(f)); err != nil {
+		if err := project.UpdateProjectAll(project.PBToProject(f)); err != nil {
 			if err == gorm.ErrRecordNotFound {
-				_, err = model.CreateProject(model.PBToProject(f))
+				_, err = project.CreateProject(project.PBToProject(f))
 			}
 		}
 		if err != nil {
@@ -189,7 +189,7 @@ func ExportProject(c *gin.Context) {
 	}
 	req.PageIndex = 1
 	req.PageSize = 1000
-	model.QueryProject(req, resp, true)
+	project.QueryProject(req, resp, true)
 	if resp.Code != apipb.Code_Success {
 		c.JSON(http.StatusOK, resp)
 		return

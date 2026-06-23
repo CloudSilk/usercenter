@@ -21,6 +21,8 @@ type OIDCDiscovery struct {
 }
 
 // GetDiscovery 返回 OIDC 发现文档
+// id_token 签名算法:RS256(RSA 公钥经 JWKS 暴露);HS256 保留用于向后兼容
+// (RSA 密钥未初始化时回退)。
 func GetDiscovery(issuer string) *OIDCDiscovery {
 	return &OIDCDiscovery{
 		Issuer:                issuer,
@@ -31,7 +33,7 @@ func GetDiscovery(issuer string) *OIDCDiscovery {
 		JWKSURI:               issuer + "/.well-known/jwks.json",
 		ResponseTypes:         []string{"code", "token", "id_token"},
 		SubjectTypes:          []string{"public"},
-		IDTokenSigningAlgs:    []string{"HS256"},
+		IDTokenSigningAlgs:    []string{"RS256", "HS256"},
 		Scopes:                []string{"openid", "profile", "email", "read", "write"},
 		TokenEndpointAuthMethods: []string{"client_secret_basic", "client_secret_post"},
 		Claims: []string{"sub", "iss", "aud", "exp", "iat", "name", "email", "tenant_id", "role_ids"},

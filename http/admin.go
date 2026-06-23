@@ -12,6 +12,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/pricing"
 	"github.com/CloudSilk/usercenter/internal/session"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/usage"
@@ -49,6 +50,7 @@ func RegisterAdminRouter(r *gin.Engine) {
 	registerAuditStreamRoute(g)
 	registerMFARoutes(g)
 	registerSocialAdminRoutes(g)
+	registerPricingRoutes(g)
 }
 
 // ---------------------------------------------------------------------------
@@ -721,4 +723,65 @@ func parseUnix(s string) int64 {
 		return 0
 	}
 	return v
+}
+
+// ---------------------------------------------------------------------------
+// Pricing CRUD (模型计价表)
+// ---------------------------------------------------------------------------
+
+func registerPricingRoutes(g *gin.RouterGroup) {
+	p := g.Group("/pricing")
+
+	p.GET("", func(c *gin.Context) {
+		tenantID := effectiveTenantID(c)
+		list, err := pricing.ListPrices(tenantID)
+		if err != nil {
+			writeErr(c, err)
+			return
+		}
+		writeOK(c, gin.H{"data": list})
+	})
+
+	p.POST("", func(c *gin.Context) {
+		var req pricing.ModelPrice
+		if err := c.ShouldBindJSON(&req); err != nil {
+			writeBadRequest(c, err)
+			return
+		}
+		if req.TenantID == "" {
+			req.TenantID = ucm.GetTenantID(c)
+		}
+		id, err := pricing.CreatePrice(&req)
+		if err != nil {
+			writeErr(c, err)
+			return
+		}
+		recordAudit(c, "pricing_add", id, req.ModelName)
+		writeOK(c, gin.H{"data": id})
+	})
+
+	p.PUT("/:id", func(c *gin.Context) {
+		var req pricing.ModelPrice
+		if err := c.ShouldBindJSON(&req); err != nil {
+			writeBadRequest(c, err)
+			return
+		}
+		req.ID = c.Param("id")
+		if err := pricing.UpdatePrice(&req); err != nil {
+			writeErr(c, err)
+			return
+		}
+		recordAudit(c, "pricing_update", req.ID, req.ModelName)
+		writeOK(c, nil)
+	})
+
+	p.DELETE("/:id", func(c *gin.Context) {
+		id := c.Param("id")
+		if err := pricing.DeletePrice(id); err != nil {
+			writeErr(c, err)
+			return
+		}
+		recordAudit(c, "pricing_delete", id, "")
+		writeOK(c, nil)
+	})
 }

@@ -4,7 +4,7 @@
 // 与生产 main.go 的区别：
 //   - 不依赖 Nacos / Dubbo Triple，跳过 config.Load() 与 provider 注册；
 //   - 直连本地 MySQL（DSN 与端口可用环境变量覆盖）；
-//   - debug=true 触发 AutoMigrate 自动建表；
+//   - 始终执行 AutoMigrate 自动建表（无 debug 开关依赖）；
 //   - 若 users 表为空，自动播种一个超级管理员账号，方便直接登录面板。
 //
 // 用法（确保本地 MySQL 已起、usercenter 库已建）：
@@ -17,11 +17,14 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -33,6 +36,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/principal"
 	"github.com/CloudSilk/usercenter/internal/scim"
+	"github.com/CloudSilk/usercenter/internal/store"
 	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/model"
 	"github.com/CloudSilk/usercenter/utils/middleware"
@@ -52,26 +56,45 @@ const (
 	devPlatformTenantID = "platform"
 	devSuperAdminRoleID = "1"
 	devAdminUser        = "admin"
-	devAdminPwd         = "Admin@123456"
-	devTokenKey         = "local-dev-signing-key-2026" // 非空且非源码已知默认值，满足 InitTokenCache 校验
+	// 安全修复 S4:不再硬编码默认密码，启动时若种子播种且用到默认口令则随机生成并打印到 stdout。
+	devAdminPwd         = ""
+	// devserver 无需固定 token key，每次启动随机生成。
+	// 若需持久化 session(如已登录 token 重启后仍有效)，可通过 UC_TOKEN_KEY 环境变量指定。
 	devSCIMToken        = "scim-dev-token"
 )
 
+// devShutdownState 用于在 SIGTERM 后标记 devserver 实例正在退出，使 /health 返回 503。
+var devShutdownState int32 // atomic: 0=running, 1=draining
+
 func main() {
+	// 安全修复 S4:硬守卫 — 生产检测
+	if os.Getenv("GIN_MODE") == "release" {
+		fmt.Println("[devserver] 禁止在 GIN_MODE=release 下运行。生产请使用 main.go。")
+		os.Exit(1)
+	}
 	dsn := env("UC_MYSQL_DSN", "root:root123@tcp(127.0.0.1:13306)/usercenter?charset=utf8mb4&parseTime=True&loc=Local")
 
-	// 1. 连库 + AutoMigrate（debug=true 建表，含 REDESIGN 新增域表）
+	// 1. 连库 + AutoMigrate（始终建表，含 REDESIGN 新增域表）
 	dbClient := mysql.NewMysql(dsn, true)
 	model.InitDB(dbClient, true)
 
-	// 2. token 缓存（内存，无 Redis）；key 必须显式配置，否则拒绝启动
-	token.InitTokenCache(devTokenKey, "", "", "", 1440)
-	// AI Key 加密密钥（devserver 用 token key 派生，与生产同款逻辑）
-	apikey.SetEncryptionKeyFrom(devTokenKey)
-	// OIDC 密钥管理器
-	auth.InitKeyManager(devTokenKey)
+	// 2. token 缓存（内存，无 Redis）
+	tokenKey := env("UC_TOKEN_KEY", "")
+	if tokenKey == "" {
+		tokenKey = randKey()
+		fmt.Printf("[devserver] 启动时随机生成 token key: %s\n", tokenKey)
+	}
+	token.InitTokenCache(tokenKey, "", "", "", 1440)
+	// AI Key 加密密钥
+	apikey.SetEncryptionKeyFrom(tokenKey)
 	// PII 加密密钥
-	auth.SetPIIKeyFrom(devTokenKey)
+	auth.SetPIIKeyFrom(tokenKey + "-pii")
+	// OIDC RSA 密钥管理器（id_token RS256 签名 + JWKS）
+	if kid, err := auth.InitKeyManager(""); err != nil {
+		panic(fmt.Sprintf("RSA 密钥初始化失败: %v", err))
+	} else {
+		fmt.Printf("[devserver] OIDC RSA 签名密钥就绪 kid=%s\n", kid)
+	}
 
 	// 3. 全局常量
 	constants.SetPlatformTenantID(devPlatformTenantID)
@@ -120,10 +143,34 @@ func startHTTP(port int) {
 	r.GET("/web/admin/*any", serveAdminHTML)
 
 	r.GET("/health", func(c *gin.Context) {
+		if atomic.LoadInt32(&devShutdownState) == 1 {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "shutting down"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: r}
+	r.GET("/readyz", func(c *gin.Context) {
+		d := store.DB()
+		if d != nil {
+			sqlDB, err := d.DB()
+			if err == nil {
+				if err := sqlDB.Ping(); err == nil {
+					c.JSON(http.StatusOK, gin.H{"status": "ok"})
+					return
+				}
+			}
+		}
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not ready"})
+	})
+
+	srv := &http.Server{
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	go func() {
 		fmt.Printf("[devserver] 管理后台: http://localhost:%d/web/admin  (admin / %s)\n", port, devAdminPwd)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -136,7 +183,9 @@ func startHTTP(port int) {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	fmt.Println("[devserver] 正在关闭...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	atomic.StoreInt32(&devShutdownState, 1)
+	// 30s 超时匹配 K8s 默认 terminationGracePeriodSeconds
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(ctx)
 	fmt.Println("[devserver] 已退出")
@@ -210,3 +259,11 @@ func devAuthRequired(c *gin.Context) {
 	c.Set("User", cu)
 }
 
+// randKey 生成 32 字节随机密钥(用于 token 签名)。
+func randKey() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic("rand failed: " + err.Error())
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}

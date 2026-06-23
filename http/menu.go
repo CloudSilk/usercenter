@@ -8,8 +8,8 @@ import (
 
 	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/pkg/model"
+	"github.com/CloudSilk/usercenter/internal/permission"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	ucmodel "github.com/CloudSilk/usercenter/model"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"

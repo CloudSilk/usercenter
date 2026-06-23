@@ -3,6 +3,7 @@ package http
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"strings"
 	"testing"
 
 	"github.com/CloudSilk/usercenter/internal/auth"
@@ -23,6 +24,13 @@ func TestVerifyPKCE_S256(t *testing.T) {
 	if verifyPKCE("", challenge, "S256") {
 		t.Fatal("空 verifier 应失败")
 	}
+	// S5:plain method 必须拒绝
+	if verifyPKCE(verifier, challenge, "plain") {
+		t.Fatal("plain method 应被拒绝(强制 S256)")
+	}
+	if verifyPKCE(verifier, challenge, "") {
+		t.Fatal("空 method 应被拒绝(强制 S256)")
+	}
 }
 
 func TestClientSecret_BcryptRoundTrip(t *testing.T) {
@@ -41,8 +49,11 @@ func TestClientSecret_BcryptRoundTrip(t *testing.T) {
 }
 
 func TestIssueIDToken_SignsWithActiveKey(t *testing.T) {
-	auth.InitKeyManager("test-secret-for-signing")
-	auth.SetGracePeriod(24 * 60 * 60 * 1e9) // 24h，确保测试用 key 在 JWKS 暴露
+	_, err := auth.InitKeyManager("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer auth.ResetKeys()
 
 	user := &apipb.CurrentUser{Id: "u1", UserName: "alice", TenantID: "t1", RoleIDs: []string{"r1"}}
 	idTok, err := issueIDToken("http://localhost:48180", user, "client-x", "nonce-abc")
@@ -50,13 +61,13 @@ func TestIssueIDToken_SignsWithActiveKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 用活跃密钥验签并校验声明
+	// 用活跃密钥的公钥验签并校验声明
 	active := auth.GetActiveKey()
 	parsed, err := jwt.Parse(idTok, func(tok *jwt.Token) (interface{}, error) {
-		if _, ok := tok.Method.(*jwt.SigningMethodHMAC); !ok {
-			t.Fatalf("unexpected method: %v", tok.Header["alg"])
+		if _, ok := tok.Method.(*jwt.SigningMethodRSA); !ok {
+			t.Fatalf("unexpected method: %v (expected RS256)", tok.Header["alg"])
 		}
-		return []byte(active.Key), nil
+		return active.Public, nil
 	})
 	if err != nil || !parsed.Valid {
 		t.Fatalf("id_token 验签失败: %v", err)
@@ -65,22 +76,31 @@ func TestIssueIDToken_SignsWithActiveKey(t *testing.T) {
 	if claims["sub"] != "u1" || claims["aud"] != "client-x" || claims["nonce"] != "nonce-abc" {
 		t.Fatalf("声明不正确: %v", claims)
 	}
-	if claims["kid"] != nil {
-		// kid 在 header 而非 claims
-	}
 	if parsed.Header["kid"] != active.Kid {
 		t.Fatalf("kid 应在 header: got %v want %v", parsed.Header["kid"], active.Kid)
 	}
 }
 
 func TestJWKS_ExposesActiveKey(t *testing.T) {
-	auth.InitKeyManager("another-secret")
-	jwks := auth.GetJWKS("http://localhost")
-	if len(jwks.Keys) == 0 {
+	_, err := auth.InitKeyManager("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer auth.ResetKeys()
+
+	jwks := auth.GetJWKS()
+	if len(jwks) == 0 {
 		t.Fatal("JWKS 应至少暴露活跃密钥")
 	}
-	if jwks.Keys[0].Kid == "" || jwks.Keys[0].Alg != "HS256" {
-		t.Fatalf("JWKS key 字段异常: %+v", jwks.Keys[0])
+	key := jwks[0]
+	if key.Kid == "" || key.Alg != "RS256" {
+		t.Fatalf("JWKS key 字段异常: %+v", key)
+	}
+	if key.Kty != "RSA" || key.N == "" || key.E == "" {
+		t.Fatalf("JWKS RSA 公钥 n/e 不应为空: %+v", key)
+	}
+	if !strings.HasPrefix(key.N, "A") && len(key.N) < 100 {
+		t.Fatalf("JWKS n 应包含标准 RSA 公钥编码(长度不足): %s", key.N)
 	}
 }
 

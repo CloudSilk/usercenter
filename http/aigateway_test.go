@@ -88,7 +88,7 @@ func TestBuildUpstreamRequest_Auth(t *testing.T) {
 				Provider: &apikey.AIProvider{BaseURL: tc.baseURL, AuthType: tc.auth},
 				APIKey:   tc.storedKey,
 			}
-			req, err := buildUpstreamRequest(sel, []byte(`{"model":"x"}`))
+			req, err := buildUpstreamRequest(sel, []byte(`{"model":"x"}`), "/chat/completions")
 			if err != nil {
 				t.Fatal(err)
 			}

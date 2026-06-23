@@ -3,8 +3,8 @@ package http
 import (
 	"net/http"
 
+	"github.com/CloudSilk/usercenter/internal/website"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	"github.com/CloudSilk/usercenter/model"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -18,7 +18,7 @@ import (
 // @Router /api/core/web_site/add [post]
 func AddWebSite(c *gin.Context, req *apipb.WebSiteInfo) (*apipb.CommonResponse, error) {
 	req.TenantID = ucm.GetTenantID(c)
-	id, err := model.CreateWebSite(model.PBToWebSite(req))
+	id, err := website.CreateWebSite(website.PBToWebSite(req))
 	if err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -33,7 +33,7 @@ func AddWebSite(c *gin.Context, req *apipb.WebSiteInfo) (*apipb.CommonResponse, 
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/web_site/update [put]
 func UpdateWebSite(c *gin.Context, req *apipb.WebSiteInfo) (*apipb.CommonResponse, error) {
-	if err := model.UpdateWebSite(model.PBToWebSite(req)); err != nil {
+	if err := website.UpdateWebSite(website.PBToWebSite(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -47,7 +47,7 @@ func UpdateWebSite(c *gin.Context, req *apipb.WebSiteInfo) (*apipb.CommonRespons
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/web_site/delete [delete]
 func DeleteWebSite(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
-	if err := model.DeleteWebSite(req.Id); err != nil {
+	if err := website.DeleteWebSite(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -63,7 +63,7 @@ func DeleteWebSite(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse
 // @Router /api/core/web_site/query [get]
 func QueryWebSite(c *gin.Context, req *apipb.QueryWebSiteRequest) (*apipb.QueryWebSiteResponse, error) {
 	resp := &apipb.QueryWebSiteResponse{Code: apipb.Code_Success}
-	model.QueryWebSite(req, resp, false)
+	website.QueryWebSite(req, resp, false)
 	return resp, nil
 }
 
@@ -82,12 +82,12 @@ func GetWebSiteDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	data, err := model.GetWebSiteByID(idStr)
+	data, err := website.GetWebSiteByID(idStr)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.WebSiteToPB(data)
+		resp.Data = website.WebSiteToPB(data)
 	}
 	c.JSON(http.StatusOK, resp)
 }

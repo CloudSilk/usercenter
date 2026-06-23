@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	ucconfig "github.com/CloudSilk/usercenter/config"
 	"github.com/CloudSilk/usercenter/docs"
 	userhttp "github.com/CloudSilk/usercenter/http"
+	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/model"
 	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/apikey"
@@ -36,6 +38,10 @@ import (
 
 // gin-swagger middleware
 // swagger embed files
+
+// shutdownState 用于在 SIGTERM 后标记实例正在退出，使 /health 返回 503 给负载均衡器。
+var shutdownState int32 // atomic: 0=running, 1=draining
+
 func main() {
 	config.SetProviderService(&provider.UserProvider{})
 	config.SetProviderService(&provider.TenantProvider{})
@@ -75,15 +81,35 @@ func main() {
 		model.SetCasbinRedis(ucconfig.DefaultConfig.Token.RedisAddr, ucconfig.DefaultConfig.Token.RedisName, ucconfig.DefaultConfig.Token.RedisPwd)
 	}
 	model.InitDB(dbClient, true)
+
+	// --- 三密钥拷贝检测：token.key / apiKeyEncKey / piiEncKey ---
+	checkKeyIsolation(ucconfig.DefaultConfig.Token.Key, ucconfig.DefaultConfig.APIKeyEncKey, ucconfig.DefaultConfig.PIIEncKey)
+
+	// 1. JWT access_token 签名（HS256，系统内部用）
 	token.InitTokenCache(ucconfig.DefaultConfig.Token.Key, ucconfig.DefaultConfig.Token.RedisAddr, ucconfig.DefaultConfig.Token.RedisName, ucconfig.DefaultConfig.Token.RedisPwd, ucconfig.DefaultConfig.Token.Expired)
-	// AI Key 加密密钥：优先显式配置，否则从 token.key 派生（SHA-256），保证部署内确定。
+
+	// 2. AI Key 加密密钥（独立 AES-GCM 密钥）：优先显式配置，否则从 token.key 派生。
 	if !apikey.SetEncryptionKeyFrom(ucconfig.DefaultConfig.APIKeyEncKey) {
 		apikey.SetEncryptionKeyFrom(ucconfig.DefaultConfig.Token.Key)
 	}
-	// OIDC 密钥管理器（id_token 签名 + JWKS）。
-	auth.InitKeyManager(ucconfig.DefaultConfig.Token.Key)
-	// PII 字段加密密钥（MFA secret / 敏感字段），派生自 token.key
-	auth.SetPIIKeyFrom(ucconfig.DefaultConfig.Token.Key)
+
+	// 3. PII 加密密钥（独立 AES-GCM 密钥）：优先显式配置，否则从 token.key 派生。
+	if !auth.SetPIIKeyFrom(ucconfig.DefaultConfig.PIIEncKey) {
+		auth.SetPIIKeyFrom(ucconfig.DefaultConfig.Token.Key)
+	}
+
+	// 4. OIDC id_token RSA 密钥管理器（RS256 非对称签名 + JWKS 公钥暴露）。
+	if kid, err := auth.InitKeyManager(ucconfig.DefaultConfig.OIDCSigningKey); err != nil {
+		// PEM 解析失败或为空，自动 RSA-2048 自动生成
+		if kid2, err2 := auth.InitKeyManager(""); err2 != nil {
+			panic(fmt.Sprintf("RSA 密钥初始化失败: %v", err2))
+		} else {
+			fmt.Printf("[oidc] RSA 签名密钥就绪 kid=%s (auto-generated)\n", kid2)
+		}
+	} else {
+		fmt.Printf("[oidc] RSA 签名密钥就绪 kid=%s\n", kid)
+	}
+
 	// 告警 Webhook（可选）
 	alert.SetWebhookURL(ucconfig.DefaultConfig.AlertWebhookURL)
 	// 社交登录配置（GitHub/Google 等）
@@ -104,6 +130,21 @@ func main() {
 	// 口令取 defaultPwd 配置，未配置则随机生成并打印；初始账号强制首登改密。
 	seedBootstrapAdmin(ucconfig.DefaultConfig.PlatformTenantID, ucconfig.DefaultConfig.SuperAdminRoleID, ucconfig.DefaultConfig.DefaultPwd)
 	Start(GetPort("ATALI_PORT", 48080))
+}
+
+// checkKeyIsolation 检测三密钥隔离：tokenKey / apiKeyEncKey / piiEncKey 任意两个相同则 panic。
+// 防止运维复制粘贴配置错误导致密钥复用。
+func checkKeyIsolation(tokenKey, apiKeyEncKey, piiEncKey string) {
+	// 只在显式配置了独立密钥时才检测（留空表示从 tokenKey 派生，此时不要求独立）。
+	if apiKeyEncKey != "" && tokenKey != "" && apiKeyEncKey == tokenKey {
+		panic("安全检查失败: apiKeyEncKey 与 token.key 相同，请配置独立的 AI Key 加密密钥")
+	}
+	if piiEncKey != "" && tokenKey != "" && piiEncKey == tokenKey {
+		panic("安全检查失败: piiEncKey 与 token.key 相同，请配置独立的 PII 加密密钥")
+	}
+	if apiKeyEncKey != "" && piiEncKey != "" && apiKeyEncKey == piiEncKey {
+		panic("安全检查失败: apiKeyEncKey 与 piiEncKey 相同，请分别为 AI Key 和 PII 配置独立密钥")
+	}
 }
 
 // seedBootstrapAdmin 调用领域层播种初始管理员；非首次部署（已有用户）为 no-op。
@@ -166,8 +207,28 @@ func Start(port int) {
 	registerAdminWeb(r)
 
 	// 健康检查端点（供 K8s liveness/readiness probe 使用）
+	// 收到 SIGTERM 后返回 503 告知负载均衡器停止分发新请求
 	r.GET("/health", func(c *gin.Context) {
+		if atomic.LoadInt32(&shutdownState) == 1 {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "shutting down"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	// Readiness 端点：检查数据库可达性
+	r.GET("/readyz", func(c *gin.Context) {
+		d := store.DB()
+		if d != nil {
+			sqlDB, err := d.DB()
+			if err == nil {
+				if err := sqlDB.Ping(); err == nil {
+					c.JSON(http.StatusOK, gin.H{"status": "ok"})
+					return
+				}
+			}
+		}
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not ready"})
 	})
 
 	// 仅在 Debug 模式下暴露 swagger 文档，生产环境（debug=false）不对外暴露 API 文档
@@ -177,8 +238,12 @@ func Start(port int) {
 
 	// 优雅关闭：捕获 SIGTERM/SIGINT，等待现有请求完成后再退出
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: r,
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// 不设 WriteTimeout（全局超时会阻断 SSE/流式响应）
 	}
 
 	go func() {
@@ -193,7 +258,14 @@ func Start(port int) {
 	<-quit
 	fmt.Println("shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// 设置 draining 状态，让 /health 返回 503 告知负载均衡器停止分发新请求
+	atomic.StoreInt32(&shutdownState, 1)
+
+	// 通知 Dubbo 框架优雅下线（注销已注册的服务）
+	config.BeforeShutdown()
+
+	// 30s 超时匹配 K8s 默认 terminationGracePeriodSeconds
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		fmt.Printf("server forced to shutdown: %v\n", err)
