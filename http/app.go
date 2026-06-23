@@ -4,42 +4,42 @@ import (
 	"net/http"
 
 	"github.com/CloudSilk/pkg/model"
-	ucmodel "github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/app"
 	"github.com/gin-gonic/gin"
 )
 
-func AddAPP(c *gin.Context, req *ucmodel.APP) (*model.CommonResponse, error) {
-	if err := ucmodel.CreateAPP(req); err != nil {
+func AddAPP(c *gin.Context, req *app.APP) (*model.CommonResponse, error) {
+	if err := app.CreateAPP(req); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
 }
 
-func UpdateAPP(c *gin.Context, req *ucmodel.APP) (*model.CommonResponse, error) {
-	if err := ucmodel.UpdateAPP(req); err != nil {
+func UpdateAPP(c *gin.Context, req *app.APP) (*model.CommonResponse, error) {
+	if err := app.UpdateAPP(req); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
 }
 
-func DeleteAPP(c *gin.Context, req *ucmodel.APP) (*model.CommonResponse, error) {
-	if err := ucmodel.DeleteAPP(req.ID); err != nil {
+func DeleteAPP(c *gin.Context, req *app.APP) (*model.CommonResponse, error) {
+	if err := app.DeleteAPP(req.ID); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
 }
 
-func QueryAPP(c *gin.Context, req *ucmodel.QueryAPPRequest) (*ucmodel.QueryAPPResponse, error) {
-	resp := &ucmodel.QueryAPPResponse{CommonResponse: model.CommonResponse{Code: model.Success}}
-	ucmodel.QueryAPP(req, resp)
+func QueryAPP(c *gin.Context, req *app.QueryAPPRequest) (*app.QueryAPPResponse, error) {
+	resp := &app.QueryAPPResponse{CommonResponse: model.CommonResponse{Code: model.Success}}
+	app.QueryAPP(req, resp)
 	return resp, nil
 }
 
 func GetAllAPP(c *gin.Context) {
-	resp := &ucmodel.QueryAPPResponse{
+	resp := &app.QueryAPPResponse{
 		CommonResponse: model.CommonResponse{Code: model.Success},
 	}
-	metadatas, err := ucmodel.GetAllAPPs()
+	metadatas, err := app.GetAllAPPs()
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
@@ -62,7 +62,7 @@ func GetAPPDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	data, err := ucmodel.GetAPPById(idStr)
+	data, err := app.GetAPPById(idStr)
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()

@@ -10,7 +10,10 @@ import (
 	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils/log"
-	ucmodel "github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/alert"
+	"github.com/CloudSilk/usercenter/internal/audit"
+	"github.com/CloudSilk/usercenter/internal/store"
+	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/CloudSilk/usercenter/utils/middleware"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
@@ -49,10 +52,10 @@ func Login(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	ucmodel.Login(req, resp)
+	user.Login(req, resp)
 	// 登录失败时触发安全告警（基于 IP 的暴力破解检测）
 	if resp.Code == model.UserNameOrPasswordIsWrong {
-		ucmodel.AlertLoginFailure(req.UserName, c.ClientIP())
+		alert.AlertLoginFailure(req.UserName, c.ClientIP())
 	}
 
 	c.JSON(http.StatusOK, resp)
@@ -71,7 +74,7 @@ func Login(c *gin.Context) {
 func Profile(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	returnMenu := c.Query("returnMenu")
-	userProfile, err := ucmodel.GetUserProfile(userID, returnMenu == "" || returnMenu == "true")
+	userProfile, err := user.GetUserProfile(userID, returnMenu == "" || returnMenu == "true")
 	if err != nil {
 		c.JSON(http.StatusOK, map[string]interface{}{
 			"code":    model.InternalServerError,
@@ -117,7 +120,7 @@ func UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	err = ucmodel.UpdateProfile(ucmodel.UserProfileToUser(req), false)
+	err = user.UpdateProfile(user.UserProfileToUser(req), false)
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
@@ -142,7 +145,7 @@ func AddUser(c *gin.Context, req *apipb.UserInfo) (*apipb.CommonResponse, error)
 	if tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
-	if err := ucmodel.CreateUser(ucmodel.PBToUser(req), false); err != nil {
+	if err := user.CreateUser(user.PBToUser(req), false); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -164,7 +167,7 @@ func UpdateUser(c *gin.Context, req *apipb.UserInfo) (*apipb.CommonResponse, err
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
-	if err := ucmodel.UpdateUser(ucmodel.PBToUser(req)); err != nil {
+	if err := user.UpdateUser(user.PBToUser(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -178,10 +181,10 @@ func UpdateUser(c *gin.Context, req *apipb.UserInfo) (*apipb.CommonResponse, err
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/user/delete [delete]
 func DeleteUser(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
-	if err := ucmodel.DeleteUser(req.Id); err != nil {
+	if err := user.DeleteUser(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	ucmodel.RecordAuditWithKind(middleware.GetUserID(c), middleware.GetUserName(c), int32(middleware.GetPrincipalKind(c)), ucmodel.AuditActionDeleteUser, req.Id, c.ClientIP(), "")
+	audit.RecordAuditWithKind(store.DB(), middleware.GetUserID(c), middleware.GetUserName(c), int32(middleware.GetPrincipalKind(c)), audit.AuditActionDeleteUser, req.Id, c.ClientIP(), "")
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
@@ -193,7 +196,7 @@ func DeleteUser(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, e
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/user/enable [post]
 func EnableUser(c *gin.Context, req *apipb.EnableRequest) (*model.CommonResponse, error) {
-	if err := ucmodel.EnableUser(req.Id, req.Enable); err != nil {
+	if err := user.EnableUser(req.Id, req.Enable); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
@@ -213,7 +216,7 @@ func QueryUser(c *gin.Context, req *apipb.QueryUserRequest) (*apipb.QueryUserRes
 		req.TenantID = tenantID
 	}
 	resp := &apipb.QueryUserResponse{Code: apipb.Code_Success}
-	ucmodel.QueryUser(req, resp, false)
+	user.QueryUser(req, resp, false)
 	return resp, nil
 }
 
@@ -246,14 +249,14 @@ func GetAllUsers(c *gin.Context) {
 	if tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
-	users, err := ucmodel.GetAllUsers(req)
+	users, err := user.GetAllUsers(req)
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	resp.Data = ucmodel.UsersToPB(users)
+	resp.Data = user.UsersToPB(users)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -279,12 +282,12 @@ func GetUserDetail(c *gin.Context) {
 	}
 	var err error
 
-	data, err := ucmodel.GetUserById(idStr)
+	data, err := user.GetUserById(idStr)
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = ucmodel.UserToPB(&data)
+		resp.Data = user.UserToPB(&data)
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -314,7 +317,7 @@ func ResetPwd(c *gin.Context) {
 	// 越权校验：非平台租户只能重置本租户用户的密码
 	tenantID := middleware.GetTenantID(c)
 	if tenantID != constants.PlatformTenantID {
-		userTenantID, err := ucmodel.GetUserTenantID(req.Id)
+		userTenantID, err := user.GetUserTenantID(req.Id)
 		if err != nil || userTenantID != tenantID {
 			resp.Code = model.NoPermission
 			resp.Message = "无权重置该用户密码"
@@ -322,12 +325,12 @@ func ResetPwd(c *gin.Context) {
 			return
 		}
 	}
-	err = ucmodel.ResetPwd(req.Id, ucmodel.DefaultPwd)
+	err = user.ResetPwd(req.Id, user.DefaultPwd)
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
 	} else {
-		ucmodel.RecordAuditWithKind(middleware.GetUserID(c), middleware.GetUserName(c), int32(middleware.GetPrincipalKind(c)), ucmodel.AuditActionResetPwd, req.Id, c.ClientIP(), "")
+		audit.RecordAuditWithKind(store.DB(), middleware.GetUserID(c), middleware.GetUserName(c), int32(middleware.GetPrincipalKind(c)), audit.AuditActionResetPwd, req.Id, c.ClientIP(), "")
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -362,7 +365,7 @@ func ChangePwd(c *gin.Context) {
 	}
 	// 安全限制：只能修改自己的密码，忽略请求体中传入的 id
 	req.Id = middleware.GetUserID(c)
-	err = ucmodel.UpdatePwd(req.Id, req.OldPwd, req.NewPwd)
+	err = user.UpdatePwd(req.Id, req.OldPwd, req.NewPwd)
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
@@ -384,7 +387,7 @@ func Logout(c *gin.Context) {
 		Code: model.Success,
 	}
 	t := middleware.GetAccessToken(c)
-	err := ucmodel.Logout(t)
+	err := user.Logout(t)
 	if err != nil {
 		resp.Message = err.Error()
 	}
@@ -425,7 +428,7 @@ func ExportUser(c *gin.Context) {
 	}
 	req.PageIndex = 1
 	req.PageSize = 1000
-	ucmodel.QueryUser(req, resp, true)
+	user.QueryUser(req, resp, true)
 	if resp.Code != apipb.Code_Success {
 		c.JSON(http.StatusOK, resp)
 		return
@@ -485,9 +488,9 @@ func ImportUser(c *gin.Context) {
 	successCount := 0
 	failCount := 0
 	for _, f := range list {
-		err = ucmodel.UpdateUser(ucmodel.PBToUser(f))
+		err = user.UpdateUser(user.PBToUser(f))
 		if err == gorm.ErrRecordNotFound {
-			err = ucmodel.CreateUser(ucmodel.PBToUser(f), false)
+			err = user.CreateUser(user.PBToUser(f), false)
 		}
 		if err != nil {
 			failCount++
@@ -532,7 +535,7 @@ func UpdateBasicsByToken(c *gin.Context) {
 		return
 	}
 
-	info := &ucmodel.User{
+	info := &user.User{
 		TenantModel: model.TenantModel{
 			Model: model.Model{
 				ID: ucm.GetUserID(c),
@@ -544,7 +547,7 @@ func UpdateBasicsByToken(c *gin.Context) {
 		Height:   req.Height,
 	}
 
-	if err := ucmodel.UpdateBasics(info); err != nil {
+	if err := user.UpdateBasics(info); err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	}
@@ -565,7 +568,7 @@ func GetBasicsByToken(c *gin.Context) {
 		Code: apipb.Code_Success,
 	}
 
-	if user, err := ucmodel.GetUserById(ucm.GetUserID(c)); err != nil {
+	if user, err := user.GetUserById(ucm.GetUserID(c)); err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {

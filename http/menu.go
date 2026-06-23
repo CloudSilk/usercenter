@@ -116,7 +116,7 @@ func GetMenuTree(c *gin.Context) {
 	if tenantID == constants.PlatformTenantID {
 		tenantID = c.Query("tenantID")
 	}
-	data, records, err := ucmodel.GetAuthorizedMenuTree(tenantID)
+	data, records, err := getAuthorizedMenuTree(tenantID)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -205,6 +205,21 @@ func ImportMenu(c *gin.Context) {
 	}
 	resp.Message = fmt.Sprintf("导入成功数量:%d,导入失败数量:%d", successCount, failCount)
 	c.JSON(http.StatusOK, resp)
+}
+
+// getAuthorizedMenuTree 返回授权菜单树（从 model/role.go 中迁移）
+func getAuthorizedMenuTree(tenantID string) ([]*permission.Menu, int64, error) {
+	if tenantID != "" {
+		t, err := tenant.GetTenantByID(tenantID)
+		if err != nil {
+			return nil, 0, err
+		}
+		authMenus := t.GetAuthorizedMenu()
+		result, err := permission.GetAuthorizedMenu(store.DB(), authMenus, false)
+		return result, 0, err
+	}
+	menus, err := permission.GetBaseMenuTree()
+	return menus, 0, err
 }
 
 func RegisterMenuRouter(r *gin.Engine) {
