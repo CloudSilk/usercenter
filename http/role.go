@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/CloudSilk/pkg/constants"
-	"github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/tenant"
 	apipb "github.com/CloudSilk/usercenter/proto"
@@ -23,15 +22,15 @@ import (
 // @Param data body apipb.RoleInfo true "请求参数"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/role/add [post]
-func AddRole(c *gin.Context, req *apipb.RoleInfo) (*model.CommonResponse, error) {
+func AddRole(c *gin.Context, req *apipb.RoleInfo) (*apipb.CommonResponse, error) {
 	//只有平台租户才能为其他租户创建角色
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
 	if err := permission.CreateRole(permission.PBToRole(req), tenant.GetTenantUserCount); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
 // UpdateRole godoc
@@ -41,15 +40,15 @@ func AddRole(c *gin.Context, req *apipb.RoleInfo) (*model.CommonResponse, error)
 // @Param data body apipb.RoleInfo true "请求参数"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/role/update [put]
-func UpdateRole(c *gin.Context, req *apipb.RoleInfo) (*model.CommonResponse, error) {
+func UpdateRole(c *gin.Context, req *apipb.RoleInfo) (*apipb.CommonResponse, error) {
 	//只有平台租户才能更改角色的租户
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
 	if err := permission.UpdateRole(permission.PBToRole(req)); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
 // DeleteRole godoc
@@ -59,11 +58,11 @@ func UpdateRole(c *gin.Context, req *apipb.RoleInfo) (*model.CommonResponse, err
 // @Param data body apipb.DelRequest true "请求参数"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/role/delete [delete]
-func DeleteRole(c *gin.Context, req *apipb.DelRequest) (*model.CommonResponse, error) {
+func DeleteRole(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
 	if err := permission.DeleteRole(req.Id); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
 // QueryRole godoc

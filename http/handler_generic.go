@@ -3,7 +3,6 @@ package http
 import (
 	"net/http"
 
-	"github.com/CloudSilk/pkg/model"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
@@ -18,18 +17,18 @@ func AutoHandler[TReq any, TResp any](h HandlerFunc[TReq, TResp]) gin.HandlerFun
 	return func(c *gin.Context) {
 		var req TReq
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusOK, errorResp(model.BadRequest, err.Error()))
+			c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
 			return
 		}
 		// 支持 validator 结构体 tag 校验
 		if err := middleware.Validate.Struct(&req); err != nil {
-			c.JSON(http.StatusOK, errorResp(model.BadRequest, err.Error()))
+			c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
 			return
 		}
 
 		resp, err := h(c, &req)
 		if err != nil {
-			c.JSON(http.StatusOK, errorResp(model.InternalServerError, err.Error()))
+			c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, resp)
@@ -44,33 +43,18 @@ func AutoQueryHandler[TReq any, TResp any](h QueryHandlerFunc[TReq, TResp]) gin.
 	return func(c *gin.Context) {
 		var req TReq
 		if err := c.ShouldBindQuery(&req); err != nil {
-			c.JSON(http.StatusOK, errorResp(model.BadRequest, err.Error()))
+			c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
 			return
 		}
 		if err := middleware.Validate.Struct(&req); err != nil {
-			c.JSON(http.StatusOK, errorResp(model.BadRequest, err.Error()))
+			c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
 			return
 		}
 		resp, err := h(c, &req)
 		if err != nil {
-			c.JSON(http.StatusOK, errorResp(model.InternalServerError, err.Error()))
+			c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, resp)
-	}
-}
-
-// errorResp 构造标准错误响应(基于 apipb,与 admin.go 的 writeErr/writeBadRequest 一致)。
-func errorResp(code int32, message string) *apipb.CommonResponse {
-	return &apipb.CommonResponse{Code: apipb.Code(code), Message: message}
-}
-
-// writeCommonResponse 将 *model.CommonResponse 转为 writeOK/writeErr 模式。
-// 用于渐进迁移:旧 handler 返回 *model.CommonResponse,由 AutoHandler 调用此函数统一响应。
-func writeCommonResponse(c *gin.Context, resp *model.CommonResponse) {
-	if resp.Code == model.Success {
-		writeOK(c, nil)
-	} else {
-		c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code(resp.Code), Message: resp.Message})
 	}
 }

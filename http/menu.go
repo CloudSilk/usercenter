@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/CloudSilk/pkg/constants"
-	"github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/tenant"
@@ -24,14 +23,14 @@ import (
 // @Param data body apipb.MenuInfo true "请求参数"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/menu/add [post]
-func AddMenu(c *gin.Context, req *apipb.MenuInfo) (*model.CommonResponse, error) {
+func AddMenu(c *gin.Context, req *apipb.MenuInfo) (*apipb.CommonResponse, error) {
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
 	if err := permission.AddMenu(permission.PBToMenu(req)); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
 // UpdateMenu godoc
@@ -41,11 +40,11 @@ func AddMenu(c *gin.Context, req *apipb.MenuInfo) (*model.CommonResponse, error)
 // @Param data body apipb.MenuInfo true "请求参数"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/menu/update [put]
-func UpdateMenu(c *gin.Context, req *apipb.MenuInfo) (*model.CommonResponse, error) {
+func UpdateMenu(c *gin.Context, req *apipb.MenuInfo) (*apipb.CommonResponse, error) {
 	if err := permission.UpdateMenu(permission.PBToMenu(req)); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
 // DeleteMenu godoc
@@ -55,11 +54,11 @@ func UpdateMenu(c *gin.Context, req *apipb.MenuInfo) (*model.CommonResponse, err
 // @Param data body apipb.DelRequest true "请求参数"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/menu/delete [delete]
-func DeleteMenu(c *gin.Context, req *apipb.DelRequest) (*model.CommonResponse, error) {
+func DeleteMenu(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
 	if err := permission.DeleteMenu(req.Id); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
 // QueryMenu godoc
