@@ -128,7 +128,7 @@ export function fetchSSE(
   onError?: (err: Event) => void,
 ): EventSource {
   const separator = url.includes("?") ? "&" : "?"
-  const es = new EventSource(`${url}${separator}token=${encodeURIComponent(token)}`)
+  const es = new EventSource(`${url}${separator}access_token=${encodeURIComponent(token)}`)
   es.onmessage = (e) => onMessage(e.data)
   if (onError) {
     es.onerror = onError
