@@ -28,12 +28,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/pkg/db/mysql"
 	"github.com/CloudSilk/pkg/utils"
-	"github.com/CloudSilk/usercenter/internal/apikey"
-	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
+	"github.com/CloudSilk/usercenter/internal/bootstrap"
 	"github.com/CloudSilk/usercenter/internal/principal"
 	"github.com/CloudSilk/usercenter/internal/scim"
 	"github.com/CloudSilk/usercenter/internal/store"
@@ -78,44 +76,31 @@ func main() {
 	dbClient := mysql.NewMysql(dsn, true)
 	model.InitDB(dbClient, true)
 
-	// 2. token 缓存（内存，无 Redis）
+	// 2. token 缓存 + 密钥（复用 bootstrap.InitKeys，配置取环境变量）
 	tokenKey := env("UC_TOKEN_KEY", "")
 	if tokenKey == "" {
 		tokenKey = randKey()
 		fmt.Printf("[devserver] 启动时随机生成 token key: %s\n", tokenKey)
 	}
-	token.InitTokenCache(tokenKey, "", "", "", 1440)
-	// AI Key 加密密钥
-	apikey.SetEncryptionKeyFrom(tokenKey)
-	// PII 加密密钥
-	auth.SetPIIKeyFrom(tokenKey + "-pii")
-	// OIDC RSA 密钥管理器（id_token RS256 签名 + JWKS）
-	if kid, err := auth.InitKeyManager(""); err != nil {
-		panic(fmt.Sprintf("RSA 密钥初始化失败: %v", err))
-	} else {
-		fmt.Printf("[devserver] OIDC RSA 签名密钥就绪 kid=%s\n", kid)
-	}
+	bootstrap.InitKeys(bootstrap.Keys{
+		TokenKey:     tokenKey,
+		TokenExpired: 1440,
+		APIKeyEncKey: "", // 留空＝从 tokenKey 派生
+		PIIEncKey:    "", // dev 环境可从 tokenKey 派生
+	})
 
 	// 3. 全局常量
-	constants.SetPlatformTenantID(devPlatformTenantID)
-	constants.SetSuperAdminRoleID(devSuperAdminRoleID)
-	constants.SetDefaultRoleID(devSuperAdminRoleID)
-	constants.SetEnabelTenant(true)
-	model.SetDefaultPwd("")
-	model.SetLoginLock(5, 15)
+	bootstrap.InitConstants(bootstrap.Constants{
+		PlatformTenantID: devPlatformTenantID,
+		SuperAdminRoleID: devSuperAdminRoleID,
+		DefaultRoleID:    devSuperAdminRoleID,
+		EnableTenant:     true,
+		LoginLockMaxErr:  5,
+		LoginLockMinutes: 15,
+	})
 
-	// 4. 首次播种初始管理员（复用生产同款 model.SeedBootstrapAdmin）
-	if seeded, g, err := model.SeedBootstrapAdmin(devPlatformTenantID, devSuperAdminRoleID, devAdminPwd); err != nil {
-		fmt.Println("[devserver] 播种失败:", err)
-	} else if !seeded {
-		fmt.Println("[devserver] 已有用户，跳过播种")
-	} else {
-		pwd := devAdminPwd
-		if g != "" {
-			pwd = g
-		}
-		fmt.Printf("[devserver] 已播种管理员：%s / %s\n", devAdminUser, pwd)
-	}
+	// 4. 首次播种初始管理员（复用 bootstrap.SeedAdmin）
+	bootstrap.SeedAdmin(devPlatformTenantID, devSuperAdminRoleID, devAdminPwd)
 
 	// 5. HTTP 服务（与生产 Start() 路由一致，去掉 Dubbo/Swagger）
 	port := 48080
@@ -127,6 +112,7 @@ func main() {
 
 func startHTTP(port int) {
 	r := gin.Default()
+	r.Use(middleware.RequestIDMiddleware()) // X-Request-ID trace 注入
 	r.Use(userhttp.MetricsMiddleware())
 	r.Use(devAuthRequired) // dev-only：真实验签 + 写 Principal，但跳过 Casbin（全新库 api 表为空）
 	r.Use(utils.Cors())

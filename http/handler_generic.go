@@ -60,7 +60,17 @@ func AutoQueryHandler[TReq any, TResp any](h QueryHandlerFunc[TReq, TResp]) gin.
 	}
 }
 
-// errorResp 构造标准错误响应
+// errorResp 构造标准错误响应(基于 apipb,与 admin.go 的 writeErr/writeBadRequest 一致)。
 func errorResp(code int32, message string) *apipb.CommonResponse {
 	return &apipb.CommonResponse{Code: apipb.Code(code), Message: message}
+}
+
+// writeCommonResponse 将 *model.CommonResponse 转为 writeOK/writeErr 模式。
+// 用于渐进迁移:旧 handler 返回 *model.CommonResponse,由 AutoHandler 调用此函数统一响应。
+func writeCommonResponse(c *gin.Context, resp *model.CommonResponse) {
+	if resp.Code == model.Success {
+		writeOK(c, nil)
+	} else {
+		c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code(resp.Code), Message: resp.Message})
+	}
 }

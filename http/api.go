@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/CloudSilk/pkg/constants"
-	"github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
@@ -22,14 +21,14 @@ import (
 // @Param data body apipb.APIInfo true "Add API"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/api/add [post]
-func AddAPI(c *gin.Context, req *permission.API) (*model.CommonResponse, error) {
+func AddAPI(c *gin.Context, req *permission.API) (*apipb.CommonResponse, error) {
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
 	if err := permission.CreateAPI(req); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
 // UpdateAPI godoc
@@ -39,11 +38,11 @@ func AddAPI(c *gin.Context, req *permission.API) (*model.CommonResponse, error) 
 // @Param data body apipb.APIInfo true "Update API"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/api/update [put]
-func UpdateAPI(c *gin.Context, req *permission.API) (*model.CommonResponse, error) {
+func UpdateAPI(c *gin.Context, req *permission.API) (*apipb.CommonResponse, error) {
 	if err := permission.UpdateAPI(req); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
 // DeleteAPI godoc
@@ -53,11 +52,11 @@ func UpdateAPI(c *gin.Context, req *permission.API) (*model.CommonResponse, erro
 // @Param data body apipb.DelRequest true "Delete API"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/api/delete [delete]
-func DeleteAPI(c *gin.Context, req *permission.API) (*model.CommonResponse, error) {
+func DeleteAPI(c *gin.Context, req *permission.API) (*apipb.CommonResponse, error) {
 	if err := permission.DeleteApi(req.ID); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
 // EnableAPI godoc
@@ -67,11 +66,11 @@ func DeleteAPI(c *gin.Context, req *permission.API) (*model.CommonResponse, erro
 // @Param data body apipb.EnableRequest true "Enable/Disable API"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/api/enable [post]
-func EnableAPI(c *gin.Context, req *permission.API) (*model.CommonResponse, error) {
+func EnableAPI(c *gin.Context, req *permission.API) (*apipb.CommonResponse, error) {
 	if err := permission.EnableAPI(req.ID, req.Enable); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
 // QueryAPI godoc
@@ -98,12 +97,9 @@ func QueryAPI(c *gin.Context, req *apipb.QueryAPIRequest) (*apipb.QueryAPIRespon
 // @Success 200 {object} apipb.GetAllAPIResponse
 // @Router /api/core/auth/api/all [get]
 func GetAllAPI(c *gin.Context) {
-	resp := &apipb.QueryAPIResponse{Code: apipb.Code_Success}
 	req := &apipb.QueryAPIRequest{}
 	if err := c.BindQuery(req); err != nil {
-		resp.Code = apipb.Code_BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
+		writeBadRequest(c, err)
 		return
 	}
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
@@ -111,15 +107,15 @@ func GetAllAPI(c *gin.Context) {
 	}
 	apis, err := permission.GetAllAPIs(req)
 	if err != nil {
-		resp.Code = apipb.Code_InternalServerError
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
+		writeErr(c, err)
 		return
 	}
-	resp.Data = permission.APIsToPB(apis)
-	resp.Records = int64(len(apis))
-	resp.Pages = 1
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, gin.H{
+		"code":    apipb.Code_Success,
+		"data":    permission.APIsToPB(apis),
+		"records": int64(len(apis)),
+		"pages":   1,
+	})
 }
 
 // GetAPIDetail godoc
@@ -130,21 +126,17 @@ func GetAllAPI(c *gin.Context) {
 // @Success 200 {object} apipb.GetAPIDetailResponse
 // @Router /api/core/auth/api/detail [get]
 func GetAPIDetail(c *gin.Context) {
-	resp := model.CommonDetailResponse{CommonResponse: model.CommonResponse{Code: model.Success}}
 	idStr := c.Query("id")
 	if idStr == "" {
-		resp.Code = model.BadRequest
-		c.JSON(http.StatusOK, resp)
+		writeBadRequest(c, errStr("id required"))
 		return
 	}
 	data, err := permission.GetAPIById(idStr)
 	if err != nil {
-		resp.Code = model.InternalServerError
-		resp.Message = err.Error()
-	} else {
-		resp.Data = data
+		writeErr(c, err)
+		return
 	}
-	c.JSON(http.StatusOK, resp)
+	writeOK(c, gin.H{"data": data})
 }
 
 // ImportAPI godoc
@@ -155,27 +147,20 @@ func GetAPIDetail(c *gin.Context) {
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/api/import [post]
 func ImportAPI(c *gin.Context) {
-	resp := &apipb.QueryAPIResponse{Code: apipb.Code_Success}
 	file, _, err := c.Request.FormFile("files")
 	if err != nil {
-		resp.Code = apipb.Code_BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusBadRequest, resp)
+		writeBadRequest(c, err)
 		return
 	}
 	defer file.Close()
 	buf, err := io.ReadAll(file)
 	if err != nil {
-		resp.Code = apipb.Code_BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusBadRequest, resp)
+		writeBadRequest(c, err)
 		return
 	}
 	var list []*apipb.APIInfo
 	if err := json.Unmarshal(buf, &list); err != nil {
-		resp.Code = apipb.Code_BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusBadRequest, resp)
+		writeBadRequest(c, err)
 		return
 	}
 	successCount, failCount := 0, 0
@@ -191,8 +176,10 @@ func ImportAPI(c *gin.Context) {
 			successCount++
 		}
 	}
-	resp.Message = fmt.Sprintf("导入成功数量:%d,导入失败数量:%d", successCount, failCount)
-	c.JSON(http.StatusOK, resp)
+	writeOK(c, gin.H{
+		"code":    apipb.Code_Success,
+		"message": fmt.Sprintf("导入成功数量:%d,导入失败数量:%d", successCount, failCount),
+	})
 }
 
 // ExportAPI godoc
@@ -203,11 +190,8 @@ func ImportAPI(c *gin.Context) {
 // @Router /api/core/auth/api/export [get]
 func ExportAPI(c *gin.Context) {
 	req := &apipb.QueryAPIRequest{}
-	resp := &apipb.QueryAPIResponse{Code: apipb.Code_Success}
 	if err := c.BindQuery(req); err != nil {
-		resp.Code = apipb.Code_BadRequest
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
+		writeBadRequest(c, err)
 		return
 	}
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
@@ -215,6 +199,7 @@ func ExportAPI(c *gin.Context) {
 	}
 	req.PageIndex = 1
 	req.PageSize = 1000
+	resp := &apipb.QueryAPIResponse{Code: apipb.Code_Success}
 	permission.QueryAPI(req, resp)
 	if resp.Code != apipb.Code_Success {
 		c.JSON(http.StatusOK, resp)
