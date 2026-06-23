@@ -23,3 +23,7 @@ dubbogo-lift.yaml
 model/db_test.go
 .idea
 .tmp/
+
+# E2E 截图产物
+web/admin-ui/e2e/*.png
+web/admin-ui/test-results/
