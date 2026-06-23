@@ -3,8 +3,8 @@ package http
 import (
 	"net/http"
 
+	"github.com/CloudSilk/usercenter/internal/language"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	"github.com/CloudSilk/usercenter/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -16,7 +16,7 @@ import (
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/language/add [post]
 func AddLanguage(c *gin.Context, req *apipb.LanguageInfo) (*apipb.CommonResponse, error) {
-	id, err := model.CreateLanguage(model.PBToLanguage(req))
+	id, err := language.CreateLanguage(language.PBToLanguage(req))
 	if err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -31,7 +31,7 @@ func AddLanguage(c *gin.Context, req *apipb.LanguageInfo) (*apipb.CommonResponse
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/language/update [put]
 func UpdateLanguage(c *gin.Context, req *apipb.LanguageInfo) (*apipb.CommonResponse, error) {
-	if err := model.UpdateLanguage(model.PBToLanguage(req)); err != nil {
+	if err := language.UpdateLanguage(language.PBToLanguage(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -45,7 +45,7 @@ func UpdateLanguage(c *gin.Context, req *apipb.LanguageInfo) (*apipb.CommonRespo
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/language/delete [delete]
 func DeleteLanguage(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
-	if err := model.DeleteLanguage(req.Id); err != nil {
+	if err := language.DeleteLanguage(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -61,7 +61,7 @@ func DeleteLanguage(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonRespons
 // @Router /api/core/language/query [get]
 func QueryLanguage(c *gin.Context, req *apipb.QueryLanguageRequest) (*apipb.QueryLanguageResponse, error) {
 	resp := &apipb.QueryLanguageResponse{Code: apipb.Code_Success}
-	model.QueryLanguage(req, resp, false)
+	language.QueryLanguage(req, resp, false)
 	return resp, nil
 }
 
@@ -80,12 +80,12 @@ func GetLanguageDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	data, err := model.GetLanguageByID(idStr)
+	data, err := language.GetLanguageByID(idStr)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.LanguageToPB(data)
+		resp.Data = language.LanguageToPB(data)
 	}
 	c.JSON(http.StatusOK, resp)
 }

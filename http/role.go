@@ -8,8 +8,9 @@ import (
 
 	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/pkg/model"
+	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/tenant"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	ucmodel "github.com/CloudSilk/usercenter/model"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -27,7 +28,7 @@ func AddRole(c *gin.Context, req *apipb.RoleInfo) (*model.CommonResponse, error)
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
-	if err := ucmodel.CreateRole(ucmodel.PBToRole(req)); err != nil {
+	if err := permission.CreateRole(permission.PBToRole(req), tenant.GetTenantUserCount); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
@@ -45,7 +46,7 @@ func UpdateRole(c *gin.Context, req *apipb.RoleInfo) (*model.CommonResponse, err
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
-	if err := ucmodel.UpdateRole(ucmodel.PBToRole(req)); err != nil {
+	if err := permission.UpdateRole(permission.PBToRole(req)); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
@@ -59,7 +60,7 @@ func UpdateRole(c *gin.Context, req *apipb.RoleInfo) (*model.CommonResponse, err
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/role/delete [delete]
 func DeleteRole(c *gin.Context, req *apipb.DelRequest) (*model.CommonResponse, error) {
-	if err := ucmodel.DeleteRole(req.Id); err != nil {
+	if err := permission.DeleteRole(req.Id); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
@@ -79,7 +80,7 @@ func QueryRole(c *gin.Context, req *apipb.QueryRoleRequest) (*apipb.QueryRoleRes
 		req.TenantID = tenantID
 	}
 	resp := &apipb.QueryRoleResponse{Code: apipb.Code_Success}
-	ucmodel.QueryRole(req, resp, false)
+	permission.QueryRole(req, resp, false)
 	return resp, nil
 }
 
@@ -98,12 +99,12 @@ func GetRoleDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	data, err := ucmodel.GetRoleByID(idStr)
+	data, err := permission.GetRoleByID(idStr)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = ucmodel.RoleToPB(data)
+		resp.Data = permission.RoleToPB(data)
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -128,14 +129,14 @@ func GetAllRole(c *gin.Context) {
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
-	roles, err := ucmodel.GetAllRole(req.TenantID, req.ContainerComm)
+	roles, err := permission.GetAllRole(req.TenantID, req.ContainerComm)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	resp.Data = ucmodel.RolesToPB(roles)
+	resp.Data = permission.RolesToPB(roles)
 	resp.Records = int64(len(roles))
 	resp.Pages = 1
 	c.JSON(http.StatusOK, resp)
@@ -161,7 +162,7 @@ func ExportRole(c *gin.Context) {
 	}
 	req.PageIndex = 1
 	req.PageSize = 1000
-	ucmodel.QueryRole(req, resp, true)
+	permission.QueryRole(req, resp, true)
 	if resp.Code != apipb.Code_Success {
 		c.JSON(http.StatusOK, resp)
 		return
@@ -206,9 +207,9 @@ func ImportRole(c *gin.Context) {
 	}
 	successCount, failCount := 0, 0
 	for _, f := range list {
-		if err := ucmodel.UpdateRole(ucmodel.PBToRole(f)); err != nil {
+		if err := permission.UpdateRole(permission.PBToRole(f)); err != nil {
 			if err == gorm.ErrRecordNotFound {
-				err = ucmodel.CreateRole(ucmodel.PBToRole(f))
+				err = permission.CreateRole(permission.PBToRole(f), tenant.GetTenantUserCount)
 			}
 		}
 		if err != nil {

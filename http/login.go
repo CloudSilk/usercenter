@@ -9,7 +9,7 @@ import (
 	"github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/CloudSilk/pkg/utils/middleware"
-	ucmodel "github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	userm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/CloudSilk/usercenter/wechat"
@@ -71,7 +71,7 @@ func wechatMiniLogin(c *gin.Context) {
 	}
 
 	// fmt.Printf("Code2Session:%#v\n", result)
-	user := &apipb.UserInfo{
+	ui := &apipb.UserInfo{
 		WechatUnionID: result.UnionID,
 		WechatOpenID:  result.OpenID,
 		TenantID:      miniProgramConfig.MiniAppConfig.TenantID,
@@ -85,23 +85,23 @@ func wechatMiniLogin(c *gin.Context) {
 				log.Warnf(context.Background(), "TransID:%s,解密出错:%v", transID, err)
 				// 解密失败不阻断注册流程，继续使用基本信息
 			} else {
-				user.Avatar = plainData.AvatarURL
-				user.Nickname = plainData.NickName
-				user.City = plainData.City
-				user.Country = plainData.Country
-				user.Province = plainData.Province
-				user.Gender = plainData.Gender == 1
-				user.Mobile = plainData.PhoneNumber
+				ui.Avatar = plainData.AvatarURL
+				ui.Nickname = plainData.NickName
+				ui.City = plainData.City
+				ui.Country = plainData.Country
+				ui.Province = plainData.Province
+				ui.Gender = plainData.Gender == 1
+				ui.Mobile = plainData.PhoneNumber
 			}
 		}
 
 		// 优先使用请求中传入的昵称
 		if req.Nickname != "" {
-			user.Nickname = req.Nickname
+			ui.Nickname = req.Nickname
 		}
-		user.Enable = true
-		user.WechatConfigID = miniProgramConfig.MiniAppConfig.ID
-		user.UserRoles = []*apipb.UserRole{
+		ui.Enable = true
+		ui.WechatConfigID = miniProgramConfig.MiniAppConfig.ID
+		ui.UserRoles = []*apipb.UserRole{
 			{RoleID: miniProgramConfig.MiniAppConfig.DefaultRoleID},
 		}
 		//获取手机号
@@ -110,20 +110,20 @@ func wechatMiniLogin(c *gin.Context) {
 			if err != nil {
 				log.Warnf(context.Background(), "TransID:%s,GetPhoneNumber:%v", transID, err)
 			} else {
-				user.Mobile = result2.PhoneInfo.PhoneNumber
+				ui.Mobile = result2.PhoneInfo.PhoneNumber
 			}
 		}
 		// 设置用户名：优先手机号 > UnionID > OpenID
-		if user.Mobile != "" {
-			user.UserName = user.Mobile
+		if ui.Mobile != "" {
+			ui.UserName = ui.Mobile
 		} else if result.UnionID != "" {
-			user.UserName = result.UnionID
+			ui.UserName = result.UnionID
 		} else {
-			user.UserName = result.OpenID
+			ui.UserName = result.OpenID
 		}
 	}
 
-	ucmodel.LoginByWechat(req.Register, ucmodel.PBToUser(user), resp)
+	user.LoginByWechat(req.Register, user.PBToUser(ui), resp)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -135,12 +135,12 @@ func wechatMiniLogin(c *gin.Context) {
 // @Produce  json
 // @Param authorization header string true "Bearer+空格+Token"
 // @Param product body MiniLoginRequest true "请求参数"
-// @Success 200 {object} ucmodel.CheckRegisterWithWechatResp
+// @Success 200 {object} user.CheckRegisterWithWechatResp
 // @Router /api/wechat/mini/register/check [post]
 func wechatMiniCheckRegister(c *gin.Context) {
 	transID := middleware.GetTransID(c)
 	req := &MiniLoginRequest{}
-	resp := &ucmodel.CheckRegisterWithWechatResp{
+	resp := &user.CheckRegisterWithWechatResp{
 		CommonResponse: model.CommonResponse{
 			Code: model.Success,
 		},
@@ -170,7 +170,7 @@ func wechatMiniCheckRegister(c *gin.Context) {
 		log.Warnf(context.Background(), "TransID:%s,Code2Session出错:%v", transID, err)
 		return
 	}
-	userID, err := ucmodel.CheckRegisterWithWechat(result.OpenID)
+	userID, err := user.CheckRegisterWithWechat(result.OpenID)
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
@@ -225,7 +225,7 @@ func bindPhone(c *gin.Context) {
 			phoneNumber = result2.PhoneInfo.PhoneNumber
 		}
 	}
-	err = ucmodel.BindPhone(userm.GetUserID(c), phoneNumber)
+	err = user.BindPhone(userm.GetUserID(c), phoneNumber)
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
@@ -399,12 +399,10 @@ func wechatWebLogin(c *gin.Context) {
 	}
 	// fmt.Printf("accessToken:%#v\n", accessToken)
 
-	user := &ucmodel.User{
+	userInfo := &apipb.UserInfo{
 		WechatUnionID: accessToken.UnionID,
 		WechatOpenID:  accessToken.OpenID,
-		TenantModel: model.TenantModel{
-			TenantID: wechatOpenPlatformWeb.WechatConfig.TenantID,
-		},
+		TenantID:      wechatOpenPlatformWeb.WechatConfig.TenantID,
 	}
 
 	wechatUserInfo, err := wechatOpenPlatformWeb.GetUserInfo(accessToken.UnionID)
@@ -417,16 +415,16 @@ func wechatWebLogin(c *gin.Context) {
 
 	// fmt.Printf("wechatUserInfo:%#v\n", wechatUserInfo)
 
-	user.Nickname = wechatUserInfo.Nickname
-	user.Avatar = wechatUserInfo.HeadImgUrl
-	user.Gender = wechatUserInfo.Sex == 1
-	user.Country = wechatUserInfo.Country
-	user.Province = wechatUserInfo.Province
-	user.UserName = wechatUserInfo.UnionID
-	user.WechatConfigID = wechatOpenPlatformWeb.WechatConfig.ID
-	user.Enable = true
+	userInfo.Nickname = wechatUserInfo.Nickname
+	userInfo.Avatar = wechatUserInfo.HeadImgUrl
+	userInfo.Gender = wechatUserInfo.Sex == 1
+	userInfo.Country = wechatUserInfo.Country
+	userInfo.Province = wechatUserInfo.Province
+	userInfo.UserName = wechatUserInfo.UnionID
+	userInfo.WechatConfigID = wechatOpenPlatformWeb.WechatConfig.ID
+	userInfo.Enable = true
 
-	ucmodel.LoginByWechat(true, user, resp)
+	user.LoginByWechat(true, user.PBToUser(userInfo), resp)
 	if wechatOpenPlatformWeb.WechatConfig.AppType == 2 {
 		if resp.Code == model.Success {
 			wechatOpenPlatformWeb.UpdateQRConnectResult(state, true, true, resp.Data)

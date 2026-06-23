@@ -6,9 +6,13 @@ import (
 
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils/log"
+	"github.com/CloudSilk/usercenter/internal/pricing"
 	"github.com/CloudSilk/usercenter/internal/store"
-	"gorm.io/gorm"
 )
+
+// PricingFunc 为 CalculateCost 的函数签名,方便测试注入与解耦。
+// 默认实现为 pricing.CalculateCost,可在测试中替换。
+var PricingFunc = pricing.CalculateCost
 
 // UsageRecord 一次 LLM 调用的计量记录
 type UsageRecord struct {
@@ -56,12 +60,18 @@ type UsageBudget struct {
 
 func (UsageBudget) TableName() string { return "usage_budget" }
 
-// RecordUsage 记录一次 LLM 调用的用量
+// RecordUsage 记录一次 LLM 调用的用量。
+// 若调用方未填 Cost,则按 ModelPricing 计价表自动计算(rec.TenantID+rec.ModelName)。
 func RecordUsage(rec *UsageRecord) {
 	if store.DB() == nil {
 		return
 	}
 	rec.TotalTokens = rec.PromptTokens + rec.CompTokens + rec.CacheTokens
+	if rec.Cost == 0 && rec.ModelName != "" {
+		if price, err := pricing.GetPrice(rec.TenantID, rec.ModelName); err == nil && price != nil {
+			rec.Cost = PricingFunc(price, rec.PromptTokens, rec.CompTokens)
+		}
+	}
 	if err := store.DB().Create(rec).Error; err != nil {
 		log.Errorf(context.Background(), "record usage failed: %v", err)
 	}
@@ -177,6 +187,27 @@ func CheckBudget(tenantID, principalID, modelName string) (allowed bool, dailyTo
 	if budget.MonthlyTokenLimit > 0 && monthlyTokens >= budget.MonthlyTokenLimit {
 		return false, dailyTokens, monthlyTokens, nil
 	}
+
+	// 基于成本的预算检查
+	if budget.DailyCostLimit > 0 || budget.MonthlyCostLimit > 0 {
+		var dailyCost, monthlyCost float64
+		costDB := store.DB().Model(&UsageRecord{}).Where("tenant_id = ?", tenantID)
+		if principalID != "" {
+			costDB = costDB.Where("principal_id = ?", principalID)
+		}
+		costDB.Where("created_at >= ?", dayStart).
+			Select("COALESCE(SUM(cost), 0)").Scan(&dailyCost)
+		costDB.Where("created_at >= ?", monthStart).
+			Select("COALESCE(SUM(cost), 0)").Scan(&monthlyCost)
+
+		if budget.DailyCostLimit > 0 && dailyCost >= budget.DailyCostLimit {
+			return false, dailyTokens, monthlyTokens, nil
+		}
+		if budget.MonthlyCostLimit > 0 && monthlyCost >= budget.MonthlyCostLimit {
+			return false, dailyTokens, monthlyTokens, nil
+		}
+	}
+
 	return true, dailyTokens, monthlyTokens, nil
 }
 
@@ -193,5 +224,3 @@ func UpdateBudget(b *UsageBudget) error {
 func DeleteBudget(id string) error {
 	return store.DB().Delete(&UsageBudget{}, "id=?", id).Error
 }
-
-var _ = gorm.ErrRecordNotFound // suppress unused

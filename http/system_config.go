@@ -3,8 +3,8 @@ package http
 import (
 	"net/http"
 
+	"github.com/CloudSilk/usercenter/internal/systemconfig"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	"github.com/CloudSilk/usercenter/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -16,7 +16,7 @@ import (
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/system/config/add [post]
 func AddSystemConfig(c *gin.Context, req *apipb.SystemConfigInfo) (*apipb.CommonResponse, error) {
-	id, err := model.CreateSystemConfig(model.PBToSystemConfig(req))
+	id, err := systemconfig.CreateSystemConfig(systemconfig.PBToSystemConfig(req))
 	if err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -31,7 +31,7 @@ func AddSystemConfig(c *gin.Context, req *apipb.SystemConfigInfo) (*apipb.Common
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/system/config/update [put]
 func UpdateSystemConfig(c *gin.Context, req *apipb.SystemConfigInfo) (*apipb.CommonResponse, error) {
-	if err := model.UpdateSystemConfig(model.PBToSystemConfig(req)); err != nil {
+	if err := systemconfig.UpdateSystemConfig(systemconfig.PBToSystemConfig(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -45,7 +45,7 @@ func UpdateSystemConfig(c *gin.Context, req *apipb.SystemConfigInfo) (*apipb.Com
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/system/config/delete [delete]
 func DeleteSystemConfig(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
-	if err := model.DeleteSystemConfig(req.Id); err != nil {
+	if err := systemconfig.DeleteSystemConfig(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -61,7 +61,7 @@ func DeleteSystemConfig(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonRes
 // @Router /api/core/system/config/query [get]
 func QuerySystemConfig(c *gin.Context, req *apipb.QuerySystemConfigRequest) (*apipb.QuerySystemConfigResponse, error) {
 	resp := &apipb.QuerySystemConfigResponse{Code: apipb.Code_Success}
-	model.QuerySystemConfig(req, resp, false)
+	systemconfig.QuerySystemConfig(req, resp, false)
 	return resp, nil
 }
 
@@ -80,12 +80,12 @@ func GetSystemConfigDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	data, err := model.GetSystemConfigByID(idStr)
+	data, err := systemconfig.GetSystemConfigByID(idStr)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.SystemConfigToPB(data)
+		resp.Data = systemconfig.SystemConfigToPB(data)
 	}
 	c.JSON(http.StatusOK, resp)
 }

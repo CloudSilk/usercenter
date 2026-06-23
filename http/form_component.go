@@ -3,8 +3,8 @@ package http
 import (
 	"net/http"
 
+	"github.com/CloudSilk/usercenter/internal/formcomponent"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	"github.com/CloudSilk/usercenter/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -16,7 +16,7 @@ import (
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/form/component/add [post]
 func AddFormComponent(c *gin.Context, req *apipb.FormComponentInfo) (*apipb.CommonResponse, error) {
-	id, err := model.CreateFormComponent(model.PBToFormComponent(req))
+	id, err := formcomponent.CreateFormComponent(formcomponent.PBToFormComponent(req))
 	if err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -31,7 +31,7 @@ func AddFormComponent(c *gin.Context, req *apipb.FormComponentInfo) (*apipb.Comm
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/form/component/update [put]
 func UpdateFormComponent(c *gin.Context, req *apipb.FormComponentInfo) (*apipb.CommonResponse, error) {
-	if err := model.UpdateFormComponent(model.PBToFormComponent(req)); err != nil {
+	if err := formcomponent.UpdateFormComponent(formcomponent.PBToFormComponent(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -45,7 +45,7 @@ func UpdateFormComponent(c *gin.Context, req *apipb.FormComponentInfo) (*apipb.C
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/form/component/delete [delete]
 func DeleteFormComponent(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
-	if err := model.DeleteFormComponent(req.Id); err != nil {
+	if err := formcomponent.DeleteFormComponent(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -61,7 +61,7 @@ func DeleteFormComponent(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonRe
 // @Router /api/core/auth/form/component/query [get]
 func QueryFormComponent(c *gin.Context, req *apipb.QueryFormComponentRequest) (*apipb.QueryFormComponentResponse, error) {
 	resp := &apipb.QueryFormComponentResponse{Code: apipb.Code_Success}
-	model.QueryFormComponent(req, resp, false)
+	formcomponent.QueryFormComponent(req, resp, false)
 	return resp, nil
 }
 
@@ -80,12 +80,12 @@ func GetFormComponentDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	data, err := model.GetFormComponentByID(idStr)
+	data, err := formcomponent.GetFormComponentByID(idStr)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.FormComponentToPB(data)
+		resp.Data = formcomponent.FormComponentToPB(data)
 	}
 	c.JSON(http.StatusOK, resp)
 }

@@ -3,8 +3,8 @@ package http
 import (
 	"net/http"
 
+	"github.com/CloudSilk/usercenter/internal/dictionaries"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	"github.com/CloudSilk/usercenter/model"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -18,7 +18,7 @@ import (
 // @Router /api/core/dictionaries/add [post]
 func AddDictionaries(c *gin.Context, req *apipb.DictionariesInfo) (*apipb.CommonResponse, error) {
 	req.TenantID = ucm.GetTenantID(c)
-	id, err := model.CreateDictionaries(model.PBToDictionariesArray(req))
+	id, err := dictionaries.CreateDictionaries(dictionaries.PBToDictionariesArray(req))
 	if err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -33,7 +33,7 @@ func AddDictionaries(c *gin.Context, req *apipb.DictionariesInfo) (*apipb.Common
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/dictionaries/update [put]
 func UpdateDictionaries(c *gin.Context, req *apipb.DictionariesInfo) (*apipb.CommonResponse, error) {
-	if err := model.UpdateDictionaries(model.PBToDictionariesArray(req)); err != nil {
+	if err := dictionaries.UpdateDictionaries(dictionaries.PBToDictionariesArray(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -47,7 +47,7 @@ func UpdateDictionaries(c *gin.Context, req *apipb.DictionariesInfo) (*apipb.Com
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/dictionaries/delete [delete]
 func DeleteDictionaries(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
-	if err := model.DeleteDictionaries(req.Id); err != nil {
+	if err := dictionaries.DeleteDictionaries(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -64,7 +64,7 @@ func DeleteDictionaries(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonRes
 // @Router /api/core/dictionaries/query [get]
 func QueryDictionaries(c *gin.Context, req *apipb.QueryDictionariesRequest) (*apipb.QueryDictionariesResponse, error) {
 	resp := &apipb.QueryDictionariesResponse{Code: apipb.Code_Success}
-	model.QueryDictionaries(req, resp, false)
+	dictionaries.QueryDictionaries(req, resp, false)
 	return resp, nil
 }
 
@@ -83,12 +83,12 @@ func GetDictionariesDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	data, err := model.GetDictionariesByID(idStr)
+	data, err := dictionaries.GetDictionariesByID(idStr)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.DictionariesToPB(data)
+		resp.Data = dictionaries.DictionariesToPB(data)
 	}
 	c.JSON(http.StatusOK, resp)
 }

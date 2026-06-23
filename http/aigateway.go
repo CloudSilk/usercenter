@@ -13,6 +13,7 @@ import (
 
 	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/apikey"
+	"github.com/CloudSilk/usercenter/internal/pricing"
 	"github.com/CloudSilk/usercenter/internal/usage"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
@@ -20,7 +21,9 @@ import (
 
 // AI 网关：OpenAI 兼容的流式代理。
 //
-// POST /v1/chat/completions
+// POST /v1/chat/completions   → 上游 /chat/completions
+// POST /v1/embeddings          → 上游 /embeddings
+// POST /v1/images/generations  → 上游 /images/generations
 //
 // 把客户端请求按 model 路由到已配置的服务商/Key（apikey.SelectKey，含主从池与故障转移），
 // 透传上游响应（流式 SSE 或整包），按真实用量记录 usage、执行租户/Agent 配额，并在上游
@@ -37,6 +40,8 @@ const (
 // RegisterAIGatewayRouter 挂载 OpenAI 兼容网关端点。鉴权由调用方中间件负责。
 func RegisterAIGatewayRouter(r *gin.Engine) {
 	r.POST("/v1/chat/completions", ChatCompletions)
+	r.POST("/v1/embeddings", Embeddings)
+	r.POST("/v1/images/generations", ImageGenerations)
 	r.GET("/v1/models", ListModels)
 }
 
@@ -65,7 +70,6 @@ func ChatCompletions(c *gin.Context) {
 	start := time.Now()
 	tenantID := ucm.GetTenantID(c)
 	principalID := ucm.GetUserID(c)
-	// principal.Kind() 为 1/2/3(Human/Agent/Service)，usage/audit 约定 0/1/2，做 -1 对齐。
 	pk := int32(ucm.GetPrincipalKind(c))
 	principalKind := pk - 1
 	if principalKind < 0 {
@@ -97,19 +101,24 @@ func ChatCompletions(c *gin.Context) {
 		return
 	}
 
+	// --- 强制注入 stream_options: include_usage: true ---
+	if peek.Stream {
+		bodyBytes = injectStreamOptions(bodyBytes)
+		// 重新解析 stream 标志(注入不影响 peek.Stream)
+	}
+
 	// 配额：调用前检查租户/Agent 预算
 	if allowed, _, _, _ := usage.CheckBudget(tenantID, principalID, peek.Model); !allowed {
 		observeAIQuotaExceeded()
 		recordGatewayUsage(nil, tenantID, principalID, principalKind, peek.Model, 0, 0, 0, time.Since(start), false, "quota_exceeded")
-		// 成本告警：超额写入审计 + Webhook 推送
 		recordAudit(c, "ai_quota_exceeded", peek.Model, "principal="+principalID)
 		alert.FireWebhook("ai_quota_exceeded", map[string]any{"tenantID": tenantID, "principalID": principalID, "model": peek.Model})
 		c.JSON(http.StatusTooManyRequests, errResp("超出用量配额", http.StatusTooManyRequests))
 		return
 	}
 
-	// 路由选 Key + 转发（上游 429 → 冷却 + 重试一次）
-	resp, sel, upstreamErr := forwardWithRetry(c, tenantID, peek.Model, bodyBytes, peek.Stream)
+	// 路由选 Key + 转发（上游 429 → 冷却 + 重试）
+	resp, sel, upstreamErr := forwardWithRetry(c, tenantID, peek.Model, bodyBytes, peek.Stream, "/chat/completions")
 	if upstreamErr != nil {
 		recordGatewayUsage(nil, tenantID, principalID, principalKind, peek.Model, 0, 0, 0, time.Since(start), false, "upstream_error")
 		c.JSON(http.StatusBadGateway, errResp(upstreamErr.Error(), http.StatusBadGateway))
@@ -128,12 +137,153 @@ func ChatCompletions(c *gin.Context) {
 	if sel != nil && sel.Provider != nil {
 		providerName = sel.Provider.Name
 	}
-	recordGatewayUsage(sel, tenantID, principalID, principalKind, peek.Model, pt, ct, 0, time.Since(start), true, "")
+	cost := recordGatewayUsage(sel, tenantID, principalID, principalKind, peek.Model, pt, ct, 0, time.Since(start), true, "")
 	_ = providerName
+	_ = cost
 }
 
-// forwardWithRetry 选 Key 转发；上游 429 时把该 Key 打入冷却并重试下一个路由（至多 1 次）。
-func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, stream bool) (*http.Response, *apikey.KeySelection, error) {
+// Embeddings OpenAI 兼容 embeddings 代理（整包，无流式）。
+func Embeddings(c *gin.Context) {
+	start := time.Now()
+	tenantID := ucm.GetTenantID(c)
+	principalID := ucm.GetUserID(c)
+	pk := int32(ucm.GetPrincipalKind(c))
+	principalKind := pk - 1
+	if principalKind < 0 {
+		principalKind = 0
+	}
+
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errResp("读取请求体失败", http.StatusBadRequest))
+		return
+	}
+	_ = c.Request.Body.Close()
+
+	var peek struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(bodyBytes, &peek); err != nil {
+		c.JSON(http.StatusBadRequest, errResp("非法 JSON 请求体", http.StatusBadRequest))
+		return
+	}
+	if peek.Model == "" {
+		c.JSON(http.StatusBadRequest, errResp("缺少 model 字段", http.StatusBadRequest))
+		return
+	}
+
+	if allowed, _, _, _ := usage.CheckBudget(tenantID, principalID, peek.Model); !allowed {
+		observeAIQuotaExceeded()
+		recordGatewayUsage(nil, tenantID, principalID, principalKind, peek.Model, 0, 0, 0, time.Since(start), false, "quota_exceeded")
+		recordAudit(c, "ai_quota_exceeded", peek.Model, "principal="+principalID)
+		alert.FireWebhook("ai_quota_exceeded", map[string]any{"tenantID": tenantID, "principalID": principalID, "model": peek.Model})
+		c.JSON(http.StatusTooManyRequests, errResp("超出用量配额", http.StatusTooManyRequests))
+		return
+	}
+
+	resp, sel, upstreamErr := forwardWithRetry(c, tenantID, peek.Model, bodyBytes, false, "/embeddings")
+	if upstreamErr != nil {
+		recordGatewayUsage(nil, tenantID, principalID, principalKind, peek.Model, 0, 0, 0, time.Since(start), false, "upstream_error")
+		c.JSON(http.StatusBadGateway, errResp(upstreamErr.Error(), http.StatusBadGateway))
+		return
+	}
+	defer resp.Body.Close()
+
+	pt, ct := bufferedProxy(c, resp)
+	providerName := ""
+	if sel != nil && sel.Provider != nil {
+		providerName = sel.Provider.Name
+	}
+	cost := recordGatewayUsage(sel, tenantID, principalID, principalKind, peek.Model, pt, ct, 0, time.Since(start), true, "")
+	_ = providerName
+	_ = cost
+}
+
+// ImageGenerations OpenAI 兼容图像生成代理（整包，无流式）。
+// 图像生成接口通常不返回 usage，按 1 次生成计费。
+func ImageGenerations(c *gin.Context) {
+	start := time.Now()
+	tenantID := ucm.GetTenantID(c)
+	principalID := ucm.GetUserID(c)
+	pk := int32(ucm.GetPrincipalKind(c))
+	principalKind := pk - 1
+	if principalKind < 0 {
+		principalKind = 0
+	}
+
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errResp("读取请求体失败", http.StatusBadRequest))
+		return
+	}
+	_ = c.Request.Body.Close()
+
+	var peek struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(bodyBytes, &peek); err != nil {
+		c.JSON(http.StatusBadRequest, errResp("非法 JSON 请求体", http.StatusBadRequest))
+		return
+	}
+	if peek.Model == "" {
+		c.JSON(http.StatusBadRequest, errResp("缺少 model 字段", http.StatusBadRequest))
+		return
+	}
+
+	if allowed, _, _, _ := usage.CheckBudget(tenantID, principalID, peek.Model); !allowed {
+		observeAIQuotaExceeded()
+		recordGatewayUsage(nil, tenantID, principalID, principalKind, peek.Model, 0, 0, 0, time.Since(start), false, "quota_exceeded")
+		recordAudit(c, "ai_quota_exceeded", peek.Model, "principal="+principalID)
+		alert.FireWebhook("ai_quota_exceeded", map[string]any{"tenantID": tenantID, "principalID": principalID, "model": peek.Model})
+		c.JSON(http.StatusTooManyRequests, errResp("超出用量配额", http.StatusTooManyRequests))
+		return
+	}
+
+	resp, sel, upstreamErr := forwardWithRetry(c, tenantID, peek.Model, bodyBytes, false, "/images/generations")
+	if upstreamErr != nil {
+		recordGatewayUsage(nil, tenantID, principalID, principalKind, peek.Model, 0, 0, 0, time.Since(start), false, "upstream_error")
+		c.JSON(http.StatusBadGateway, errResp(upstreamErr.Error(), http.StatusBadGateway))
+		return
+	}
+	defer resp.Body.Close()
+
+	// 图像生成接口返回 data[].url 或 data[].b64_json，无 usage 字段
+	buf, err := io.ReadAll(resp.Body)
+	if err != nil {
+		copyHeaders(c, resp)
+		c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), nil)
+		return
+	}
+	copyHeaders(c, resp)
+	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), buf)
+	// 图像生成计为 1 次完成 token(不含输入/输出 token 计数)
+	cost := recordGatewayUsage(sel, tenantID, principalID, principalKind, peek.Model, 0, 1, 0, time.Since(start), true, "")
+	_ = cost
+}
+
+// injectStreamOptions 在请求体 JSON 中注入 stream_options.include_usage = true。
+// 如果客户端未设置 stream，此函数不做任何修改。
+func injectStreamOptions(body []byte) []byte {
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return body // 解析失败，原样返回
+	}
+	// 已有 stream_options 则保留其余字段，只注入 include_usage
+	if existing, ok := m["stream_options"].(map[string]any); ok {
+		existing["include_usage"] = true
+	} else {
+		m["stream_options"] = map[string]any{"include_usage": true}
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+// forwardWithRetry 选 Key 转发；上游 429 时把该 Key 打入冷却并重试下一个路由（至多 maxAttempts-1 次）。
+// pathSuffix 追加到 provider baseURL 末尾，如 "/chat/completions"、"/embeddings"、"/images/generations"。
+func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, stream bool, pathSuffix string) (*http.Response, *apikey.KeySelection, error) {
 	const maxAttempts = 3
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -141,7 +291,7 @@ func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, 
 		if err != nil {
 			return nil, nil, fmt.Errorf("无可用 Key: %w", err)
 		}
-		req, err := buildUpstreamRequest(sel, body)
+		req, err := buildUpstreamRequest(sel, body, pathSuffix)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -171,12 +321,13 @@ func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, 
 }
 
 // buildUpstreamRequest 构造转发到服务商的请求，按 AuthType 注入鉴权。
-func buildUpstreamRequest(sel *apikey.KeySelection, body []byte) (*http.Request, error) {
+// pathSuffix 为相对路径，如 "/chat/completions"、"/embeddings"。
+func buildUpstreamRequest(sel *apikey.KeySelection, body []byte, pathSuffix string) (*http.Request, error) {
 	base := strings.TrimRight(sel.Provider.BaseURL, "/")
-	// 兼容 baseURL 是否已含 /v1：OpenAI 兼容路径统一补 /chat/completions
-	target := base + "/chat/completions"
+	// 兼容 baseURL 是否已含 /v1
+	target := base + pathSuffix
 	if strings.HasSuffix(base, "/v1") {
-		target = base + "/chat/completions"
+		target = base + pathSuffix
 	}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
@@ -190,7 +341,6 @@ func buildUpstreamRequest(sel *apikey.KeySelection, body []byte) (*http.Request,
 	case "header", "apikey":
 		req.Header.Set("Authorization", sel.APIKey)
 	case "query":
-		// 已带 query 的场景少见，这里用 X-API-Key 兜底
 		req.Header.Set("X-API-Key", sel.APIKey)
 	default:
 		req.Header.Set("Authorization", "Bearer "+sel.APIKey)
@@ -232,9 +382,7 @@ func streamProxy(c *gin.Context, resp *http.Response) (promptTokens, compTokens 
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		// 写到客户端（含末尾换行）
 		_, _ = c.Writer.Write(append(line, '\n'))
-		// 捕获 usage 行：data: {... "usage": {...}}
 		if bytes.HasPrefix(bytes.TrimSpace(line), []byte("data:")) {
 			payload := bytes.TrimSpace(bytes.TrimPrefix(bytes.TrimSpace(line), []byte("data:")))
 			if len(payload) > 0 && !bytes.Equal(payload, []byte("[DONE]")) {
@@ -266,7 +414,8 @@ func copyHeaders(c *gin.Context, resp *http.Response) {
 }
 
 // recordGatewayUsage 记录一次网关调用的用量（成功/失败均记，便于分析）。
-func recordGatewayUsage(sel *apikey.KeySelection, tenantID, principalID string, principalKind int32, model string, prompt, comp, cache int64, latency time.Duration, success bool, errCode string) {
+// 返回计算出的 cost(USD)。
+func recordGatewayUsage(sel *apikey.KeySelection, tenantID, principalID string, principalKind int32, model string, prompt, comp, cache int64, latency time.Duration, success bool, errCode string) float64 {
 	rec := &usage.UsageRecord{
 		PrincipalID:   principalID,
 		PrincipalKind: principalKind,
@@ -285,12 +434,20 @@ func recordGatewayUsage(sel *apikey.KeySelection, tenantID, principalID string, 
 			rec.ProviderName = sel.Provider.Name
 		}
 		if sel.Key != nil {
-			rec.RequestID = sel.Key.ID // 复用字段记录所用 Key，便于审计
+			rec.RequestID = sel.Key.ID
 		}
 	}
+
+	// 按计价表计算 cost
+	var cost float64
+	if price, err := pricing.GetPrice(tenantID, model); err == nil && price != nil {
+		cost = pricing.CalculateCost(price, prompt, comp)
+		rec.Cost = cost
+	}
+
 	usage.RecordUsage(rec)
-	// 上报 Prometheus 指标（cost 暂为 0，未来按模型计价表计算）
-	observeAIGatewayCall(model, prompt, comp, 0, success)
+	observeAIGatewayCall(model, prompt, comp, cost, success)
+	return cost
 }
 
 func errResp(msg string, code int) gin.H {

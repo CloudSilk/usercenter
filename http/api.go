@@ -8,8 +8,8 @@ import (
 
 	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/pkg/model"
+	"github.com/CloudSilk/usercenter/internal/permission"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	ucmodel "github.com/CloudSilk/usercenter/model"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -22,11 +22,11 @@ import (
 // @Param data body apipb.APIInfo true "Add API"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/api/add [post]
-func AddAPI(c *gin.Context, req *ucmodel.API) (*model.CommonResponse, error) {
+func AddAPI(c *gin.Context, req *permission.API) (*model.CommonResponse, error) {
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
-	if err := ucmodel.CreateAPI(req); err != nil {
+	if err := permission.CreateAPI(req); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
@@ -39,8 +39,8 @@ func AddAPI(c *gin.Context, req *ucmodel.API) (*model.CommonResponse, error) {
 // @Param data body apipb.APIInfo true "Update API"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/api/update [put]
-func UpdateAPI(c *gin.Context, req *ucmodel.API) (*model.CommonResponse, error) {
-	if err := ucmodel.UpdateAPI(req); err != nil {
+func UpdateAPI(c *gin.Context, req *permission.API) (*model.CommonResponse, error) {
+	if err := permission.UpdateAPI(req); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
@@ -53,8 +53,8 @@ func UpdateAPI(c *gin.Context, req *ucmodel.API) (*model.CommonResponse, error) 
 // @Param data body apipb.DelRequest true "Delete API"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/api/delete [delete]
-func DeleteAPI(c *gin.Context, req *ucmodel.API) (*model.CommonResponse, error) {
-	if err := ucmodel.DeleteApi(req.ID); err != nil {
+func DeleteAPI(c *gin.Context, req *permission.API) (*model.CommonResponse, error) {
+	if err := permission.DeleteApi(req.ID); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
@@ -67,8 +67,8 @@ func DeleteAPI(c *gin.Context, req *ucmodel.API) (*model.CommonResponse, error) 
 // @Param data body apipb.EnableRequest true "Enable/Disable API"
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/api/enable [post]
-func EnableAPI(c *gin.Context, req *ucmodel.API) (*model.CommonResponse, error) {
-	if err := ucmodel.EnableAPI(req.ID, req.Enable); err != nil {
+func EnableAPI(c *gin.Context, req *permission.API) (*model.CommonResponse, error) {
+	if err := permission.EnableAPI(req.ID, req.Enable); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
@@ -87,7 +87,7 @@ func QueryAPI(c *gin.Context, req *apipb.QueryAPIRequest) (*apipb.QueryAPIRespon
 		req.TenantID = tenantID
 	}
 	resp := &apipb.QueryAPIResponse{Code: apipb.Code_Success}
-	ucmodel.QueryAPI(req, resp)
+	permission.QueryAPI(req, resp)
 	return resp, nil
 }
 
@@ -109,14 +109,14 @@ func GetAllAPI(c *gin.Context) {
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
-	apis, err := ucmodel.GetAllAPIs(req)
+	apis, err := permission.GetAllAPIs(req)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	resp.Data = ucmodel.APIsToPB(apis)
+	resp.Data = permission.APIsToPB(apis)
 	resp.Records = int64(len(apis))
 	resp.Pages = 1
 	c.JSON(http.StatusOK, resp)
@@ -137,7 +137,7 @@ func GetAPIDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	data, err := ucmodel.GetAPIById(idStr)
+	data, err := permission.GetAPIById(idStr)
 	if err != nil {
 		resp.Code = model.InternalServerError
 		resp.Message = err.Error()
@@ -180,9 +180,9 @@ func ImportAPI(c *gin.Context) {
 	}
 	successCount, failCount := 0, 0
 	for _, f := range list {
-		if err := ucmodel.UpdateAPI(ucmodel.PBToAPI(f)); err != nil {
+		if err := permission.UpdateAPI(permission.PBToAPI(f)); err != nil {
 			if err == gorm.ErrRecordNotFound {
-				err = ucmodel.CreateAPI(ucmodel.PBToAPI(f))
+				err = permission.CreateAPI(permission.PBToAPI(f))
 			}
 		}
 		if err != nil {
@@ -215,7 +215,7 @@ func ExportAPI(c *gin.Context) {
 	}
 	req.PageIndex = 1
 	req.PageSize = 1000
-	ucmodel.QueryAPI(req, resp)
+	permission.QueryAPI(req, resp)
 	if resp.Code != apipb.Code_Success {
 		c.JSON(http.StatusOK, resp)
 		return

@@ -3,8 +3,8 @@ package http
 import (
 	"net/http"
 
+	"github.com/CloudSilk/usercenter/internal/wechatconfig"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	"github.com/CloudSilk/usercenter/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -16,7 +16,7 @@ import (
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/wechat/config/add [post]
 func AddWechatConfig(c *gin.Context, req *apipb.WechatConfigInfo) (*apipb.CommonResponse, error) {
-	id, err := model.CreateWechatConfig(model.PBToWechatConfig(req))
+	id, err := wechatconfig.CreateWechatConfig(wechatconfig.PBToWechatConfig(req))
 	if err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -31,7 +31,7 @@ func AddWechatConfig(c *gin.Context, req *apipb.WechatConfigInfo) (*apipb.Common
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/wechat/config/update [put]
 func UpdateWechatConfig(c *gin.Context, req *apipb.WechatConfigInfo) (*apipb.CommonResponse, error) {
-	if err := model.UpdateWechatConfig(model.PBToWechatConfig(req)); err != nil {
+	if err := wechatconfig.UpdateWechatConfig(wechatconfig.PBToWechatConfig(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -45,7 +45,7 @@ func UpdateWechatConfig(c *gin.Context, req *apipb.WechatConfigInfo) (*apipb.Com
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/wechat/config/delete [delete]
 func DeleteWechatConfig(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
-	if err := model.DeleteWechatConfig(req.Id); err != nil {
+	if err := wechatconfig.DeleteWechatConfig(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -61,7 +61,7 @@ func DeleteWechatConfig(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonRes
 // @Router /api/core/wechat/config/query [get]
 func QueryWechatConfig(c *gin.Context, req *apipb.QueryWechatConfigRequest) (*apipb.QueryWechatConfigResponse, error) {
 	resp := &apipb.QueryWechatConfigResponse{Code: apipb.Code_Success}
-	model.QueryWechatConfig(req, resp, false)
+	wechatconfig.QueryWechatConfig(req, resp, false)
 	return resp, nil
 }
 
@@ -80,12 +80,12 @@ func GetWechatConfigDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	data, err := model.GetWechatConfigByID(idStr)
+	data, err := wechatconfig.GetWechatConfigByID(idStr)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = model.WechatConfigToPB(data)
+		resp.Data = wechatconfig.WechatConfigToPB(data)
 	}
 	c.JSON(http.StatusOK, resp)
 }

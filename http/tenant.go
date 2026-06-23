@@ -7,8 +7,10 @@ import (
 	"net/http"
 
 	"github.com/CloudSilk/pkg/constants"
+	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/tenant"
+	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	ucmodel "github.com/CloudSilk/usercenter/model"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -21,7 +23,7 @@ import (
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/tenant/add [post]
 func AddTenant(c *gin.Context, req *apipb.TenantInfo) (*apipb.CommonResponse, error) {
-	if err := ucmodel.CreateTenant(ucmodel.PBToTenant(req)); err != nil {
+	if err := tenant.CreateTenant(tenant.PBToTenant(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -38,7 +40,7 @@ func UpdateTenant(c *gin.Context, req *apipb.TenantInfo) (*apipb.CommonResponse,
 	if req.Id == constants.PlatformTenantID {
 		return &apipb.CommonResponse{Code: apipb.Code_BadRequest, Message: "平台租户不允许更新"}, nil
 	}
-	if err := ucmodel.UpdateTenant(ucmodel.PBToTenant(req)); err != nil {
+	if err := tenant.UpdateTenant(tenant.PBToTenant(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -58,7 +60,7 @@ func DeleteTenant(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse,
 	if req.Id == constants.PlatformTenantID {
 		return &apipb.CommonResponse{Code: apipb.Code_BadRequest, Message: "平台租户不允许删除"}, nil
 	}
-	if err := ucmodel.DeleteTenant(req.Id); err != nil {
+	if err := tenant.DeleteTenant(req.Id, user.StatisticUserCount, permission.StatisticRoleCount); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -75,7 +77,7 @@ func EnableTenant(c *gin.Context, req *apipb.EnableRequest) (*apipb.CommonRespon
 	if req.Id == constants.PlatformTenantID {
 		return &apipb.CommonResponse{Code: apipb.Code_BadRequest, Message: "平台租户不允许更新"}, nil
 	}
-	if err := ucmodel.EnableTenant(req.Id, req.Enable); err != nil {
+	if err := tenant.EnableTenant(req.Id, req.Enable); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -91,7 +93,7 @@ func EnableTenant(c *gin.Context, req *apipb.EnableRequest) (*apipb.CommonRespon
 // @Router /api/core/auth/tenant/query [get]
 func QueryTenant(c *gin.Context, req *apipb.QueryTenantRequest) (*apipb.QueryTenantResponse, error) {
 	resp := &apipb.QueryTenantResponse{Code: apipb.Code_Success}
-	ucmodel.QueryTenant(req, resp)
+	tenant.QueryTenant(req, resp)
 	return resp, nil
 }
 
@@ -103,14 +105,14 @@ func QueryTenant(c *gin.Context, req *apipb.QueryTenantRequest) (*apipb.QueryTen
 // @Router /api/core/auth/tenant/all [get]
 func GetAllTenant(c *gin.Context) {
 	resp := &apipb.GetAllTenantResponse{Code: apipb.Code_Success}
-	data, err := ucmodel.GetAllTenant()
+	data, err := tenant.GetAllTenant()
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	resp.Data = ucmodel.TenantsToPB(data)
+	resp.Data = tenant.TenantsToPB(data)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -129,12 +131,12 @@ func GetTenantDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	data, err := ucmodel.GetTenantByID(idStr)
+	data, err := tenant.GetTenantByID(idStr)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = ucmodel.TenantToPB(data)
+		resp.Data = tenant.TenantToPB(data)
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -154,7 +156,7 @@ func CopyTenant(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	if err := ucmodel.CopyTenant(idStr); err != nil {
+	if err := tenant.CopyTenant(idStr); err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	}
@@ -178,7 +180,7 @@ func ExportTenant(c *gin.Context) {
 	}
 	req.PageIndex = 1
 	req.PageSize = 1000
-	ucmodel.QueryTenant(req, resp)
+	tenant.QueryTenant(req, resp)
 	if resp.Code != apipb.Code_Success {
 		c.JSON(http.StatusOK, resp)
 		return
@@ -223,9 +225,9 @@ func ImportTenant(c *gin.Context) {
 	}
 	successCount, failCount := 0, 0
 	for _, f := range list {
-		if err := ucmodel.UpdateTenant(ucmodel.PBToTenant(f)); err != nil {
+		if err := tenant.UpdateTenant(tenant.PBToTenant(f)); err != nil {
 			if err == gorm.ErrRecordNotFound {
-				err = ucmodel.CreateTenant(ucmodel.PBToTenant(f))
+				err = tenant.CreateTenant(tenant.PBToTenant(f))
 			}
 		}
 		if err != nil {

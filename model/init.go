@@ -10,6 +10,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/identity"
 	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/pricing"
 	"github.com/CloudSilk/usercenter/internal/prompt"
 	"github.com/CloudSilk/usercenter/internal/session"
 	"github.com/CloudSilk/usercenter/internal/store"
@@ -18,26 +19,26 @@ import (
 
 var dbClient db.DBClientInterface
 
-func Init(connStr string, debug bool) {
-	dbClient = mysql.NewMysql(connStr, debug)
+func Init(connStr string, runMigration bool) {
+	dbClient = mysql.NewMysql(connStr, true)
 	store.SetDB(dbClient)
-	initDB(debug)
+	initDB(runMigration)
 }
 
-func InitSqlite(database string, debug bool) {
-	dbClient = sqlite.NewSqlite2("", "", database, "", debug)
+func InitSqlite(database string, runMigration bool) {
+	dbClient = sqlite.NewSqlite2("", "", database, "", true)
 	store.SetDB(dbClient)
-	initDB(debug)
+	initDB(runMigration)
 }
 
-func InitDB(client db.DBClientInterface, debug bool) {
+func InitDB(client db.DBClientInterface, runMigration bool) {
 	dbClient = client
 	store.SetDB(dbClient)
-	initDB(debug)
+	initDB(runMigration)
 }
 
-func initDB(debug bool) {
-	if debug {
+func initDB(runMigration bool) {
+	if runMigration {
 		fmt.Println(AutoMigrate())
 	}
 	InitCasbin()
@@ -61,5 +62,6 @@ func AutoMigrate() error {
 		&auth.MFAFactor{}, &auth.RefreshToken{}, &auth.OAuthClient{}, &auth.ConsentRecord{},
 		&prompt.PromptTemplate{},
 		&identity.UserExternalIdentity{},
+		&pricing.ModelPrice{},
 	)
 }

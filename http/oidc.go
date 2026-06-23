@@ -24,14 +24,16 @@ import (
 //
 // 把 usercenter 暴露为标准 OIDC IdP，其它应用可作为 OAuth Client 接入：
 //   GET  /.well-known/openid-configuration  发现文档
-//   GET  /.well-known/jwks.json             JWKS 公钥标识
+//   GET  /.well-known/jwks.json             JWKS 公钥标识(NO-RSA / RSA)
 //   POST /oauth/authorize                   授权（API 式：已登录用户凭 Bearer 直接换 code）
 //   POST /oauth/token                       换令牌（authorization_code / client_credentials / refresh_token）
 //   GET  /oauth/userinfo                    用户信息（Bearer）
 //   POST /oauth/revoke                      吊销
 //
-// 采用 HS256（与系统 JWT 一致）；access_token 复用 usercenter JWT，
-// id_token 用 KeyManager 活跃密钥单独签发。PKCE 支持 S256。
+// 安全:
+//   - id_token 用 RS256 签发(RSA 私钥,公钥经 JWKS 暴露 n/e),客户端可离线验签。
+//   - access_token 仍复用 usercenter HS256 JWT(系统内部签发,不对外第三方验签)。
+//   - PKCE S256 强制(authorization_code flow 必须)。
 
 const (
 	authCodeTTL     = 60 * time.Second
@@ -115,7 +117,13 @@ func oidcDiscovery(c *gin.Context) {
 }
 
 func oidcJWKS(c *gin.Context) {
-	c.JSON(http.StatusOK, auth.GetJWKS(issuerFrom(c)))
+	// RS256:暴露 RSA 公钥的 n/e,供第三方 Client 重建公钥离线验签 id_token。
+	jwks := auth.GetJWKS()
+	if len(jwks) > 0 {
+		c.JSON(http.StatusOK, gin.H{"keys": jwks})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"keys": []auth.RSAJWK{}})
 }
 
 // oidcAuthorize API 式授权：已登录用户凭 Bearer，对指定 client 直接颁发一次性授权码。
@@ -146,6 +154,11 @@ func oidcAuthorize(c *gin.Context) {
 	}
 	if !uriAllowed(client.RedirectURIs, req.RedirectURI) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "redirect_uri 不在白名单"})
+		return
+	}
+	// 安全修复 S5:强制 PKCE S256(authorization_code 流程必须带 code_challenge + method=S256)
+	if req.CodeChallenge == "" || req.CodeChallengeMethod != "S256" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "authorization_code 流程必须使用 PKCE (code_challenge + S256)"})
 		return
 	}
 	code := issueAuthCode(req.ClientID, req.RedirectURI, req.Scope, user, req.CodeChallenge, req.CodeChallengeMethod, req.Nonce)
@@ -239,10 +252,20 @@ func handleRefreshTokenGrant(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_client"})
 		return
 	}
+	// 安全修复 S1:refresh_token 端点必须校验 client_secret(与 auth_code/client_credentials 一致)
+	client, err := getOAuthClient(clientID)
+	if err != nil || client == nil || !client.Enable || !verifyClientSecret(client, clientSecret) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_client"})
+		return
+	}
+	if !grantAllowed(client.GrantTypes, "refresh_token") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unauthorized_client"})
+		return
+	}
 	rtStr := c.PostForm("refresh_token")
 	refreshTokenMu.Lock()
 	var rt auth.RefreshToken
-	err := store.DB().Where("token = ? AND revoked = ?", rtStr, false).First(&rt).Error
+	err = store.DB().Where("token = ? AND revoked = ?", rtStr, false).First(&rt).Error
 	refreshTokenMu.Unlock()
 	if err != nil || rt.ClientID != clientID {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
@@ -252,7 +275,6 @@ func handleRefreshTokenGrant(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": "refresh_token 过期"})
 		return
 	}
-	_ = clientSecret
 	user := &apipb.CurrentUser{Id: rt.PrincipalID, TenantID: rt.TenantID}
 	access, err := token.EncodeToken(user)
 	if err != nil {
@@ -262,6 +284,7 @@ func handleRefreshTokenGrant(c *gin.Context) {
 	newRT := issueRefreshToken(user, clientID, rt.Scope)
 	// 吊销旧 refresh token（轮换）
 	_ = store.DB().Model(&auth.RefreshToken{}).Where("token = ?", rtStr).Update("revoked", true).Error
+	recordAudit(c, "oidc_token_refresh", clientID, rt.PrincipalID)
 	c.JSON(http.StatusOK, auth.TokenResponse{
 		AccessToken: access, TokenType: "Bearer", ExpiresIn: tokenTTLSeconds(),
 		RefreshToken: newRT, Scope: rt.Scope,
@@ -304,12 +327,8 @@ func tokenTTLSeconds() int {
 	return 7200
 }
 
-// issueIDToken 用 KeyManager 活跃密钥签发 OIDC id_token。
+// issueIDToken 用 RSA 活跃密钥签发 OIDC id_token(RS256)。
 func issueIDToken(issuer string, user *apipb.CurrentUser, audience, nonce string) (string, error) {
-	active := auth.GetActiveKey()
-	if active == nil {
-		return "", fmt.Errorf("key manager 未初始化")
-	}
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"iss": issuer, "sub": user.Id, "aud": audience,
@@ -322,9 +341,16 @@ func issueIDToken(issuer string, user *apipb.CurrentUser, audience, nonce string
 	if len(user.RoleIDs) > 0 {
 		claims["role_ids"] = user.RoleIDs
 	}
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tok.Header["kid"] = active.Kid
-	return tok.SignedString([]byte(active.Key))
+
+	// RS256（RSA 私钥，来自 keyrotation.go SigningKey）
+	active := auth.GetActiveKey()
+	if active != nil && active.Private != nil {
+		tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+		tok.Header["kid"] = active.Kid
+		return tok.SignedString(active.Private)
+	}
+
+	return "", fmt.Errorf("RSA key manager 未初始化,无法签发 id_token")
 }
 
 func issueRefreshToken(user *apipb.CurrentUser, clientID, scope string) string {
@@ -391,12 +417,13 @@ func grantAllowed(declared, grant string) bool {
 }
 
 // verifyPKCE S256: BASE64URL(SHA256(code_verifier)) == code_challenge
+// 安全修复 S5:强制 S256,不再接受空 method(等同 plain)或 plain method。
 func verifyPKCE(verifier, challenge, method string) bool {
 	if verifier == "" || challenge == "" {
 		return false
 	}
 	if method != "S256" {
-		return method == "" || method == "plain" && verifier == challenge
+		return false // 拒绝 plain 和空 method,强制 S256
 	}
 	sum := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(sum[:]) == challenge
