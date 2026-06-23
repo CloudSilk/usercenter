@@ -3,73 +3,64 @@ package http
 import (
 	"net/http"
 
-	"github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/app"
+	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/gin-gonic/gin"
 )
 
-func AddAPP(c *gin.Context, req *app.APP) (*model.CommonResponse, error) {
+func AddAPP(c *gin.Context, req *app.APP) (*apipb.CommonResponse, error) {
 	if err := app.CreateAPP(req); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
-func UpdateAPP(c *gin.Context, req *app.APP) (*model.CommonResponse, error) {
+func UpdateAPP(c *gin.Context, req *app.APP) (*apipb.CommonResponse, error) {
 	if err := app.UpdateAPP(req); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
-func DeleteAPP(c *gin.Context, req *app.APP) (*model.CommonResponse, error) {
+func DeleteAPP(c *gin.Context, req *app.APP) (*apipb.CommonResponse, error) {
 	if err := app.DeleteAPP(req.ID); err != nil {
-		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	return &model.CommonResponse{Code: model.Success}, nil
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
 func QueryAPP(c *gin.Context, req *app.QueryAPPRequest) (*app.QueryAPPResponse, error) {
-	resp := &app.QueryAPPResponse{CommonResponse: model.CommonResponse{Code: model.Success}}
+	resp := &app.QueryAPPResponse{}
 	app.QueryAPP(req, resp)
 	return resp, nil
 }
 
 func GetAllAPP(c *gin.Context) {
-	resp := &app.QueryAPPResponse{
-		CommonResponse: model.CommonResponse{Code: model.Success},
-	}
 	metadatas, err := app.GetAllAPPs()
 	if err != nil {
-		resp.Code = model.InternalServerError
-		resp.Message = err.Error()
-		c.JSON(http.StatusOK, resp)
+		writeErr(c, err)
 		return
 	}
-	resp.Data = metadatas
-	resp.Records = int64(len(metadatas))
-	resp.Pages = 1
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, gin.H{
+		"code":    apipb.Code_Success,
+		"data":    metadatas,
+		"records": int64(len(metadatas)),
+		"pages":   1,
+	})
 }
 
 func GetAPPDetail(c *gin.Context) {
-	resp := model.CommonDetailResponse{
-		CommonResponse: model.CommonResponse{Code: model.Success},
-	}
 	idStr := c.Query("id")
 	if idStr == "" {
-		resp.Code = model.BadRequest
-		c.JSON(http.StatusOK, resp)
+		writeBadRequest(c, errStr("id required"))
 		return
 	}
 	data, err := app.GetAPPById(idStr)
 	if err != nil {
-		resp.Code = model.InternalServerError
-		resp.Message = err.Error()
-	} else {
-		resp.Data = data
+		writeErr(c, err)
+		return
 	}
-	c.JSON(http.StatusOK, resp)
+	writeOK(c, gin.H{"data": data})
 }
 
 func RegisterAPPRouter(r *gin.Engine) {

@@ -14,7 +14,6 @@ import (
 
 	"dubbo.apache.org/dubbo-go/v3/config"
 	_ "dubbo.apache.org/dubbo-go/v3/imports"
-	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/pkg/db"
 	"github.com/CloudSilk/pkg/db/mysql"
 	"github.com/CloudSilk/pkg/db/sqlite"
@@ -23,11 +22,9 @@ import (
 	"github.com/CloudSilk/usercenter/docs"
 	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/internal/store"
-	"github.com/CloudSilk/usercenter/model"
 	"github.com/CloudSilk/usercenter/internal/alert"
-	"github.com/CloudSilk/usercenter/internal/apikey"
-	"github.com/CloudSilk/usercenter/internal/auth"
-	"github.com/CloudSilk/usercenter/internal/auth/token"
+	"github.com/CloudSilk/usercenter/internal/bootstrap"
+	"github.com/CloudSilk/usercenter/model"
 	"github.com/CloudSilk/usercenter/provider"
 	"github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/CloudSilk/usercenter/web"
@@ -85,30 +82,17 @@ func main() {
 	// --- 三密钥拷贝检测：token.key / apiKeyEncKey / piiEncKey ---
 	checkKeyIsolation(ucconfig.DefaultConfig.Token.Key, ucconfig.DefaultConfig.APIKeyEncKey, ucconfig.DefaultConfig.PIIEncKey)
 
-	// 1. JWT access_token 签名（HS256，系统内部用）
-	token.InitTokenCache(ucconfig.DefaultConfig.Token.Key, ucconfig.DefaultConfig.Token.RedisAddr, ucconfig.DefaultConfig.Token.RedisName, ucconfig.DefaultConfig.Token.RedisPwd, ucconfig.DefaultConfig.Token.Expired)
-
-	// 2. AI Key 加密密钥（独立 AES-GCM 密钥）：优先显式配置，否则从 token.key 派生。
-	if !apikey.SetEncryptionKeyFrom(ucconfig.DefaultConfig.APIKeyEncKey) {
-		apikey.SetEncryptionKeyFrom(ucconfig.DefaultConfig.Token.Key)
-	}
-
-	// 3. PII 加密密钥（独立 AES-GCM 密钥）：优先显式配置，否则从 token.key 派生。
-	if !auth.SetPIIKeyFrom(ucconfig.DefaultConfig.PIIEncKey) {
-		auth.SetPIIKeyFrom(ucconfig.DefaultConfig.Token.Key)
-	}
-
-	// 4. OIDC id_token RSA 密钥管理器（RS256 非对称签名 + JWKS 公钥暴露）。
-	if kid, err := auth.InitKeyManager(ucconfig.DefaultConfig.OIDCSigningKey); err != nil {
-		// PEM 解析失败或为空，自动 RSA-2048 自动生成
-		if kid2, err2 := auth.InitKeyManager(""); err2 != nil {
-			panic(fmt.Sprintf("RSA 密钥初始化失败: %v", err2))
-		} else {
-			fmt.Printf("[oidc] RSA 签名密钥就绪 kid=%s (auto-generated)\n", kid2)
-		}
-	} else {
-		fmt.Printf("[oidc] RSA 签名密钥就绪 kid=%s\n", kid)
-	}
+	// 1. JWT access_token 签名 + AI Key 加密密钥 + PII 加密密钥 + OIDC RSA 密钥
+	bootstrap.InitKeys(bootstrap.Keys{
+		TokenKey:       ucconfig.DefaultConfig.Token.Key,
+		TokenRedisAddr: ucconfig.DefaultConfig.Token.RedisAddr,
+		TokenRedisName: ucconfig.DefaultConfig.Token.RedisName,
+		TokenRedisPwd:  ucconfig.DefaultConfig.Token.RedisPwd,
+		TokenExpired:   ucconfig.DefaultConfig.Token.Expired,
+		APIKeyEncKey:   ucconfig.DefaultConfig.APIKeyEncKey,
+		PIIEncKey:      ucconfig.DefaultConfig.PIIEncKey,
+		OIDCSigningKey: ucconfig.DefaultConfig.OIDCSigningKey,
+	})
 
 	// 告警 Webhook（可选）
 	alert.SetWebhookURL(ucconfig.DefaultConfig.AlertWebhookURL)
@@ -120,15 +104,18 @@ func main() {
 		})
 	}
 	userhttp.SetSocialLogins(socialCfgs)
-	constants.SetPlatformTenantID(ucconfig.DefaultConfig.PlatformTenantID)
-	constants.SetSuperAdminRoleID(ucconfig.DefaultConfig.SuperAdminRoleID)
-	constants.SetDefaultRoleID(ucconfig.DefaultConfig.DefaultRoleID)
-	constants.SetEnabelTenant(ucconfig.DefaultConfig.EnableTenant)
-	model.SetDefaultPwd(ucconfig.DefaultConfig.DefaultPwd)
-	model.SetLoginLock(ucconfig.DefaultConfig.LoginLock.MaxErrCount, ucconfig.DefaultConfig.LoginLock.LockMinutes)
+	bootstrap.InitConstants(bootstrap.Constants{
+		PlatformTenantID: ucconfig.DefaultConfig.PlatformTenantID,
+		SuperAdminRoleID: ucconfig.DefaultConfig.SuperAdminRoleID,
+		DefaultRoleID:    ucconfig.DefaultConfig.DefaultRoleID,
+		EnableTenant:     ucconfig.DefaultConfig.EnableTenant,
+		DefaultPwd:       ucconfig.DefaultConfig.DefaultPwd,
+		LoginLockMaxErr:  ucconfig.DefaultConfig.LoginLock.MaxErrCount,
+		LoginLockMinutes: ucconfig.DefaultConfig.LoginLock.LockMinutes,
+	})
 	// 首次部署：users 表为空时自动播种平台租户 + 超级管理员角色 + 初始管理员。
 	// 口令取 defaultPwd 配置，未配置则随机生成并打印；初始账号强制首登改密。
-	seedBootstrapAdmin(ucconfig.DefaultConfig.PlatformTenantID, ucconfig.DefaultConfig.SuperAdminRoleID, ucconfig.DefaultConfig.DefaultPwd)
+	bootstrap.SeedAdmin(ucconfig.DefaultConfig.PlatformTenantID, ucconfig.DefaultConfig.SuperAdminRoleID, ucconfig.DefaultConfig.DefaultPwd)
 	Start(GetPort("ATALI_PORT", 48080))
 }
 
@@ -144,27 +131,6 @@ func checkKeyIsolation(tokenKey, apiKeyEncKey, piiEncKey string) {
 	}
 	if apiKeyEncKey != "" && piiEncKey != "" && apiKeyEncKey == piiEncKey {
 		panic("安全检查失败: apiKeyEncKey 与 piiEncKey 相同，请分别为 AI Key 和 PII 配置独立密钥")
-	}
-}
-
-// seedBootstrapAdmin 调用领域层播种初始管理员；非首次部署（已有用户）为 no-op。
-// 未配置 defaultPwd 时生成的随机口令会显著打印，提示运维立即登录改密。
-func seedBootstrapAdmin(platformTenantID, superAdminRoleID, defaultPwd string) {
-	seeded, generated, err := model.SeedBootstrapAdmin(platformTenantID, superAdminRoleID, defaultPwd)
-	if err != nil {
-		fmt.Printf("[bootstrap] 初始管理员播种失败: %v\n", err)
-		return
-	}
-	if !seeded {
-		return // 非首次部署，已有用户
-	}
-	if generated != "" {
-		fmt.Println("==========================================================")
-		fmt.Printf("[bootstrap] 首次部署：已创建初始管理员 admin / %s\n", generated)
-		fmt.Println("[bootstrap] 请立即登录管理后台并修改密码！")
-		fmt.Println("==========================================================")
-	} else {
-		fmt.Println("[bootstrap] 首次部署：已创建初始管理员 admin（口令取自 defaultPwd 配置）")
 	}
 }
 
@@ -191,7 +157,8 @@ func Start(port int) {
 	docs.SwaggerInfo.Schemes = []string{"http", "https"}
 
 	r := gin.Default()
-	r.Use(userhttp.MetricsMiddleware()) // Prometheus 指标采集（HTTP 量/延迟）
+	r.Use(middleware.RequestIDMiddleware()) // X-Request-ID trace 注入（最优先，确保后续中间件/panic 均有 trace_id）
+	r.Use(userhttp.MetricsMiddleware())    // Prometheus 指标采集（HTTP 量/延迟）
 	r.Use(middleware.AuthRequired)
 	r.Use(utils.Cors())
 	userhttp.RegisterAuthRouter(r)
