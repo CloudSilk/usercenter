@@ -9,6 +9,8 @@ import (
 	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/store"
+	"github.com/CloudSilk/usercenter/internal/tenant"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
@@ -26,7 +28,7 @@ func AddMenu(c *gin.Context, req *apipb.MenuInfo) (*model.CommonResponse, error)
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
 	}
-	if err := ucmodel.AddMenu(ucmodel.PBToMenu(req)); err != nil {
+	if err := permission.AddMenu(permission.PBToMenu(req)); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
@@ -40,7 +42,7 @@ func AddMenu(c *gin.Context, req *apipb.MenuInfo) (*model.CommonResponse, error)
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/menu/update [put]
 func UpdateMenu(c *gin.Context, req *apipb.MenuInfo) (*model.CommonResponse, error) {
-	if err := ucmodel.UpdateMenu(ucmodel.PBToMenu(req)); err != nil {
+	if err := permission.UpdateMenu(permission.PBToMenu(req)); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
@@ -54,7 +56,7 @@ func UpdateMenu(c *gin.Context, req *apipb.MenuInfo) (*model.CommonResponse, err
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/menu/delete [delete]
 func DeleteMenu(c *gin.Context, req *apipb.DelRequest) (*model.CommonResponse, error) {
-	if err := ucmodel.DeleteMenu(req.Id); err != nil {
+	if err := permission.DeleteMenu(req.Id); err != nil {
 		return &model.CommonResponse{Code: model.InternalServerError, Message: err.Error()}, nil
 	}
 	return &model.CommonResponse{Code: model.Success}, nil
@@ -73,7 +75,7 @@ func QueryMenu(c *gin.Context, req *apipb.QueryMenuRequest) (*apipb.QueryMenuRes
 		req.TenantID = tenantID
 	}
 	resp := &apipb.QueryMenuResponse{Code: apipb.Code_Success}
-	ucmodel.QueryMenu(req, resp, false)
+	permission.QueryMenu(req, resp, false)
 	return resp, nil
 }
 
@@ -92,12 +94,12 @@ func GetMenuDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	data, err := ucmodel.GetMenuByID(idStr)
+	data, err := permission.GetMenuByID(idStr)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = ucmodel.MenuToPB(data)
+		resp.Data = permission.MenuToPB(data)
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -119,7 +121,7 @@ func GetMenuTree(c *gin.Context) {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		resp.Data = ucmodel.MenusToPB(data)
+		resp.Data = permission.MenusToPB(data)
 		resp.Records = records
 	}
 	c.JSON(http.StatusOK, resp)
@@ -145,7 +147,7 @@ func ExportMenu(c *gin.Context) {
 	}
 	req.PageIndex = 1
 	req.PageSize = 1000
-	ucmodel.QueryMenu(req, resp, true)
+	permission.QueryMenu(req, resp, true)
 	if resp.Code != apipb.Code_Success {
 		c.JSON(http.StatusOK, resp)
 		return
@@ -190,9 +192,9 @@ func ImportMenu(c *gin.Context) {
 	}
 	successCount, failCount := 0, 0
 	for _, f := range list {
-		if err := ucmodel.UpdateMenu(ucmodel.PBToMenu(f)); err != nil {
+		if err := permission.UpdateMenu(permission.PBToMenu(f)); err != nil {
 			if err == gorm.ErrRecordNotFound {
-				err = ucmodel.AddMenu(ucmodel.PBToMenu(f))
+				err = permission.AddMenu(permission.PBToMenu(f))
 			}
 		}
 		if err != nil {
