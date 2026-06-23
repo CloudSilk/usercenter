@@ -18,7 +18,6 @@ import (
 	"strings"
 
 	"github.com/CloudSilk/pkg/constants"
-	"github.com/CloudSilk/pkg/db"
 	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/auth"
@@ -122,17 +121,6 @@ func SeedAdmin(platformTenantID, superAdminRoleID, defaultPwd string) {
 	}
 }
 
-// ---------- Database ----------
-
-// InitDBClient wires the shared DB layer. If casbinRedisAddr is non-empty, the
-// Casbin Redis watcher is configured before AutoMigrate (required by NewEnforcer).
-func InitDBClient(client db.DBClientInterface, casbinRedisAddr, casbinRedisUser, casbinRedisPwd string) {
-	if casbinRedisAddr != "" {
-		model.SetCasbinRedis(casbinRedisAddr, casbinRedisUser, casbinRedisPwd)
-	}
-	model.InitDB(client, true)
-}
-
 // ---------- Key Isolation ----------
 
 // CheckKeyIsolation panics if any two of tokenKey / apiKeyEncKey / piiEncKey
@@ -180,7 +168,6 @@ func SetSocialLogins(cfgs []SocialLoginConfig) {
 // ---------- Embedded Admin SPA ----------
 
 // RegisterAdminSPA mounts the embedded React+Vite admin panel under /web/admin.
-// /web/ prefix is already bypassed by AuthRequired; no auth needed.
 func RegisterAdminSPA(r *gin.Engine) {
 	r.GET("/web/admin", func(c *gin.Context) { serveAdminSPA("index.html", c) })
 	r.GET("/web/admin/*any", func(c *gin.Context) {
