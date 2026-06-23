@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"strconv"
 	"time"
 
@@ -56,7 +57,7 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(
+	registerMetrics(
 		// Go runtime 指标（GC、goroutine、memstats、sched 等）
 		collectors.NewGoCollector(),
 		// 进程级指标（RSS、open fds、启动时间等）
@@ -71,6 +72,18 @@ func init() {
 
 // refreshDomainMetrics 每 interval 刷新一次域计数到对应 Gauge，由 init() 启动。
 // 单条查询失败只跳过该指标，不影响其它指标与采集。
+func registerMetrics(collectors ...prometheus.Collector) {
+	for _, collector := range collectors {
+		if err := prometheus.Register(collector); err != nil {
+			var alreadyRegistered prometheus.AlreadyRegisteredError
+			if errors.As(err, &alreadyRegistered) {
+				continue
+			}
+			panic(err)
+		}
+	}
+}
+
 func refreshDomainMetrics(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

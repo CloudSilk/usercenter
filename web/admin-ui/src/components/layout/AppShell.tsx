@@ -179,11 +179,11 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
           <div className="border-t p-3">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
-                {profile.user.nickname?.charAt(0) || profile.user.userName?.charAt(0) || "U"}
+                {(profile as any).nickname?.charAt(0) || profile.user?.nickname?.charAt(0) || profile.user?.userName?.charAt(0) || "U"}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">
-                  {profile.user.nickname || profile.user.userName}
+                  {(profile as any).nickname || profile.user?.nickname || profile.user?.userName}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">
                   {profile.tenant?.name || ""}

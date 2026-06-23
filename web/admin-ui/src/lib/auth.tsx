@@ -31,7 +31,34 @@ export function useAuth(): AuthContextValue {
 }
 
 async function loadProfile(): Promise<UserProfile> {
-  return api.get<UserProfile>("/api/core/auth/user/profile")
+  // Backend may return flat {id, userName, nickname, ...} or nested {user:{...}, tenant:{...}}
+  // Normalize both shapes into the expected UserProfile format.
+  const raw = await api.get<Record<string, unknown>>("/api/core/auth/user/profile")
+  const user = raw as any
+  if (user && user.user) {
+    // Already nested — return as-is
+    return user as UserProfile
+  }
+  // Flat shape from backend — wrap into expected structure
+  return {
+    user: {
+      id: user.id,
+      userName: user.userName,
+      nickname: user.nickname,
+      email: user.email,
+      mobile: user.mobile,
+      avatar: user.avatar,
+      realName: user.realName,
+      gender: user.gender,
+      type: user.type,
+      group: user.group,
+      idCard: user.idCard,
+    },
+    tenant: { id: user.tenantID, name: "" },
+    roles: [],
+    funcCodes: [],
+    menus: [],
+  } as UserProfile
 }
 
 async function loadSocialProviders(): Promise<SocialProvider[]> {
@@ -86,12 +113,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = useCallback(async (userName: string, password: string) => {
-    const res = await api.post<{ token: string }>("/api/core/auth/user/login", {
+    // Backend returns { code: 20000, data: "<jwt_string>" } — api.request extracts data field
+    const jwtToken = await api.post<string>("/api/core/auth/user/login", {
       userName,
       password,
     })
-    setToken(res.token)
-    setTokenState(res.token)
+    setToken(jwtToken)
+    setTokenState(jwtToken)
 
     const [userProfile, providers] = await Promise.all([
       loadProfile(),

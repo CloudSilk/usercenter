@@ -16,7 +16,8 @@ export function clearToken(): void {
 
 function redirectLogin(): void {
   clearToken()
-  window.location.href = "/login"
+  // 跳转到 /web/admin/login（保持 basename 前缀）
+  window.location.href = "/web/admin/login"
 }
 
 class ApiError extends Error {
@@ -70,7 +71,7 @@ async function request<T>(
 
   const json: ApiResponse<T> = await res.json()
 
-  if (json.code !== 0) {
+  if (json.code !== 0 && json.code !== 20000) {
     throw new ApiError(json.code, json.message || "Request failed")
   }
 

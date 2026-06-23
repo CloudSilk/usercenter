@@ -54,8 +54,9 @@ interface FlatMenu {
   depth: number
 }
 
-function flattenMenu(nodes: MenuInfo[], depth = 0, acc: FlatMenu[] = []): FlatMenu[] {
-  for (const n of nodes ?? []) {
+function flattenMenu(nodes: MenuInfo[] | undefined | null, depth = 0, acc: FlatMenu[] = []): FlatMenu[] {
+  if (!Array.isArray(nodes)) return acc
+  for (const n of nodes) {
     acc.push({ id: n.id, name: n.name, depth })
     if (n.children && n.children.length) {
       flattenMenu(n.children, depth + 1, acc)

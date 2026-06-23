@@ -122,6 +122,17 @@ func SeedAdmin(platformTenantID, superAdminRoleID, defaultPwd string) {
 	}
 }
 
+// ---------- Database ----------
+
+// InitDBClient wires the shared DB layer. If casbinRedisAddr is non-empty, the
+// Casbin Redis watcher is configured before AutoMigrate (required by NewEnforcer).
+func InitDBClient(client db.DBClientInterface, casbinRedisAddr, casbinRedisUser, casbinRedisPwd string) {
+	if casbinRedisAddr != "" {
+		model.SetCasbinRedis(casbinRedisAddr, casbinRedisUser, casbinRedisPwd)
+	}
+	model.InitDB(client, true)
+}
+
 // ---------- Key Isolation ----------
 
 // CheckKeyIsolation panics if any two of tokenKey / apiKeyEncKey / piiEncKey
@@ -166,37 +177,9 @@ func SetSocialLogins(cfgs []SocialLoginConfig) {
 	userhttp.SetSocialLogins(out)
 }
 
-// ---------- Database ----------
-
-// InitDBClient creates the DB client from config and runs auto-migration.
-// The caller must call this BEFORE InitKeys (Casbin watcher needs Redis config).
-func InitDBClient(client db.DBClientInterface, casbinRedisAddr, casbinRedisUser, casbinRedisPwd string) {
-	if casbinRedisAddr != "" {
-		model.SetCasbinRedis(casbinRedisAddr, casbinRedisUser, casbinRedisPwd)
-	}
-	model.InitDB(client, true)
-}
-
-// ---------- Router Registration ----------
-
-// RegisterSharedRouters registers the HTTP routes common to both entry points.
-// authMiddleware is the only fork: production uses Casbin-based middleware,
-// devserver uses a permissive variant that skips Casbin.
-// Caller must also call r.Use(utils.Cors()) before this function.
-func RegisterSharedRouters(r *gin.Engine, authMiddleware gin.HandlerFunc) {
-	r.Use(userhttp.MetricsMiddleware())
-	r.Use(authMiddleware)
-	userhttp.RegisterAuthRouter(r)
-	userhttp.RegisterAdminRouter(r)
-	userhttp.RegisterAIGatewayRouter(r)
-	userhttp.RegisterOIDCRouter(r)
-	userhttp.RegisterSocialLoginRouter(r)
-	userhttp.RegisterMetricsRouter(r)
-}
-
 // ---------- Embedded Admin SPA ----------
 
-// RegisterAdminSPA mounts the embedded React+Vite admin panel.
+// RegisterAdminSPA mounts the embedded React+Vite admin panel under /web/admin.
 // /web/ prefix is already bypassed by AuthRequired; no auth needed.
 func RegisterAdminSPA(r *gin.Engine) {
 	r.GET("/web/admin", func(c *gin.Context) { serveAdminSPA("index.html", c) })
