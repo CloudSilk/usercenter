@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -251,4 +253,129 @@ func (c *Client) ResetPassword(userID string) (*CommonResponse, error) {
 // Health 健康检查
 func (c *Client) Health() error {
 	return c.do("GET", "/health", nil, nil)
+}
+
+// --- AI Gateway (OpenAI-compatible) ---
+//
+// 与 do() 不同,这些方法返回原始响应体([]byte),不解析 JSON,
+// 让调用方自行处理(尤其 stream / 非标准错误格式)。
+
+// doRaw 发送请求并返回原始响应体。返回未经解析的 bytes。
+func (c *Client) doRaw(method, path string, body interface{}, contentType string) ([]byte, error) {
+	var bodyReader io.Reader
+	if body != nil {
+		switch v := body.(type) {
+		case []byte:
+			bodyReader = bytes.NewReader(v)
+		case io.Reader:
+			bodyReader = v
+		default:
+			jsonBody, err := json.Marshal(body)
+			if err != nil {
+				return nil, fmt.Errorf("marshal body: %w", err)
+			}
+			bodyReader = bytes.NewReader(jsonBody)
+		}
+	}
+
+	req, err := http.NewRequest(method, c.BaseURL+path, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	return respBody, nil
+}
+
+// ChatCompletion 对话补全。POST /v1/chat/completions
+// messages 形如 [{"role":"user","content":"hello"}]。
+// opts 透传可选字段:stream / session_id / prompt_template_id / prompt_vars / moderate / moderate_output。
+func (c *Client) ChatCompletion(model string, messages []map[string]string, opts map[string]any) ([]byte, error) {
+	payload := map[string]any{
+		"model":    model,
+		"messages": messages,
+	}
+	for k, v := range opts {
+		payload[k] = v
+	}
+	return c.doRaw("POST", "/v1/chat/completions", payload, "application/json")
+}
+
+// Embeddings 文本向量化。POST /v1/embeddings
+func (c *Client) Embeddings(model string, input string) ([]byte, error) {
+	return c.doRaw("POST", "/v1/embeddings", map[string]string{
+		"model": model, "input": input,
+	}, "application/json")
+}
+
+// ImageGeneration 图像生成。POST /v1/images/generations
+func (c *Client) ImageGeneration(model string, prompt string) ([]byte, error) {
+	return c.doRaw("POST", "/v1/images/generations", map[string]string{
+		"model": model, "prompt": prompt,
+	}, "application/json")
+}
+
+// AudioTranscription 语音转文字(multipart)。POST /v1/audio/transcriptions
+// filePath 为本地音频文件路径。
+func (c *Client) AudioTranscription(model string, filePath string) ([]byte, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+
+	// multipart/form-data 必须手工构造 body 并设置 Content-Type(含 boundary),
+	// 因此直接走 http.NewRequest 而非复用 doRaw 的 JSON 分支。
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	if err := w.WriteField("model", model); err != nil {
+		return nil, fmt.Errorf("write model field: %w", err)
+	}
+	part, err := w.CreateFormFile("file", filePath)
+	if err != nil {
+		return nil, fmt.Errorf("create file field: %w", err)
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return nil, fmt.Errorf("copy file content: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("close multipart writer: %w", err)
+	}
+
+	// w.FormDataContentType() 含正确的 boundary,交给 doRaw 使用。
+	return c.doRaw("POST", "/v1/audio/transcriptions", &buf, w.FormDataContentType())
+}
+
+// AudioSpeech 文本转语音。POST /v1/audio/speech
+func (c *Client) AudioSpeech(model string, input string, voice string) ([]byte, error) {
+	return c.doRaw("POST", "/v1/audio/speech", map[string]string{
+		"model": model, "input": input, "voice": voice,
+	}, "application/json")
+}
+
+// Moderation 内容审核。POST /v1/moderations
+func (c *Client) Moderation(model string, input string) ([]byte, error) {
+	return c.doRaw("POST", "/v1/moderations", map[string]string{
+		"model": model, "input": input,
+	}, "application/json")
+}
+
+// ListModels 列出可用模型。GET /v1/models
+func (c *Client) ListModels() ([]byte, error) {
+	return c.doRaw("GET", "/v1/models", nil, "")
 }
