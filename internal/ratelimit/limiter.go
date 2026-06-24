@@ -110,6 +110,8 @@ func (l *Limiter) getOrCreate(principalID string) *bucket {
 }
 
 // SetConfig overrides the rate limit configuration for a specific principal.
+// On config change the bucket is reset to full capacity so new limits take
+// effect immediately (admin raising a throttled user's quota should work at once).
 func (l *Limiter) SetConfig(principalID string, rate float64, burst int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -125,14 +127,9 @@ func (l *Limiter) SetConfig(principalID string, rate float64, burst int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Refill under the old config before switching, so we don't silently lose tokens.
-	b.refill()
 	b.config = BucketConfig{Rate: rate, Burst: burst}
-
-	// Clamp tokens to the new capacity.
-	if b.tokens > float64(burst) {
-		b.tokens = float64(burst)
-	}
+	b.tokens = float64(burst)
+	b.lastRefill = time.Now()
 }
 
 // Allow checks whether 1 token is available for the principal. Consumes it if so.

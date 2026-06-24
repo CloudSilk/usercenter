@@ -92,11 +92,21 @@ function ChatTester() {
   })
   const modelIds = (modelsResp?.data ?? []).map((m) => m.id)
 
+  const { data: prompts = [] } = useQuery<PromptTemplate[]>({
+    queryKey: ["prompts-for-tester"],
+    queryFn: () => api.get<PromptTemplate[]>("/admin/api/prompts"),
+  })
+
   const [model, setModel] = useState("")
   const [customModel, setCustomModel] = useState("")
   const [systemPrompt, setSystemPrompt] = useState("")
   const [userMsg, setUserMsg] = useState("")
   const [stream, setStream] = useState(true)
+
+  // --- 增强能力：会话 + Prompt 模板 ---
+  const [sessionId, setSessionId] = useState("")
+  const [promptTplId, setPromptTplId] = useState("")
+  const [promptVarsText, setPromptVarsText] = useState("")
 
   const [response, setResponse] = useState("")
   const [usage, setUsage] = useState<{
@@ -105,8 +115,22 @@ function ChatTester() {
     total_tokens?: number
   } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [cached, setCached] = useState(false)
 
   const effectiveModel = customModel.trim() || model
+
+  function parseVars(text: string): Record<string, string> {
+    const vars: Record<string, string> = {}
+    for (const line of text.split("\n")) {
+      const idx = line.indexOf("=")
+      if (idx > 0) {
+        const k = line.slice(0, idx).trim()
+        const v = line.slice(idx + 1).trim()
+        if (k) vars[k] = v
+      }
+    }
+    return vars
+  }
 
   async function send() {
     if (!effectiveModel.trim()) {
@@ -127,8 +151,22 @@ function ChatTester() {
     if (systemPrompt.trim()) messages.push({ role: "system", content: systemPrompt })
     messages.push({ role: "user", content: userMsg })
 
+    // 构造增强请求体
+    const reqBody: Record<string, unknown> = {
+      model: effectiveModel,
+      messages,
+      stream,
+    }
+    if (sessionId.trim()) reqBody.session_id = sessionId.trim()
+    if (promptTplId) {
+      reqBody.prompt_template_id = promptTplId
+      const vars = parseVars(promptVarsText)
+      if (Object.keys(vars).length > 0) reqBody.prompt_vars = vars
+    }
+
     setResponse("")
     setUsage(null)
+    setCached(false)
     setLoading(true)
 
     try {
@@ -138,7 +176,7 @@ function ChatTester() {
         await fetchStream(
           "/v1/chat/completions",
           token,
-          { model: effectiveModel, messages, stream: true },
+          reqBody,
           (data) => {
             try {
               const parsed = JSON.parse(data)
@@ -161,9 +199,10 @@ function ChatTester() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ model: effectiveModel, messages, stream: false }),
+          body: JSON.stringify(reqBody),
         })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        setCached(res.headers.get("X-Cache") === "HIT")
         const json = await res.json()
         const content = json?.choices?.[0]?.message?.content ?? ""
         setResponse(content)
@@ -220,6 +259,59 @@ function ChatTester() {
               onChange={(e) => setUserMsg(e.target.value)}
             />
           </div>
+
+          {/* 增强能力 */}
+          <div className="rounded-md border border-dashed p-3 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">增强能力（可选）</p>
+            <div className="space-y-1">
+              <Label className="text-xs">会话 ID (Session)</Label>
+              <div className="flex gap-2">
+                <Input
+                  className="h-8"
+                  placeholder="留空=无状态；填写=加载多轮历史"
+                  value={sessionId}
+                  onChange={(e) => setSessionId(e.target.value)}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  type="button"
+                  onClick={() => setSessionId(crypto.randomUUID())}
+                >
+                  新建
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Prompt 模板</Label>
+              <Select value={promptTplId} onValueChange={(v) => setPromptTplId(v)}>
+                <SelectTrigger className="h-8">
+                  <SelectValue placeholder="不使用模板" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">不使用模板</SelectItem>
+                  {prompts.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {promptTplId && (
+              <div className="space-y-1">
+                <Label className="text-xs">模板变量 (每行 key=value)</Label>
+                <Textarea
+                  rows={2}
+                  className="font-mono text-xs"
+                  placeholder="name=Alice&#10;topic=天气"
+                  value={promptVarsText}
+                  onChange={(e) => setPromptVarsText(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Switch checked={stream} onCheckedChange={setStream} />
@@ -236,13 +328,16 @@ function ChatTester() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">响应</CardTitle>
-          {usage && (
-            <div className="flex gap-3 text-xs text-muted-foreground">
-              <span>prompt: {usage.prompt_tokens ?? 0}</span>
-              <span>completion: {usage.completion_tokens ?? 0}</span>
-              <span>total: {usage.total_tokens ?? 0}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {cached && <Badge className="bg-green-100 text-green-700">缓存命中</Badge>}
+            {usage && (
+              <div className="flex gap-3 text-xs text-muted-foreground">
+                <span>prompt: {usage.prompt_tokens ?? 0}</span>
+                <span>completion: {usage.completion_tokens ?? 0}</span>
+                <span>total: {usage.total_tokens ?? 0}</span>
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <pre className="min-h-64 max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-md bg-zinc-950 p-3 font-mono text-sm text-zinc-100">
