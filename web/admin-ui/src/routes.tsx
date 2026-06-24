@@ -19,6 +19,9 @@ const OAuthClients = lazy(() => import("@/pages/OAuthClients"))
 const Scim = lazy(() => import("@/pages/Scim"))
 const SystemConfig = lazy(() => import("@/pages/SystemConfig"))
 const ApiTester = lazy(() => import("@/pages/ApiTester"))
+const Conversations = lazy(() => import("@/pages/Conversations"))
+const GatewayLogs = lazy(() => import("@/pages/GatewayLogs"))
+const AICache = lazy(() => import("@/pages/AICache"))
 
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -168,6 +171,30 @@ const routes: RouteObject[] = [
         element: (
           <SuspenseWrapper>
             <ApiTester />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "conversations",
+        element: (
+          <SuspenseWrapper>
+            <Conversations />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "gatewaylogs",
+        element: (
+          <SuspenseWrapper>
+            <GatewayLogs />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "aicache",
+        element: (
+          <SuspenseWrapper>
+            <AICache />
           </SuspenseWrapper>
         ),
       },

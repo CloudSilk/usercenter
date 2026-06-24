@@ -1,0 +1,1 @@
+import{l as e,p as t,r as n,u as r}from"./createLucideIcon-CVIRwREO.js";var i=t(r(),1),a=e(),o=(0,i.forwardRef)(({className:e,...t},r)=>(0,a.jsx)(`label`,{ref:r,className:n(`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70`,e),...t}));o.displayName=`Label`;export{o as t};

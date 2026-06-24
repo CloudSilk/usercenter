@@ -58,7 +58,7 @@ async function loadProfile(): Promise<UserProfile> {
     roles: [],
     funcCodes: [],
     menus: [],
-  } as UserProfile
+  } as unknown as UserProfile
 }
 
 async function loadSocialProviders(): Promise<SocialProvider[]> {

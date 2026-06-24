@@ -26,6 +26,9 @@ import {
   Menu,
   X,
   ChevronDown,
+  MessagesSquare,
+  ScrollText,
+  Database,
 } from "lucide-react"
 
 interface NavItem {
@@ -55,6 +58,9 @@ const navGroups: NavGroup[] = [
       { label: "Gateway", path: "/gateway", icon: <Rocket className="h-4 w-4" /> },
       { label: "AI Keys", path: "/aikeys", icon: <Key className="h-4 w-4" /> },
       { label: "Usage", path: "/usage", icon: <TrendingUp className="h-4 w-4" /> },
+      { label: "Conversations", path: "/conversations", icon: <MessagesSquare className="h-4 w-4" /> },
+      { label: "Gateway Logs", path: "/gatewaylogs", icon: <ScrollText className="h-4 w-4" /> },
+      { label: "AI Cache", path: "/aicache", icon: <Database className="h-4 w-4" /> },
     ],
   },
   {
