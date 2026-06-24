@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Pencil, Play, Plus, Trash2 } from "lucide-react"
+import { Pencil, Play, Plus, Trash2, History, RotateCcw } from "lucide-react"
 
 import { api, fetchStream, getToken } from "@/lib/api"
 import type { PromptTemplate } from "@/lib/types"
@@ -365,6 +365,39 @@ function PromptTemplates() {
   const [renderOutput, setRenderOutput] = useState("")
   const [rendering, setRendering] = useState(false)
 
+  // 版本历史
+  const [versionTarget, setVersionTarget] = useState<PromptTemplate | null>(null)
+  const [versions, setVersions] = useState<
+    { id: string; version: number; name: string; content: string; changeNote: string; createdAt?: string }[]
+  >([])
+  const [versionsLoading, setVersionsLoading] = useState(false)
+
+  async function loadVersions(tpl: PromptTemplate) {
+    setVersionTarget(tpl)
+    setVersionsLoading(true)
+    try {
+      const res = await api.get<{ data: typeof versions }>("/admin/api/prompts/" + tpl.id + "/versions")
+      setVersions(res.data ?? [])
+    } catch {
+      setVersions([])
+    } finally {
+      setVersionsLoading(false)
+    }
+  }
+
+  async function rollback(version: number) {
+    if (!versionTarget) return
+    if (!confirm(`确认回滚到版本 v${version}？`)) return
+    try {
+      await api.post(`/admin/api/prompts/${versionTarget.id}/rollback`, { version })
+      toast.success(`已回滚到 v${version}`)
+      qc.invalidateQueries({ queryKey: ["prompts"] })
+      setVersionTarget(null)
+    } catch (e: any) {
+      toast.error(e.message || "回滚失败")
+    }
+  }
+
   const addMut = useMutation({
     mutationFn: (b: Omit<PromptForm, "id">) => api.post("/admin/api/prompts", b),
     onSuccess: () => {
@@ -496,6 +529,14 @@ function PromptTemplates() {
                         }}
                       >
                         <Play />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        title="版本历史"
+                        onClick={() => loadVersions(p)}
+                      >
+                        <History />
                       </Button>
                       <Button
                         size="icon"
@@ -657,6 +698,58 @@ function PromptTemplates() {
             </Button>
             <Button onClick={doRender} disabled={rendering}>
               渲染
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 版本历史 dialog */}
+      <Dialog
+        open={!!versionTarget}
+        onOpenChange={(o) => {
+          if (!o) {
+            setVersionTarget(null)
+            setVersions([])
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>版本历史 - {versionTarget?.name}</DialogTitle>
+          </DialogHeader>
+          {versionsLoading ? (
+            <p className="py-6 text-center text-muted-foreground">加载中…</p>
+          ) : versions.length === 0 ? (
+            <p className="py-6 text-center text-muted-foreground">暂无版本</p>
+          ) : (
+            <div className="max-h-96 space-y-2 overflow-y-auto">
+              {versions.map((v) => (
+                <div key={v.id} className="rounded-md border p-3">
+                  <div className="mb-1 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">v{v.version}</Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {v.changeNote || "无变更说明"}
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => rollback(v.version)}
+                    >
+                      <RotateCcw className="h-3 w-3" /> 回滚到此版本
+                    </Button>
+                  </div>
+                  <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono text-xs">
+                    {v.content}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVersionTarget(null)}>
+              关闭
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -490,6 +490,70 @@ func initAIEnhancements() {
 	aicache.SetEmbeddingFunc(generateEmbedding)
 }
 
+// summarizeSession 用 LLM 为会话生成简短标题。
+// 取最近若干条消息，请求 LLM 生成 ≤20 字的标题，更新到会话。
+// 失败时静默（标题保持原状）。
+func summarizeSession(sessionID string) {
+	msgs, err := conversation.GetMessages(sessionID, 6)
+	if err != nil || len(msgs) == 0 {
+		return
+	}
+	// 拼接对话片段
+	var sb strings.Builder
+	for _, m := range msgs {
+		sb.WriteString(m.Role)
+		sb.WriteString(": ")
+		content := m.Content
+		if len(content) > 200 {
+			content = content[:200]
+		}
+		sb.WriteString(content)
+		sb.WriteString("\n")
+	}
+	promptText := "请用不超过20个中文字符为以下对话生成一个简短标题，只返回标题文字，不要标点：\n" + sb.String()
+
+	body, _ := json.Marshal(map[string]any{
+		"model":       "gpt-3.5-turbo",
+		"max_tokens":  30,
+		"temperature": 0,
+		"messages": []map[string]string{
+			{"role": "user", "content": promptText},
+		},
+	})
+
+	title := callLLMForText(body)
+	if title != "" {
+		// 截断到合理长度
+		if len([]rune(title)) > 30 {
+			title = string([]rune(title)[:30])
+		}
+		_ = conversation.UpdateSessionTitle(sessionID, title)
+	}
+}
+
+// callLLMForText 调用 chat completions 提取纯文本回复（用于标题生成等辅助任务）。
+func callLLMForText(body []byte) string {
+	sel, err := apikey.SelectKey("", "gpt-3.5-turbo")
+	if err != nil || sel == nil {
+		return ""
+	}
+	req, err := buildUpstreamRequest(sel, body, "/chat/completions")
+	if err != nil {
+		return ""
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil || resp == nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return ""
+	}
+	buf, _ := io.ReadAll(resp.Body)
+	return extractAssistantContent(buf)
+}
+
 // generateEmbedding 调用 embeddings 端点生成文本嵌入向量。
 // 失败返回 nil（缓存回退到精确哈希匹配，不阻断主流程）。
 func generateEmbedding(prompt string) []float32 {

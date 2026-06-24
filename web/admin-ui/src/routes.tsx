@@ -22,6 +22,8 @@ const ApiTester = lazy(() => import("@/pages/ApiTester"))
 const Conversations = lazy(() => import("@/pages/Conversations"))
 const GatewayLogs = lazy(() => import("@/pages/GatewayLogs"))
 const AICache = lazy(() => import("@/pages/AICache"))
+const Budgets = lazy(() => import("@/pages/Budgets"))
+const Pricing = lazy(() => import("@/pages/Pricing"))
 
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -195,6 +197,22 @@ const routes: RouteObject[] = [
         element: (
           <SuspenseWrapper>
             <AICache />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "budgets",
+        element: (
+          <SuspenseWrapper>
+            <Budgets />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "pricing",
+        element: (
+          <SuspenseWrapper>
+            <Pricing />
           </SuspenseWrapper>
         ),
       },

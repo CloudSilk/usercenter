@@ -27,6 +27,7 @@ func RegisterAIGatewayAdminRoutes(g *gin.RouterGroup) {
 	g.GET("/conversations/:id/messages", listConversationMessages)
 	g.DELETE("/conversations/:id", deleteConversation)
 	g.PUT("/conversations/:id/title", updateConversationTitle)
+	g.POST("/conversations/:id/summarize", summarizeConversation)
 
 	// --- 网关日志 ---
 	g.GET("/gateway-logs", listGatewayLogs)
@@ -113,6 +114,19 @@ func updateConversationTitle(c *gin.Context) {
 		return
 	}
 	writeOK(c, nil)
+}
+
+// summarizeConversation 用 LLM 为会话自动生成标题
+func summarizeConversation(c *gin.Context) {
+	id := c.Param("id")
+	summarizeSession(id)
+	// 重新读取更新后的会话返回
+	s, err := conversation.GetSession(id)
+	if err != nil || s == nil {
+		writeBadRequest(c, errStr("会话不存在"))
+		return
+	}
+	writeOK(c, gin.H{"data": s})
 }
 
 // listGatewayLogs 列出网关日志

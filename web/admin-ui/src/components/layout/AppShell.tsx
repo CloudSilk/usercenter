@@ -29,6 +29,8 @@ import {
   MessagesSquare,
   ScrollText,
   Database,
+  Wallet,
+  DollarSign,
 } from "lucide-react"
 
 interface NavItem {
@@ -61,6 +63,8 @@ const navGroups: NavGroup[] = [
       { label: "Conversations", path: "/conversations", icon: <MessagesSquare className="h-4 w-4" /> },
       { label: "Gateway Logs", path: "/gatewaylogs", icon: <ScrollText className="h-4 w-4" /> },
       { label: "AI Cache", path: "/aicache", icon: <Database className="h-4 w-4" /> },
+      { label: "Budgets", path: "/budgets", icon: <Wallet className="h-4 w-4" /> },
+      { label: "Pricing", path: "/pricing", icon: <DollarSign className="h-4 w-4" /> },
     ],
   },
   {
