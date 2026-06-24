@@ -52,7 +52,6 @@ func env(key, def string) string {
 const (
 	devPlatformTenantID = "platform"
 	devSuperAdminRoleID = "1"
-	devAdminUser        = "admin"
 	// 安全修复 S4:不再硬编码默认密码，启动时若种子播种且用到默认口令则随机生成并打印到 stdout。
 	devAdminPwd         = ""
 	// devserver 无需固定 token key，每次启动随机生成。
