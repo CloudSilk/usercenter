@@ -427,6 +427,65 @@ if !allowed {
 }
 ```
 
+### 7.4 AI 网关端点（OpenAI 兼容）
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/v1/chat/completions` | POST | 聊天补全（流式 + 整包） |
+| `/v1/embeddings` | POST | 向量嵌入 |
+| `/v1/images/generations` | POST | 图像生成 |
+| `/v1/audio/transcriptions` | POST | 语音转写（Whisper，multipart） |
+| `/v1/audio/speech` | POST | 语音合成（TTS） |
+| `/v1/moderations` | POST | 内容审核 |
+| `/v1/models` | GET | 可用模型列表 |
+
+### 7.5 网关增强能力
+
+**多轮对话会话**（`session_id` 参数）：
+```bash
+curl -X POST /v1/chat/completions \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role":"user","content":"我叫张三"}],
+    "session_id": "conv-001"
+  }'
+# 后续请求带相同 session_id，自动加载最近 20 条历史消息
+```
+
+**Prompt 模板自动注入**（`prompt_template_id` + `prompt_vars`）：
+```bash
+curl -X POST /v1/chat/completions \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role":"user","content":"写一首关于秋天的诗"}],
+    "prompt_template_id": "tpl-001",
+    "prompt_vars": {"style": "现代诗", "length": "8行"}
+  }'
+# 网关自动渲染模板并注入为 system message
+```
+
+**语义缓存**：非流式请求命中相同 prompt 时跳过 LLM 调用，响应头返回 `X-Cache: HIT`。默认 TTL 24h，最大 10000 条。
+
+**内容审核**：请求体加 `"moderate": true`，输入不安全时拒绝（返回 400）。
+
+**每用户限流**：令牌桶算法，默认 10 req/s burst 20。可通过 `ratelimit.SetBudgetRateLimit(principalID, rate, burst)` 调整。
+
+### 7.6 网关管理 API（`/admin/api`）
+
+| 端点 | 说明 |
+|------|------|
+| `GET /conversations` | 对话会话列表 |
+| `GET /conversations/:id/messages` | 会话消息历史 |
+| `GET /gateway-logs` | 网关请求日志（分页） |
+| `GET /gateway-logs/stats` | 网关统计（token/cost/缓存率） |
+| `GET /ai-cache/stats` | 语义缓存命中率 |
+| `DELETE /ai-cache` | 清空缓存 |
+| `GET /ratelimit/stats` | 限流桶状态 |
+| `GET /prompts/:id/versions` | Prompt 版本历史 |
+| `POST /prompts/:id/rollback` | 回滚 Prompt 版本 |
+
 ---
 
 ## 8. 安全加固
