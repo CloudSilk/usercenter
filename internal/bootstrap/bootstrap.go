@@ -23,7 +23,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/store"
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/user"
 	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/web"
 	"github.com/gin-gonic/gin"
@@ -97,13 +97,13 @@ func InitConstants(c Constants) {
 	constants.SetSuperAdminRoleID(c.SuperAdminRoleID)
 	constants.SetDefaultRoleID(c.DefaultRoleID)
 	constants.SetEnabelTenant(c.EnableTenant)
-	model.SetDefaultPwd(c.DefaultPwd)
-	model.SetLoginLock(c.LoginLockMaxErr, c.LoginLockMinutes)
+	user.SetDefaultPwd(c.DefaultPwd)
+	user.SetLoginLock(c.LoginLockMaxErr, c.LoginLockMinutes)
 }
 
 // SeedAdmin creates the initial admin user on first deploy (idempotent).
 func SeedAdmin(platformTenantID, superAdminRoleID, defaultPwd string) {
-	seeded, generated, err := model.SeedBootstrapAdmin(platformTenantID, superAdminRoleID, defaultPwd)
+	seeded, generated, err := SeedBootstrapAdmin(platformTenantID, superAdminRoleID, defaultPwd)
 	if err != nil {
 		fmt.Printf("[bootstrap] 初始管理员播种失败: %v\n", err)
 		return

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/CloudSilk/pkg/utils/log"
-	ucmodel "github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/wechatconfig"
 	wchat "github.com/silenceper/wechat/v2"
 	"github.com/silenceper/wechat/v2/cache"
 	"github.com/silenceper/wechat/v2/miniprogram"
@@ -17,7 +17,7 @@ var (
 
 type MiniProgramConfig struct {
 	MiniProgram   *miniprogram.MiniProgram
-	MiniAppConfig *ucmodel.WechatConfig
+	MiniAppConfig *wechatconfig.WechatConfig
 }
 
 func InitWechat() {
@@ -26,7 +26,7 @@ func InitWechat() {
 			log.Errorf(context.Background(), "鍒濆鍖栧井淇￠厤缃烦杩?%v", r)
 		}
 	}()
-	list, err := ucmodel.GetAllWechatConfigs()
+	list, err := wechatconfig.GetAllWechatConfigs()
 	if err != nil {
 		log.Errorf(context.Background(), "初始化微信配置失败:%v", err)
 		return

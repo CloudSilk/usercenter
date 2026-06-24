@@ -16,8 +16,11 @@ import (
 	glebsqlite "github.com/glebarez/sqlite"
 	"github.com/gin-gonic/gin"
 	userhttp "github.com/CloudSilk/usercenter/http"
-	"github.com/CloudSilk/usercenter/model"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
+	"github.com/CloudSilk/usercenter/internal/bootstrap"
+	"github.com/CloudSilk/usercenter/internal/store"
+	"github.com/CloudSilk/usercenter/internal/tenant"
+	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"gorm.io/gorm"
 )
@@ -35,7 +38,10 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	token.InitTokenCache("test-secret-key", "", "", "", 120)
-	model.InitDB(db.NewDBClient(gdb, false), true)
+	store.SetDB(db.NewDBClient(gdb, false))
+	if err := bootstrap.RunMigration(); err != nil {
+		panic(err)
+	}
 	constants.SetPlatformTenantID(platformTenant)
 	code := m.Run()
 	os.RemoveAll(dir)
@@ -59,21 +65,21 @@ func newTestEngine(currentUser *apipb.CurrentUser) *gin.Engine {
 func mustCreateUser(t *testing.T, userName, tenantID, password string) string {
 	t.Helper()
 	// 确保租户存在（id = tenantID），忽略“存在相同租户”的重复创建错误
-	_ = model.CreateTenant(&model.Tenant{
+	_ = tenant.CreateTenant(&tenant.Tenant{
 		Model:     commonmodel.Model{ID: tenantID},
 		Name:      tenantID,
 		Enable:    true,
 		Expired:   time.Now().Add(24 * time.Hour),
 		UserCount: 100,
 	})
-	u := &model.User{
+	u := &user.User{
 		TenantModel: commonmodel.TenantModel{TenantID: tenantID},
 		UserName:    userName,
 		Password:    password,
 		Nickname:    userName,
 		Enable:      true,
 	}
-	if err := model.CreateUser(u, false); err != nil {
+	if err := user.CreateUser(u, false); err != nil {
 		t.Fatalf("create user %q: %v", userName, err)
 	}
 	return u.ID
@@ -82,7 +88,7 @@ func mustCreateUser(t *testing.T, userName, tenantID, password string) string {
 func canLogin(t *testing.T, userName, password string) bool {
 	t.Helper()
 	resp := &apipb.LoginResponse{Code: commonmodel.Success}
-	model.Login(&apipb.LoginRequest{UserName: userName, Password: password}, resp)
+	user.Login(&apipb.LoginRequest{UserName: userName, Password: password}, resp)
 	return resp.Code == commonmodel.Success
 }
 

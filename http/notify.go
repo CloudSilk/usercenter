@@ -11,7 +11,7 @@ import (
 	"time"
 
 	cmodel "github.com/CloudSilk/pkg/model"
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/CloudSilk/usercenter/wechat"
 	"github.com/gin-gonic/gin"
@@ -70,12 +70,12 @@ func WechatNotify(c *gin.Context) {
 			loginResp := &apipb.LoginResponse{
 				Code: apipb.Code_Success,
 			}
-			model.LoginByWechat(true, &model.User{
+			user.LoginByWechat(true, &user.User{
 				TenantModel: cmodel.TenantModel{
 					TenantID: wechatOpenPlatformWeb.WechatConfig.TenantID,
 				},
 				RoleIDs: []string{wechatOpenPlatformWeb.WechatConfig.DefaultRoleID},
-				UserRoles: []*model.UserRole{
+				UserRoles: []*user.UserRole{
 					{RoleID: wechatOpenPlatformWeb.WechatConfig.DefaultRoleID},
 				},
 				UserName:       resp.UnionID,

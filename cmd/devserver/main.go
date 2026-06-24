@@ -36,7 +36,6 @@ import (
 	"github.com/CloudSilk/usercenter/internal/scim"
 	"github.com/CloudSilk/usercenter/internal/store"
 	userhttp "github.com/CloudSilk/usercenter/http"
-	"github.com/CloudSilk/usercenter/model"
 	"github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/CloudSilk/usercenter/web"
 	"github.com/gin-gonic/gin"
@@ -74,7 +73,10 @@ func main() {
 
 	// 1. 连库 + AutoMigrate（始终建表，含 REDESIGN 新增域表）
 	dbClient := mysql.NewMysql(dsn, true)
-	model.InitDB(dbClient, true)
+	store.SetDB(dbClient)
+	if err := bootstrap.RunMigration(); err != nil {
+		fmt.Printf("[devserver] 数据库迁移失败: %v\n", err)
+	}
 
 	// 2. token 缓存 + 密钥（复用 bootstrap.InitKeys，配置取环境变量）
 	tokenKey := env("UC_TOKEN_KEY", "")

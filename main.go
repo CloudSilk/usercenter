@@ -24,7 +24,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/bootstrap"
-	"github.com/CloudSilk/usercenter/model"
+	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/provider"
 	"github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/CloudSilk/usercenter/web"
@@ -75,9 +75,12 @@ func main() {
 
 	// 配置 Casbin watcher 用的 Redis（必须在 InitDB 之前，因为 NewEnforcer 在初始化时读取）
 	if ucconfig.DefaultConfig.Token.RedisAddr != "" {
-		model.SetCasbinRedis(ucconfig.DefaultConfig.Token.RedisAddr, ucconfig.DefaultConfig.Token.RedisName, ucconfig.DefaultConfig.Token.RedisPwd)
+		permission.SetCasbinRedis(ucconfig.DefaultConfig.Token.RedisAddr, ucconfig.DefaultConfig.Token.RedisName, ucconfig.DefaultConfig.Token.RedisPwd)
 	}
-	model.InitDB(dbClient, true)
+	store.SetDB(dbClient)
+	if err := bootstrap.RunMigration(); err != nil {
+		fmt.Printf("[main] 数据库迁移失败: %v\n", err)
+	}
 
 	// --- 三密钥拷贝检测：token.key / apiKeyEncKey / piiEncKey ---
 	checkKeyIsolation(ucconfig.DefaultConfig.Token.Key, ucconfig.DefaultConfig.APIKeyEncKey, ucconfig.DefaultConfig.PIIEncKey)

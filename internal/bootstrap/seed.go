@@ -1,4 +1,4 @@
-package model
+package bootstrap
 
 import (
 	"crypto/rand"
@@ -6,7 +6,11 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/CloudSilk/usercenter/internal/auth"
+	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/store"
+	"github.com/CloudSilk/usercenter/internal/tenant"
+	"github.com/CloudSilk/usercenter/internal/user"
 )
 
 const (
@@ -28,7 +32,7 @@ const (
 // （仅 pwd 为空且执行播种时）。已有用户时 seeded=false（no-op）。
 func SeedBootstrapAdmin(tenantID, superAdminRoleID, pwd string) (seeded bool, generatedPwd string, err error) {
 	var count int64
-	if err = store.DB().Model(&User{}).Count(&count).Error; err != nil {
+	if err = store.DB().Model(&user.User{}).Count(&count).Error; err != nil {
 		return false, "", fmt.Errorf("统计用户失败: %w", err)
 	}
 	if count > 0 {
@@ -36,24 +40,24 @@ func SeedBootstrapAdmin(tenantID, superAdminRoleID, pwd string) (seeded bool, ge
 	}
 
 	// 平台租户
-	tenant := &Tenant{}
-	tenant.ID = tenantID
-	tenant.Name = "平台"
-	tenant.Enable = true
-	tenant.IsMust = true
-	tenant.Expired = time.Now().AddDate(10, 0, 0) // 显式赋值，规避 MySQL 严格模式拒绝 '0000-00-00'
-	if e := store.DB().Create(tenant).Error; e != nil {
+	t := &tenant.Tenant{}
+	t.ID = tenantID
+	t.Name = "平台"
+	t.Enable = true
+	t.IsMust = true
+	t.Expired = time.Now().AddDate(10, 0, 0) // 显式赋值，规避 MySQL 严格模式拒绝 '0000-00-00'
+	if e := store.DB().Create(t).Error; e != nil {
 		return false, "", fmt.Errorf("创建平台租户失败: %w", e)
 	}
 
 	// 超级管理员角色（ID 注入，name=super_admin，双匹配 isSuperAdmin 判定）
-	role := &Role{}
-	role.ID = superAdminRoleID
-	role.Name = bootstrapSuperAdmin
-	role.TenantID = tenantID
-	role.IsMust = true
-	role.Description = "超级管理员（首次部署自动播种）"
-	if e := store.DB().Create(role).Error; e != nil {
+	r := &permission.Role{}
+	r.ID = superAdminRoleID
+	r.Name = bootstrapSuperAdmin
+	r.TenantID = tenantID
+	r.IsMust = true
+	r.Description = "超级管理员（首次部署自动播种）"
+	if e := store.DB().Create(r).Error; e != nil {
 		return false, "", fmt.Errorf("创建超级管理员角色失败: %w", e)
 	}
 
@@ -63,11 +67,11 @@ func SeedBootstrapAdmin(tenantID, superAdminRoleID, pwd string) (seeded bool, ge
 		plain = generateBootstrapPwd()
 		generatedPwd = plain
 	}
-	hashed, e := EncryptedPassword(plain)
+	hashed, e := auth.EncryptedPassword(plain)
 	if e != nil {
 		return false, "", fmt.Errorf("初始口令哈希失败: %w", e)
 	}
-	u := &User{}
+	u := &user.User{}
 	u.UserName = bootstrapAdminName
 	u.Password = hashed
 	u.Nickname = "管理员"
@@ -77,7 +81,7 @@ func SeedBootstrapAdmin(tenantID, superAdminRoleID, pwd string) (seeded bool, ge
 	if e := store.DB().Create(u).Error; e != nil {
 		return false, "", fmt.Errorf("创建初始管理员失败: %w", e)
 	}
-	if e := store.DB().Create(&UserRole{UserID: u.ID, RoleID: superAdminRoleID}).Error; e != nil {
+	if e := store.DB().Create(&user.UserRole{UserID: u.ID, RoleID: superAdminRoleID}).Error; e != nil {
 		return false, "", fmt.Errorf("关联管理员角色失败: %w", e)
 	}
 	return true, generatedPwd, nil

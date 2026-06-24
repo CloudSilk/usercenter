@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	ucmodel "github.com/CloudSilk/usercenter/model"
+	ucmodel "github.com/CloudSilk/usercenter/internal/wechatconfig"
 	"github.com/patrickmn/go-cache"
 )
 

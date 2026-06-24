@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	ucmodel "github.com/CloudSilk/usercenter/model"
+	ucmodel "github.com/CloudSilk/usercenter/internal/wechatconfig"
 	"github.com/CloudSilk/usercenter/wechat"
 )
 
