@@ -175,40 +175,56 @@ func ChatCompletions(c *gin.Context) {
 	// 用量计量
 	pt, ct := int64(0), int64(0)
 	var responseBuf []byte
+	var assistantContent string
 	if stream {
-		pt, ct = streamProxy(c, resp)
+		pt, ct, assistantContent = streamProxy(c, resp)
 	} else {
-		// bufferedProxy 已把响应写给客户端；为支持缓存，这里改用 bufferedProxyWithCapture
+		// bufferedProxyWithCapture 把响应写给客户端并返回副本（用于缓存/审核/日志）
 		pt, ct, responseBuf = bufferedProxyWithCapture(c, resp)
+		assistantContent = extractAssistantContent(responseBuf)
 	}
 	cost := recordGatewayUsage(sel, tenantID, principalID, principalKind, model, pt, ct, 0, time.Since(start), true, "")
 
-	// --- 写入语义缓存（仅非流式 + 有 user 消息）---
+	// --- 输出审核（moderate_output）---
+	// 注意：流式响应此时已发给客户端，无法替换；仅在非流式时可拦截。
+	// 流式时记录审核结果到日志（已发出的内容不可撤回）。
+	if enh.ModerateOutput && assistantContent != "" {
+		if !moderateText(c, tenantID, assistantContent) {
+			if !stream {
+				// 非流式：替换响应为安全提示
+				safeResp := gin.H{
+					"choices": []gin.H{{"message": gin.H{
+						"role": "assistant", "content": "[内容审核] 该响应未通过安全审核，已被拦截。",
+					}}},
+				}
+				c.JSON(http.StatusOK, safeResp)
+			}
+			recordGatewayLog(c, tenantID, principalID, model, enh.SessionID, pt, ct, cost, time.Since(start), 200, false, "output_moderation_blocked", "", false)
+		}
+	}
+
+	// --- 写入缓存（仅非流式 + 有 user 消息）---
 	if !stream && cacheKey != "" && len(responseBuf) > 0 {
 		aicache.Set(cacheKey, string(responseBuf), model, pt, ct, cost)
 	}
 
-	// --- 持久化对话消息（有 session_id 时）---
+	// --- 持久化对话消息（有 session_id 时：流式 + 非流式均存 assistant 回复）---
 	if enh.SessionID != "" {
-		userMsg := &conversation.Message{
+		_ = conversation.AppendMessage(&conversation.Message{
 			SessionID: enh.SessionID,
 			Role:      "user",
 			Content:   cacheKey,
 			Tokens:    pt,
 			ModelName: model,
-		}
-		_ = conversation.AppendMessage(userMsg)
-		if !stream && len(responseBuf) > 0 {
-			assistantContent := extractAssistantContent(responseBuf)
-			if assistantContent != "" {
-				_ = conversation.AppendMessage(&conversation.Message{
-					SessionID: enh.SessionID,
-					Role:      "assistant",
-					Content:   assistantContent,
-					Tokens:    ct,
-					ModelName: model,
-				})
-			}
+		})
+		if assistantContent != "" {
+			_ = conversation.AppendMessage(&conversation.Message{
+				SessionID: enh.SessionID,
+				Role:      "assistant",
+				Content:   assistantContent,
+				Tokens:    ct,
+				ModelName: model,
+			})
 		}
 	}
 
@@ -466,8 +482,9 @@ func bufferedProxy(c *gin.Context, resp *http.Response) (promptTokens, compToken
 	return ou.Usage.PromptTokens, ou.Usage.CompletionTokens
 }
 
-// streamProxy 透传 SSE 流，逐行扫描捕获最后一块的 usage（OpenAI stream_options.include_usage）。
-func streamProxy(c *gin.Context, resp *http.Response) (promptTokens, compTokens int64) {
+// streamProxy 透传 SSE 流，逐行扫描捕获最后一块的 usage（OpenAI stream_options.include_usage），
+// 同时累积 assistant content 用于会话持久化。
+func streamProxy(c *gin.Context, resp *http.Response) (promptTokens, compTokens int64, content string) {
 	flusher, ok := c.Writer.(http.Flusher)
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -476,6 +493,7 @@ func streamProxy(c *gin.Context, resp *http.Response) (promptTokens, compTokens 
 	c.Writer.WriteHeader(http.StatusOK)
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var contentAccum strings.Builder
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		_, _ = c.Writer.Write(append(line, '\n'))
@@ -483,14 +501,27 @@ func streamProxy(c *gin.Context, resp *http.Response) (promptTokens, compTokens 
 			payload := bytes.TrimSpace(bytes.TrimPrefix(bytes.TrimSpace(line), []byte("data:")))
 			if len(payload) > 0 && !bytes.Equal(payload, []byte("[DONE]")) {
 				var chunk struct {
+					Choices []struct {
+						Delta struct {
+							Content string `json:"content"`
+						} `json:"delta"`
+					} `json:"choices"`
 					Usage *struct {
 						PromptTokens     int64 `json:"prompt_tokens"`
 						CompletionTokens int64 `json:"completion_tokens"`
 					} `json:"usage"`
 				}
-				if json.Unmarshal(payload, &chunk) == nil && chunk.Usage != nil {
-					promptTokens = chunk.Usage.PromptTokens
-					compTokens = chunk.Usage.CompletionTokens
+				if json.Unmarshal(payload, &chunk) == nil {
+					if chunk.Usage != nil {
+						promptTokens = chunk.Usage.PromptTokens
+						compTokens = chunk.Usage.CompletionTokens
+					}
+					// 累积 assistant 内容，用于会话持久化
+					for _, ch := range chunk.Choices {
+						if ch.Delta.Content != "" {
+							contentAccum.WriteString(ch.Delta.Content)
+						}
+					}
 				}
 			}
 		}
@@ -498,7 +529,7 @@ func streamProxy(c *gin.Context, resp *http.Response) (promptTokens, compTokens 
 			flusher.Flush()
 		}
 	}
-	return promptTokens, compTokens
+	return promptTokens, compTokens, contentAccum.String()
 }
 
 func copyHeaders(c *gin.Context, resp *http.Response) {

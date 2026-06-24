@@ -3,6 +3,8 @@ package aicache
 import (
 	"crypto/sha256"
 	"fmt"
+	"math"
+	"sort"
 	"sync"
 	"time"
 
@@ -10,42 +12,53 @@ import (
 	"github.com/CloudSilk/usercenter/internal/store"
 )
 
+// EmbeddingFunc 生成 prompt 的嵌入向量。网关注入实现（调用 /v1/embeddings）。
+// 返回 nil 表示无法生成嵌入（此时回退到精确哈希匹配）。
+type EmbeddingFunc func(prompt string) []float32
+
 // CacheEntry represents a cached LLM response
 type CacheEntry struct {
 	commonmodel.Model
-	PromptHash   string  `json:"promptHash" gorm:"uniqueIndex;size:64"`
-	ResponseBody string  `json:"responseBody" gorm:"type:text"`
-	ModelName    string  `json:"modelName" gorm:"size:100"`
-	PromptTokens int64   `json:"promptTokens"`
-	CompTokens   int64   `json:"compTokens"`
-	Cost         float64 `json:"cost"`
+	PromptHash   string    `json:"promptHash" gorm:"uniqueIndex;size:64"`
+	ResponseBody string    `json:"responseBody" gorm:"type:text"`
+	ModelName    string    `json:"modelName" gorm:"size:100"`
+	PromptTokens int64     `json:"promptTokens"`
+	CompTokens   int64     `json:"compTokens"`
+	Cost         float64   `json:"cost"`
 	ExpiresAt    time.Time `json:"expiresAt" gorm:"index"`
+	// Embedding 向量（内存中维护，不持久化到 DB）。nil 表示无嵌入（精确哈希模式）。
+	embedding []float32 `gorm:"-"`
+	Prompt    string    `json:"-" gorm:"-"`
 }
 
 func (CacheEntry) TableName() string { return "ai_cache_entries" }
 
 // CacheConfig holds configuration for the semantic cache
 type CacheConfig struct {
-	Enabled               bool    `json:"enabled"`
-	SimilarityThreshold   float64 `json:"similarityThreshold"` // 0-1, default 0.95
-	TTL                   time.Duration `json:"ttl"`
-	MaxEntries            int     `json:"maxEntries"`
+	Enabled             bool          `json:"enabled"`
+	SimilarityThreshold float64       `json:"similarityThreshold"` // 0-1, default 0.95
+	TTL                 time.Duration `json:"ttl"`
+	MaxEntries          int           `json:"maxEntries"`
 }
 
-// Cache provides semantic caching for LLM responses
+// Cache provides semantic caching for LLM responses.
+// 若注入了 EmbeddingFunc，则按余弦相似度匹配（真正的语义缓存）；
+// 否则回退到 SHA-256 精确哈希匹配。
 type Cache struct {
-	mu      sync.RWMutex
-	entries map[string]*CacheEntry // prompt_hash -> entry
-	config  CacheConfig
-	stats   CacheStats
+	mu          sync.RWMutex
+	entries     map[string]*CacheEntry // prompt_hash -> entry
+	config      CacheConfig
+	stats       CacheStats
+	embeddingFn EmbeddingFunc
 }
 
 // CacheStats holds cache performance statistics
 type CacheStats struct {
-	Hits      int64   `json:"hits"`
-	Misses    int64   `json:"misses"`
-	HitRate   float64 `json:"hitRate"`
-	Entries   int     `json:"entries"`
+	Hits            int64   `json:"hits"`
+	Misses          int64   `json:"misses"`
+	HitRate         float64 `json:"hitRate"`
+	Entries         int     `json:"entries"`
+	SemanticMatches int64   `json:"semanticMatches"` // 语义相似命中数
 }
 
 // New creates a new Cache instance
@@ -71,7 +84,15 @@ func New(config CacheConfig) *Cache {
 	return c
 }
 
-// Get retrieves a cached response for the given prompt
+// SetEmbeddingFunc 注入嵌入生成函数，启用语义相似度匹配。
+func (c *Cache) SetEmbeddingFunc(fn EmbeddingFunc) {
+	c.mu.Lock()
+	c.embeddingFn = fn
+	c.mu.Unlock()
+}
+
+// Get retrieves a cached response for the given prompt.
+// 优先尝试语义匹配（若有 embeddingFn），回退到精确哈希。
 func (c *Cache) Get(prompt string, modelName string) (*CacheEntry, bool) {
 	if !c.config.Enabled {
 		return nil, false
@@ -81,37 +102,60 @@ func (c *Cache) Get(prompt string, modelName string) (*CacheEntry, bool) {
 
 	c.mu.RLock()
 	entry, exists := c.entries[hash]
+	embeddingFn := c.embeddingFn
 	c.mu.RUnlock()
 
-	if !exists {
+	// 1. 精确哈希匹配（快路径）
+	if exists && c.entryValid(entry, modelName) {
 		c.mu.Lock()
-		c.stats.Misses++
+		c.stats.Hits++
 		c.mu.Unlock()
-		return nil, false
+		return entry, true
 	}
 
-	// Check expiration
-	if time.Now().After(entry.ExpiresAt) {
-		c.mu.Lock()
-		delete(c.entries, hash)
-		c.stats.Misses++
-		c.mu.Unlock()
-		return nil, false
-	}
-
-	// Check model match (empty model matches any)
-	if entry.ModelName != "" && modelName != "" && entry.ModelName != modelName {
-		c.mu.Lock()
-		c.stats.Misses++
-		c.mu.Unlock()
-		return nil, false
+	// 2. 语义相似度匹配（若有 embeddingFn 且 prompt 较长值得匹配）
+	if embeddingFn != nil && len(prompt) > 20 {
+		if e, ok := c.semanticMatch(prompt, modelName); ok {
+			c.mu.Lock()
+			c.stats.Hits++
+			c.stats.SemanticMatches++
+			c.mu.Unlock()
+			return e, true
+		}
 	}
 
 	c.mu.Lock()
-	c.stats.Hits++
+	c.stats.Misses++
 	c.mu.Unlock()
+	return nil, false
+}
 
-	return entry, true
+// semanticMatch 计算输入 prompt 的嵌入，与所有缓存条目比较余弦相似度。
+func (c *Cache) semanticMatch(prompt string, modelName string) (*CacheEntry, bool) {
+	queryVec := c.safeEmbed(prompt)
+	if queryVec == nil {
+		return nil, false
+	}
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var best *CacheEntry
+	bestSim := c.config.SimilarityThreshold
+	for _, entry := range c.entries {
+		if !c.entryValidLocked(entry, modelName) {
+			continue
+		}
+		if entry.embedding == nil {
+			continue
+		}
+		sim := cosineSimilarity(queryVec, entry.embedding)
+		if sim >= bestSim {
+			bestSim = sim
+			best = entry
+		}
+	}
+	return best, best != nil
 }
 
 // Set stores a response in the cache
@@ -131,6 +175,15 @@ func (c *Cache) Set(prompt, response, modelName string, promptTokens, compTokens
 		CompTokens:   compTokens,
 		Cost:         cost,
 		ExpiresAt:    now.Add(c.config.TTL),
+		Prompt:       prompt,
+	}
+
+	// 若有 embeddingFn，为该 prompt 计算嵌入（用于后续语义匹配）
+	c.mu.RLock()
+	fn := c.embeddingFn
+	c.mu.RUnlock()
+	if fn != nil && len(prompt) > 20 {
+		entry.embedding = fn(prompt)
 	}
 
 	c.mu.Lock()
@@ -138,8 +191,11 @@ func (c *Cache) Set(prompt, response, modelName string, promptTokens, compTokens
 	c.stats.Entries = len(c.entries)
 	c.mu.Unlock()
 
-	// Persist to DB asynchronously
+	// Persist to DB asynchronously（不持久化 embedding/Prompt 字段）
 	go c.persistEntry(entry)
+
+	// 淘汰超额条目
+	c.EnforceMaxEntries()
 }
 
 // Clear removes all cached entries
@@ -149,7 +205,6 @@ func (c *Cache) Clear() {
 	c.stats = CacheStats{}
 	c.mu.Unlock()
 
-	// Clear DB
 	if store.DB() != nil {
 		store.DB().Exec("DELETE FROM ai_cache_entries")
 	}
@@ -172,6 +227,35 @@ func (c *Cache) Stats() CacheStats {
 func (c *Cache) hashPrompt(prompt string) string {
 	hash := sha256.Sum256([]byte(prompt))
 	return fmt.Sprintf("%x", hash)
+}
+
+// safeEmbed 调用 embeddingFn，panic 恢复返回 nil
+func (c *Cache) safeEmbed(prompt string) []float32 {
+	c.mu.RLock()
+	fn := c.embeddingFn
+	c.mu.RUnlock()
+	if fn == nil {
+		return nil
+	}
+	defer func() { _ = recover() }()
+	return fn(prompt)
+}
+
+// entryValid 检查条目是否未过期且模型匹配（读锁外调用需自行加锁）。
+func (c *Cache) entryValid(entry *CacheEntry, modelName string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.entryValidLocked(entry, modelName)
+}
+
+func (c *Cache) entryValidLocked(entry *CacheEntry, modelName string) bool {
+	if time.Now().After(entry.ExpiresAt) {
+		return false
+	}
+	if entry.ModelName != "" && modelName != "" && entry.ModelName != modelName {
+		return false
+	}
+	return true
 }
 
 // loadFromDB loads cache entries from the database
@@ -200,10 +284,8 @@ func (c *Cache) persistEntry(entry *CacheEntry) {
 		return
 	}
 
-	// Upsert by prompt_hash
 	existing := &CacheEntry{}
 	if err := store.DB().Where("prompt_hash = ?", entry.PromptHash).First(existing).Error; err == nil {
-		// Update existing
 		store.DB().Model(existing).Updates(map[string]interface{}{
 			"response_body": entry.ResponseBody,
 			"model_name":    entry.ModelName,
@@ -213,7 +295,6 @@ func (c *Cache) persistEntry(entry *CacheEntry) {
 			"expires_at":    entry.ExpiresAt,
 		})
 	} else {
-		// Create new
 		store.DB().Create(entry)
 	}
 }
@@ -221,37 +302,46 @@ func (c *Cache) persistEntry(entry *CacheEntry) {
 // EnforceMaxEntries removes oldest entries if cache exceeds max size
 func (c *Cache) EnforceMaxEntries() {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if len(c.entries) <= c.config.MaxEntries {
-		c.mu.Unlock()
 		return
 	}
 
-	// Find and remove oldest entries
 	type entryWithTime struct {
 		hash string
 		time time.Time
 	}
-	var toRemove []entryWithTime
+	var all []entryWithTime
 	for hash, entry := range c.entries {
-		toRemove = append(toRemove, entryWithTime{hash: hash, time: entry.ExpiresAt})
+		all = append(all, entryWithTime{hash: hash, time: entry.ExpiresAt})
 	}
+	// 按 ExpiresAt 升序（最早过期的先淘汰）
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].time.Before(all[j].time)
+	})
 
-	// Sort by expiration time (oldest first)
-	for i := 0; i < len(toRemove)-1; i++ {
-		for j := i + 1; j < len(toRemove); j++ {
-			if toRemove[i].time.After(toRemove[j].time) {
-				toRemove[i], toRemove[j] = toRemove[j], toRemove[i]
-			}
-		}
-	}
-
-	// Remove excess entries
 	excess := len(c.entries) - c.config.MaxEntries
-	for i := 0; i < excess && i < len(toRemove); i++ {
-		delete(c.entries, toRemove[i].hash)
+	for i := 0; i < excess && i < len(all); i++ {
+		delete(c.entries, all[i].hash)
 	}
 	c.stats.Entries = len(c.entries)
-	c.mu.Unlock()
+}
+
+// cosineSimilarity 计算两个向量的余弦相似度。
+func cosineSimilarity(a, b []float32) float64 {
+	if len(a) != len(b) || len(a) == 0 {
+		return 0
+	}
+	var dot, na, nb float64
+	for i := range a {
+		dot += float64(a[i]) * float64(b[i])
+		na += float64(a[i]) * float64(a[i])
+		nb += float64(b[i]) * float64(b[i])
+	}
+	if na == 0 || nb == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(na) * math.Sqrt(nb))
 }
 
 // Package-level default cache instance
@@ -260,6 +350,13 @@ var Default *Cache
 // Init initializes the default cache with given config
 func Init(config CacheConfig) {
 	Default = New(config)
+}
+
+// SetEmbeddingFunc sets the embedding function on the default cache.
+func SetEmbeddingFunc(fn EmbeddingFunc) {
+	if Default != nil {
+		Default.SetEmbeddingFunc(fn)
+	}
 }
 
 // Get retrieves from default cache

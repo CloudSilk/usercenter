@@ -1,6 +1,7 @@
 package aicache
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -173,5 +174,100 @@ func TestCache_InitCreatesDefault(t *testing.T) {
 	}
 	if Default.config.TTL != 30*time.Minute {
 		t.Fatalf("expected TTL 30m, got %v", Default.config.TTL)
+	}
+}
+
+// TestCache_SemanticMatchWithEmbeddings 验证注入 EmbeddingFunc 后的语义相似度匹配。
+func TestCache_SemanticMatchWithEmbeddings(t *testing.T) {
+	c := newTestCache(t)
+	c.config.SimilarityThreshold = 0.9
+
+	// 模拟嵌入函数：相似文本返回接近的向量
+	// "今天天气怎么样" 和 "今天天气如何" 映射到近似向量
+	embedFn := func(prompt string) []float32 {
+		// 简单的确定性伪嵌入：基于关键词生成向量
+		vec := make([]float32, 8)
+		if strings.Contains(prompt, "天气") {
+			vec[0] = 0.9
+		}
+		if strings.Contains(prompt, "今天") {
+			vec[1] = 0.8
+		}
+		if strings.Contains(prompt, "怎么") || strings.Contains(prompt, "如何") {
+			vec[2] = 0.7
+		}
+		return vec
+	}
+	c.SetEmbeddingFunc(embedFn)
+
+	// 存入一个长 prompt（>20 字符才触发语义匹配）
+	original := "请问今天天气怎么样，需要带伞吗，我想出门逛街"
+	c.Set(original, `{"choices":[{"message":{"content":"晴，25度"}}]}`, "gpt-4", 10, 5, 0.001)
+
+	// 用不同措辞但语义相近的 prompt 查询（向量高度相似）
+	similar := "今天天气如何呢，要不要带伞，准备出门呢"
+	entry, ok := c.Get(similar, "gpt-4")
+	if !ok {
+		t.Fatal("expected semantic match for similar prompt")
+	}
+	if !strings.Contains(entry.ResponseBody, "晴") {
+		t.Fatalf("unexpected response from semantic match: %s", entry.ResponseBody)
+	}
+}
+
+// TestCache_SemanticMissOnUnrelated 验证不相关的 prompt 不命中。
+func TestCache_SemanticMissOnUnrelated(t *testing.T) {
+	c := newTestCache(t)
+	c.config.SimilarityThreshold = 0.9
+
+	embedFn := func(prompt string) []float32 {
+		vec := make([]float32, 4)
+		if strings.Contains(prompt, "天气") {
+			vec[0] = 1.0
+		}
+		if strings.Contains(prompt, "代码") {
+			vec[1] = 1.0
+		}
+		return vec
+	}
+	c.SetEmbeddingFunc(embedFn)
+
+	c.Set("请问今天天气怎么样需要带伞吗我想出门逛街", "天气回答", "gpt-4", 5, 5, 0)
+
+	// 完全不相关的 prompt
+	if _, ok := c.Get("帮我写一段快速排序的代码实现并解释原理", "gpt-4"); ok {
+		t.Fatal("expected miss for unrelated prompt")
+	}
+}
+
+// TestCosineSimilarity 验证余弦相似度计算。
+func TestCosineSimilarity(t *testing.T) {
+	// 相同向量应返回 1.0
+	if s := cosineSimilarity([]float32{1, 0, 0}, []float32{1, 0, 0}); s < 0.99 {
+		t.Fatalf("identical vectors should have similarity ~1.0, got %f", s)
+	}
+	// 正交向量应返回 0
+	if s := cosineSimilarity([]float32{1, 0}, []float32{0, 1}); s > 0.01 {
+		t.Fatalf("orthogonal vectors should have similarity ~0, got %f", s)
+	}
+	// 不同长度应返回 0
+	if s := cosineSimilarity([]float32{1, 2, 3}, []float32{1, 2}); s != 0 {
+		t.Fatalf("different-length vectors should return 0, got %f", s)
+	}
+	// 空向量应返回 0
+	if s := cosineSimilarity([]float32{}, []float32{}); s != 0 {
+		t.Fatalf("empty vectors should return 0, got %f", s)
+	}
+}
+
+// TestSetEmbeddingFunc 验证注入嵌入函数。
+func TestSetEmbeddingFunc(t *testing.T) {
+	c := newTestCache(t)
+	c.SetEmbeddingFunc(func(s string) []float32 { return []float32{1, 2, 3} })
+	c.mu.RLock()
+	fn := c.embeddingFn
+	c.mu.RUnlock()
+	if fn == nil {
+		t.Fatal("embedding function should be set")
 	}
 }

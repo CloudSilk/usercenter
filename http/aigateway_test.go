@@ -54,10 +54,13 @@ func TestStreamProxy_PassthroughAndUsage(t *testing.T) {
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
 		Body:       io.NopCloser(strings.NewReader(sse)),
 	}
-	pt, ct := streamProxy(c, resp)
+	pt, ct, content := streamProxy(c, resp)
 
 	if pt != 10 || ct != 2 {
 		t.Fatalf("expected prompt=10 comp=2, got prompt=%d comp=%d", pt, ct)
+	}
+	if !strings.Contains(content, "Hello") {
+		t.Fatalf("expected accumulated content to contain 'Hello', got %q", content)
 	}
 	if !strings.Contains(w.Body.String(), "Hel") || !strings.Contains(w.Body.String(), "[DONE]") {
 		t.Fatalf("SSE not fully proxied: %s", w.Body.String())

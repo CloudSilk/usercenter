@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/CloudSilk/usercenter/internal/alert"
@@ -445,15 +446,22 @@ func Moderations(c *gin.Context) {
 // moderateInput 在 chat completion 前对输入做内容审核。
 // 返回 true 表示安全可放行，false 表示不安全需拒绝。
 func moderateInput(c *gin.Context, body []byte, tenantID, model string) (safe bool) {
-	// 内联调用 moderation 端点
+	return moderateText(c, tenantID, extractLastUserMessage(body))
+}
+
+// moderateText 对任意文本做内容审核，返回 true 表示安全。
+func moderateText(c *gin.Context, tenantID, text string) (safe bool) {
+	if strings.TrimSpace(text) == "" {
+		return true
+	}
 	moderationBody := map[string]any{
 		"model": "text-moderation-latest",
-		"input": extractLastUserMessage(body),
+		"input": text,
 	}
 	mb, _ := json.Marshal(moderationBody)
 	resp, _, err := forwardWithRetry(c, tenantID, "text-moderation-latest", mb, false, "/moderations")
 	if err != nil || resp == nil {
-		return true // 审核失败不阻断
+		return true // 审核失败不阻断（fail-open）
 	}
 	defer resp.Body.Close()
 	buf, _ := io.ReadAll(resp.Body)
@@ -468,7 +476,7 @@ func moderateInput(c *gin.Context, body []byte, tenantID, model string) (safe bo
 	return true
 }
 
-// initAIEnhancements 初始化增强能力（缓存）。
+// initAIEnhancements 初始化增强能力（缓存 + 嵌入函数）。
 func initAIEnhancements() {
 	aicache.Init(aicache.CacheConfig{
 		Enabled:             true,
@@ -476,4 +484,51 @@ func initAIEnhancements() {
 		TTL:                 24 * time.Hour,
 		MaxEntries:          10000,
 	})
+
+	// 注入嵌入函数：调用 /v1/embeddings 生成 prompt 向量，使缓存支持语义相似度匹配。
+	// 平台租户（tenantID=""）查询全局路由；失败时返回 nil，缓存回退到精确哈希。
+	aicache.SetEmbeddingFunc(generateEmbedding)
+}
+
+// generateEmbedding 调用 embeddings 端点生成文本嵌入向量。
+// 失败返回 nil（缓存回退到精确哈希匹配，不阻断主流程）。
+func generateEmbedding(prompt string) []float32 {
+	// 截断超长 prompt，避免嵌入成本过高
+	text := prompt
+	if len(text) > 8000 {
+		text = text[:8000]
+	}
+	body, _ := json.Marshal(map[string]any{
+		"model": "text-embedding-3-small",
+		"input": text,
+	})
+
+	// 用空 tenantID 查询全局路由，直接选 Key 转发（无需 gin.Context）
+	sel, err := apikey.SelectKey("", "text-embedding-3-small")
+	if err != nil || sel == nil {
+		return nil
+	}
+	req, err := buildUpstreamRequest(sel, body, "/embeddings")
+	if err != nil {
+		return nil
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil || resp == nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil
+	}
+	buf, _ := io.ReadAll(resp.Body)
+	var result struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(buf, &result) != nil || len(result.Data) == 0 {
+		return nil
+	}
+	return result.Data[0].Embedding
 }
