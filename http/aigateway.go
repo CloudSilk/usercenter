@@ -11,9 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CloudSilk/usercenter/internal/aicache"
 	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/apikey"
+	"github.com/CloudSilk/usercenter/internal/conversation"
 	"github.com/CloudSilk/usercenter/internal/pricing"
+	"github.com/CloudSilk/usercenter/internal/ratelimit"
 	"github.com/CloudSilk/usercenter/internal/usage"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
@@ -42,7 +45,13 @@ func RegisterAIGatewayRouter(r *gin.Engine) {
 	r.POST("/v1/chat/completions", ChatCompletions)
 	r.POST("/v1/embeddings", Embeddings)
 	r.POST("/v1/images/generations", ImageGenerations)
+	r.POST("/v1/audio/transcriptions", AudioTranscriptions)
+	r.POST("/v1/audio/speech", AudioSpeech)
+	r.POST("/v1/moderations", Moderations)
 	r.GET("/v1/models", ListModels)
+
+	// 初始化语义缓存
+	initAIEnhancements()
 }
 
 // ListModels 返回当前租户可用的模型别名（来自已配置的 ModelRoute）。
@@ -66,6 +75,7 @@ func ListModels(c *gin.Context) {
 }
 
 // ChatCompletions OpenAI 兼容聊天补全代理（流式 + 整包）。
+// 增强：对话会话(session_id)、Prompt模板注入(prompt_template_id)、语义缓存、限流、请求日志。
 func ChatCompletions(c *gin.Context) {
 	start := time.Now()
 	tenantID := ucm.GetTenantID(c)
@@ -76,51 +86,87 @@ func ChatCompletions(c *gin.Context) {
 		principalKind = 0
 	}
 
-	bodyBytes, err := io.ReadAll(c.Request.Body)
+	// --- 限流检查（每用户令牌桶）---
+	if !ratelimit.CheckRateLimit(principalID) {
+		c.Header("Retry-After", "1")
+		c.JSON(http.StatusTooManyRequests, errResp("请求过于频繁", http.StatusTooManyRequests))
+		return
+	}
+
+	rawBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, errResp("读取请求体失败", http.StatusBadRequest))
 		return
 	}
 	_ = c.Request.Body.Close()
 
-	// 解析 model 与 stream 标志（不破坏原始 body 透传）
-	var peek struct {
-		Model    string `json:"model"`
-		Stream   bool   `json:"stream"`
-		Messages []struct {
-			Role    string `json:"role"`
-			Content any    `json:"content"`
-		} `json:"messages"`
-	}
-	if err := json.Unmarshal(bodyBytes, &peek); err != nil {
-		c.JSON(http.StatusBadRequest, errResp("非法 JSON 请求体", http.StatusBadRequest))
+	// --- 解析增强字段 + 提取 model/stream ---
+	cleanBody, enh, model, stream, err := extractChatEnhancements(rawBody)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errResp(err.Error(), http.StatusBadRequest))
 		return
 	}
-	if peek.Model == "" {
+	if model == "" {
 		c.JSON(http.StatusBadRequest, errResp("缺少 model 字段", http.StatusBadRequest))
 		return
 	}
 
+	// --- Prompt 模板注入 ---
+	if enh.PromptTemplateID != "" {
+		if cleanBody, err = applyPromptTemplate(cleanBody, enh.PromptTemplateID, enh.PromptVars); err != nil {
+			c.JSON(http.StatusBadRequest, errResp("Prompt 模板注入失败: "+err.Error(), http.StatusBadRequest))
+			return
+		}
+	}
+
+	// --- 对话历史加载 ---
+	if enh.SessionID != "" {
+		if cleanBody, err = applyConversationHistory(cleanBody, enh.SessionID, 20); err != nil {
+			c.JSON(http.StatusBadRequest, errResp("对话历史加载失败: "+err.Error(), http.StatusBadRequest))
+			return
+		}
+	}
+
+	// --- 可选输入审核 ---
+	if enh.Moderate && !moderateInput(c, cleanBody, tenantID, model) {
+		c.JSON(http.StatusBadRequest, errResp("输入内容未通过内容审核", http.StatusBadRequest))
+		recordGatewayLog(c, tenantID, principalID, model, enh.SessionID, 0, 0, 0, time.Since(start), 400, false, "moderation_blocked", "", false)
+		return
+	}
+
 	// --- 强制注入 stream_options: include_usage: true ---
-	if peek.Stream {
-		bodyBytes = injectStreamOptions(bodyBytes)
-		// 重新解析 stream 标志(注入不影响 peek.Stream)
+	bodyBytes := cleanBody
+	if stream {
+		bodyBytes = injectStreamOptions(cleanBody)
+	}
+
+	// --- 语义缓存检查（仅非流式）---
+	cacheKey := extractLastUserMessage(cleanBody)
+	if !stream && cacheKey != "" {
+		if entry, hit := aicache.Get(cacheKey, model); hit {
+			c.Header("X-Cache", "HIT")
+			c.Data(http.StatusOK, "application/json", []byte(entry.ResponseBody))
+			recordGatewayUsage(nil, tenantID, principalID, principalKind, model, entry.PromptTokens, entry.CompTokens, 0, time.Since(start), true, "cache_hit")
+			recordGatewayLog(c, tenantID, principalID, model, enh.SessionID, entry.PromptTokens, entry.CompTokens, entry.Cost, time.Since(start), 200, true, "", "", true)
+			return
+		}
 	}
 
 	// 配额：调用前检查租户/Agent 预算
-	if allowed, _, _, _ := usage.CheckBudget(tenantID, principalID, peek.Model); !allowed {
+	if allowed, _, _, _ := usage.CheckBudget(tenantID, principalID, model); !allowed {
 		observeAIQuotaExceeded()
-		recordGatewayUsage(nil, tenantID, principalID, principalKind, peek.Model, 0, 0, 0, time.Since(start), false, "quota_exceeded")
-		recordAudit(c, "ai_quota_exceeded", peek.Model, "principal="+principalID)
-		alert.FireWebhook("ai_quota_exceeded", map[string]any{"tenantID": tenantID, "principalID": principalID, "model": peek.Model})
+		recordGatewayUsage(nil, tenantID, principalID, principalKind, model, 0, 0, 0, time.Since(start), false, "quota_exceeded")
+		recordAudit(c, "ai_quota_exceeded", model, "principal="+principalID)
+		alert.FireWebhook("ai_quota_exceeded", map[string]any{"tenantID": tenantID, "principalID": principalID, "model": model})
 		c.JSON(http.StatusTooManyRequests, errResp("超出用量配额", http.StatusTooManyRequests))
 		return
 	}
 
 	// 路由选 Key + 转发（上游 429 → 冷却 + 重试）
-	resp, sel, upstreamErr := forwardWithRetry(c, tenantID, peek.Model, bodyBytes, peek.Stream, "/chat/completions")
+	resp, sel, upstreamErr := forwardWithRetry(c, tenantID, model, bodyBytes, stream, "/chat/completions")
 	if upstreamErr != nil {
-		recordGatewayUsage(nil, tenantID, principalID, principalKind, peek.Model, 0, 0, 0, time.Since(start), false, "upstream_error")
+		recordGatewayUsage(nil, tenantID, principalID, principalKind, model, 0, 0, 0, time.Since(start), false, "upstream_error")
+		recordGatewayLog(c, tenantID, principalID, model, enh.SessionID, 0, 0, 0, time.Since(start), 502, false, upstreamErr.Error(), "", false)
 		c.JSON(http.StatusBadGateway, errResp(upstreamErr.Error(), http.StatusBadGateway))
 		return
 	}
@@ -128,18 +174,68 @@ func ChatCompletions(c *gin.Context) {
 
 	// 用量计量
 	pt, ct := int64(0), int64(0)
-	if peek.Stream {
+	var responseBuf []byte
+	if stream {
 		pt, ct = streamProxy(c, resp)
 	} else {
-		pt, ct = bufferedProxy(c, resp)
+		// bufferedProxy 已把响应写给客户端；为支持缓存，这里改用 bufferedProxyWithCapture
+		pt, ct, responseBuf = bufferedProxyWithCapture(c, resp)
 	}
-	providerName := ""
-	if sel != nil && sel.Provider != nil {
-		providerName = sel.Provider.Name
+	cost := recordGatewayUsage(sel, tenantID, principalID, principalKind, model, pt, ct, 0, time.Since(start), true, "")
+
+	// --- 写入语义缓存（仅非流式 + 有 user 消息）---
+	if !stream && cacheKey != "" && len(responseBuf) > 0 {
+		aicache.Set(cacheKey, string(responseBuf), model, pt, ct, cost)
 	}
-	cost := recordGatewayUsage(sel, tenantID, principalID, principalKind, peek.Model, pt, ct, 0, time.Since(start), true, "")
-	_ = providerName
+
+	// --- 持久化对话消息（有 session_id 时）---
+	if enh.SessionID != "" {
+		userMsg := &conversation.Message{
+			SessionID: enh.SessionID,
+			Role:      "user",
+			Content:   cacheKey,
+			Tokens:    pt,
+			ModelName: model,
+		}
+		_ = conversation.AppendMessage(userMsg)
+		if !stream && len(responseBuf) > 0 {
+			assistantContent := extractAssistantContent(responseBuf)
+			if assistantContent != "" {
+				_ = conversation.AppendMessage(&conversation.Message{
+					SessionID: enh.SessionID,
+					Role:      "assistant",
+					Content:   assistantContent,
+					Tokens:    ct,
+					ModelName: model,
+				})
+			}
+		}
+	}
+
+	// --- 请求日志 ---
+	recordGatewayLog(c, tenantID, principalID, model, enh.SessionID, pt, ct, cost, time.Since(start), 200, true, "", "", false)
 	_ = cost
+}
+
+// bufferedProxyWithCapture 透传整包响应，解析 usage，并返回响应体副本（用于缓存/日志）。
+func bufferedProxyWithCapture(c *gin.Context, resp *http.Response) (promptTokens, compTokens int64, body []byte) {
+	buf, err := io.ReadAll(resp.Body)
+	if err != nil {
+		copyHeaders(c, resp)
+		c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), nil)
+		return 0, 0, nil
+	}
+	var ou struct {
+		Usage struct {
+			PromptTokens     int64 `json:"prompt_tokens"`
+			CompletionTokens int64 `json:"completion_tokens"`
+			TotalTokens      int64 `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	_ = json.Unmarshal(buf, &ou)
+	copyHeaders(c, resp)
+	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), buf)
+	return ou.Usage.PromptTokens, ou.Usage.CompletionTokens, buf
 }
 
 // Embeddings OpenAI 兼容 embeddings 代理（整包，无流式）。

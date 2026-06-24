@@ -6,8 +6,11 @@ import (
 	"github.com/CloudSilk/pkg/db"
 	"github.com/CloudSilk/pkg/db/mysql"
 	"github.com/CloudSilk/pkg/db/sqlite"
+	"github.com/CloudSilk/usercenter/internal/aicache"
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/auth"
+	"github.com/CloudSilk/usercenter/internal/conversation"
+	"github.com/CloudSilk/usercenter/internal/gatewaylog"
 	"github.com/CloudSilk/usercenter/internal/identity"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/pricing"
@@ -63,5 +66,9 @@ func AutoMigrate() error {
 		&prompt.PromptTemplate{},
 		&identity.UserExternalIdentity{},
 		&pricing.ModelPrice{},
+		// AI 网关增强：对话会话、请求日志、语义缓存。
+		&conversation.Session{}, &conversation.Message{},
+		&gatewaylog.GatewayLog{},
+		&aicache.CacheEntry{},
 	)
 }

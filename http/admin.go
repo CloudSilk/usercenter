@@ -51,6 +51,7 @@ func RegisterAdminRouter(r *gin.Engine) {
 	registerMFARoutes(g)
 	registerSocialAdminRoutes(g)
 	registerPricingRoutes(g)
+	RegisterAIGatewayAdminRoutes(g)
 }
 
 // ---------------------------------------------------------------------------

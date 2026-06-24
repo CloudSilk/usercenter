@@ -178,8 +178,10 @@ func CheckBudget(tenantID, principalID, modelName string) (allowed bool, dailyTo
 	if principalID != "" {
 		usageDB = usageDB.Where("principal_id = ?", principalID)
 	}
-	usageDB.Where("created_at >= ?", dayStart).Count(&dailyTokens)
-	usageDB.Where("created_at >= ?", monthStart).Count(&monthlyTokens)
+	usageDB.Where("created_at >= ?", dayStart).
+		Select("COALESCE(SUM(total_tokens), 0)").Scan(&dailyTokens)
+	usageDB.Where("created_at >= ?", monthStart).
+		Select("COALESCE(SUM(total_tokens), 0)").Scan(&monthlyTokens)
 
 	if budget.DailyTokenLimit > 0 && dailyTokens >= budget.DailyTokenLimit {
 		return false, dailyTokens, monthlyTokens, nil
@@ -188,16 +190,22 @@ func CheckBudget(tenantID, principalID, modelName string) (allowed bool, dailyTo
 		return false, dailyTokens, monthlyTokens, nil
 	}
 
-	// 基于成本的预算检查
+	// 基于成本的预算检查（日/月用独立 DB session 避免 Where 条件叠加）
 	if budget.DailyCostLimit > 0 || budget.MonthlyCostLimit > 0 {
 		var dailyCost, monthlyCost float64
-		costDB := store.DB().Model(&UsageRecord{}).Where("tenant_id = ?", tenantID)
+
+		dailyCostDB := store.DB().Model(&UsageRecord{}).Where("tenant_id = ?", tenantID)
 		if principalID != "" {
-			costDB = costDB.Where("principal_id = ?", principalID)
+			dailyCostDB = dailyCostDB.Where("principal_id = ?", principalID)
 		}
-		costDB.Where("created_at >= ?", dayStart).
+		dailyCostDB.Where("created_at >= ?", dayStart).
 			Select("COALESCE(SUM(cost), 0)").Scan(&dailyCost)
-		costDB.Where("created_at >= ?", monthStart).
+
+		monthlyCostDB := store.DB().Model(&UsageRecord{}).Where("tenant_id = ?", tenantID)
+		if principalID != "" {
+			monthlyCostDB = monthlyCostDB.Where("principal_id = ?", principalID)
+		}
+		monthlyCostDB.Where("created_at >= ?", monthStart).
 			Select("COALESCE(SUM(cost), 0)").Scan(&monthlyCost)
 
 		if budget.DailyCostLimit > 0 && dailyCost >= budget.DailyCostLimit {

@@ -74,7 +74,7 @@ func ListPrices(tenantID string) ([]*ModelPrice, error) {
 	} else {
 		db = db.Where("tenant_id = ''")
 	}
-	if err := db.Order("model").Find(&list).Error; err != nil {
+	if err := db.Order("model_name").Find(&list).Error; err != nil {
 		log.Errorf(context.Background(), "list model prices failed: %v", err)
 		return nil, err
 	}
