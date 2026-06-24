@@ -3,8 +3,12 @@ package auth
 // Agent 细粒度 Scope + 用户委派 consent(#10)
 
 import (
+	"context"
 	"strings"
 	"time"
+
+	"github.com/CloudSilk/pkg/utils/log"
+	"github.com/CloudSilk/usercenter/internal/store"
 )
 
 // Scope OAuth2 scope 语义
@@ -56,33 +60,69 @@ func CheckScope(scopes []Scope, action, resource string) bool {
 }
 
 // ConsentManager consent 管理(用户授权 Agent 的 scope)
-type ConsentManager struct{}
 
 // HasConsent 检查用户是否已授权某 Agent 的某 scope
 // principalID = 授权人,clientID = Agent/应用
 func HasConsent(principalID, clientID, scope string) bool {
-	// 查 ConsentRecord 表
-	// TODO: 需要接入 store.DB()
-	// 当前:返回 true(开发模式,全部允许)
+	if store.DB() == nil {
+		return true // DB 未就绪时放行（开发模式）
+	}
+	var rec ConsentRecord
+	err := store.DB().Where(
+		"principal_id = ? AND client_id = ? AND revoked = ? AND scope LIKE ?",
+		principalID, clientID, false, "%"+scope+"%",
+	).First(&rec).Error
+	if err != nil {
+		return false
+	}
+	// 检查过期（0 = 永不过期）
+	if rec.ExpiresAt > 0 && time.Now().Unix() > rec.ExpiresAt {
+		return false
+	}
 	return true
 }
 
-// GrantConsent 用户授权 consent
+// GrantConsent 用户授权 consent（同一 principal+client 的旧记录先吊销再写入新记录）
 func GrantConsent(principalID, clientID, scope string, expiresAt int64) error {
-	// TODO: 写 ConsentRecord
-	return nil
+	if store.DB() == nil {
+		return nil
+	}
+	// 吊销旧的同 principal+client 记录
+	if err := store.DB().Model(&ConsentRecord{}).
+		Where("principal_id = ? AND client_id = ? AND revoked = ?", principalID, clientID, false).
+		Update("revoked", true).Error; err != nil {
+		log.Errorf(context.Background(), "revoke old consent failed: %v", err)
+	}
+	rec := &ConsentRecord{
+		PrincipalID: principalID,
+		ClientID:    clientID,
+		Scope:       scope,
+		GrantedAt:   time.Now().Unix(),
+		ExpiresAt:   expiresAt,
+		Revoked:     false,
+	}
+	return store.DB().Create(rec).Error
 }
 
 // RevokeConsent 撤销 consent
 func RevokeConsent(principalID, clientID string) error {
-	// TODO: 更新 ConsentRecord.revoked = true
-	return nil
+	if store.DB() == nil {
+		return nil
+	}
+	return store.DB().Model(&ConsentRecord{}).
+		Where("principal_id = ? AND client_id = ?", principalID, clientID).
+		Update("revoked", true).Error
 }
 
-// ListConsents 列出用户授权过的所有 Agent/应用
+// ListConsents 列出用户授权过的所有 Agent/应用（未吊销）
 func ListConsents(principalID string) ([]ConsentRecord, error) {
-	// TODO: 查 ConsentRecord WHERE principalID = ? AND revoked = false
-	return nil, nil
+	if store.DB() == nil {
+		return nil, nil
+	}
+	var list []ConsentRecord
+	err := store.DB().Where("principal_id = ? AND revoked = ?", principalID, false).
+		Order("granted_at desc").Find(&list).Error
+	return list, err
 }
 
 // DelegationChain 委派链(user → agent → agent)
