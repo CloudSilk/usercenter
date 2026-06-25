@@ -137,18 +137,29 @@ func (c *Cache) semanticMatch(prompt string, modelName string) (*CacheEntry, boo
 		return nil, false
 	}
 
+	// 仅在持锁期间拷贝候选条目指针并做廉价过滤（embedding 是否存在 / 过期 / 模型匹配），
+	// 立即释放读锁后再做 O(N) 余弦相似度计算，避免长时间阻塞写操作（Set/EnforceMaxEntries）。
+	threshold := c.config.SimilarityThreshold
+	now := time.Now()
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	var best *CacheEntry
-	bestSim := c.config.SimilarityThreshold
+	candidates := make([]*CacheEntry, 0, len(c.entries))
 	for _, entry := range c.entries {
-		if !c.entryValidLocked(entry, modelName) {
-			continue
-		}
 		if entry.embedding == nil {
 			continue
 		}
+		if now.After(entry.ExpiresAt) {
+			continue
+		}
+		if entry.ModelName != "" && modelName != "" && entry.ModelName != modelName {
+			continue
+		}
+		candidates = append(candidates, entry)
+	}
+	c.mu.RUnlock()
+
+	var best *CacheEntry
+	bestSim := threshold
+	for _, entry := range candidates {
 		sim := cosineSimilarity(queryVec, entry.embedding)
 		if sim >= bestSim {
 			bestSim = sim
@@ -302,8 +313,8 @@ func (c *Cache) persistEntry(entry *CacheEntry) {
 // EnforceMaxEntries removes oldest entries if cache exceeds max size
 func (c *Cache) EnforceMaxEntries() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if len(c.entries) <= c.config.MaxEntries {
+		c.mu.Unlock()
 		return
 	}
 
@@ -321,10 +332,22 @@ func (c *Cache) EnforceMaxEntries() {
 	})
 
 	excess := len(c.entries) - c.config.MaxEntries
-	for i := 0; i < excess && i < len(all); i++ {
+	if excess > len(all) {
+		excess = len(all)
+	}
+	evictedHashes := make([]string, 0, excess)
+	for i := 0; i < excess; i++ {
 		delete(c.entries, all[i].hash)
+		evictedHashes = append(evictedHashes, all[i].hash)
 	}
 	c.stats.Entries = len(c.entries)
+	c.mu.Unlock()
+
+	// 同步清理 DB 中的孤儿行，否则 ai_cache_entries 表会随时间无限增长
+	// （被淘汰的行不会被 loadFromDB 重新加载，但也永远不会被删除）。
+	if len(evictedHashes) > 0 && store.DB() != nil {
+		store.DB().Where("prompt_hash IN ?", evictedHashes).Delete(&CacheEntry{})
+	}
 }
 
 // cosineSimilarity 计算两个向量的余弦相似度。

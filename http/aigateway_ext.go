@@ -75,7 +75,10 @@ func extractChatEnhancements(body []byte) (cleanBody []byte, enh chatEnhancedFie
 	delete(m, "prompt_vars")
 	delete(m, "moderate")
 	delete(m, "moderate_output")
-	cleanBody, _ = json.Marshal(m)
+	cleanBody, err = json.Marshal(m)
+	if err != nil {
+		return body, enh, "", false, fmt.Errorf("请求体序列化失败: %w", err)
+	}
 	return cleanBody, enh, model, stream, nil
 }
 

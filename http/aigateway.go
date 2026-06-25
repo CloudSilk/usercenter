@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/CloudSilk/usercenter/internal/aicache"
 	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/apikey"
@@ -176,31 +177,36 @@ func ChatCompletions(c *gin.Context) {
 	pt, ct := int64(0), int64(0)
 	var responseBuf []byte
 	var assistantContent string
+	var respStatus int
+	var respCT string
 	if stream {
 		pt, ct, assistantContent = streamProxy(c, resp)
 	} else {
-		// bufferedProxyWithCapture 把响应写给客户端并返回副本（用于缓存/审核/日志）
-		pt, ct, responseBuf = bufferedProxyWithCapture(c, resp)
+		// 非流式：先读取响应体并解析 usage（不立即写客户端），以便输出审核可在写入前拦截替换。
+		pt, ct, responseBuf, respStatus, respCT = captureUpstream(resp)
 		assistantContent = extractAssistantContent(responseBuf)
 	}
 	cost := recordGatewayUsage(sel, tenantID, principalID, principalKind, model, pt, ct, 0, time.Since(start), true, "")
 
-	// --- 输出审核（moderate_output）---
-	// 注意：流式响应此时已发给客户端，无法替换；仅在非流式时可拦截。
-	// 流式时记录审核结果到日志（已发出的内容不可撤回）。
-	if enh.ModerateOutput && assistantContent != "" {
-		if !moderateText(c, tenantID, assistantContent) {
-			if !stream {
-				// 非流式：替换响应为安全提示
-				safeResp := gin.H{
-					"choices": []gin.H{{"message": gin.H{
-						"role": "assistant", "content": "[内容审核] 该响应未通过安全审核，已被拦截。",
-					}}},
-				}
-				c.JSON(http.StatusOK, safeResp)
-			}
+	// --- 输出审核（moderate_output）+ 写非流式响应 ---
+	// 非流式：审核在写入客户端之前进行，命中则用安全提示替换（避免对已写出的 body 二次写入）。
+	// 流式：内容此时已逐块发给客户端，无法替换，仅记录审核结果到日志。
+	if !stream {
+		if enh.ModerateOutput && assistantContent != "" && !moderateText(c, tenantID, assistantContent) {
+			copyHeaders(c, resp)
+			c.JSON(http.StatusOK, gin.H{
+				"choices": []gin.H{{"message": gin.H{
+					"role": "assistant", "content": "[内容审核] 该响应未通过安全审核，已被拦截。",
+				}}},
+			})
 			recordGatewayLog(c, tenantID, principalID, model, enh.SessionID, pt, ct, cost, time.Since(start), 200, false, "output_moderation_blocked", "", false)
+			return
 		}
+		copyHeaders(c, resp)
+		c.Data(respStatus, respCT, responseBuf)
+	} else if enh.ModerateOutput && assistantContent != "" && !moderateText(c, tenantID, assistantContent) {
+		// 流式：内容已发出，无法替换，仅记录审核结果
+		recordGatewayLog(c, tenantID, principalID, model, enh.SessionID, pt, ct, cost, time.Since(start), 200, false, "output_moderation_blocked", "", false)
 	}
 
 	// --- 写入缓存（仅非流式 + 有 user 消息）---
@@ -210,21 +216,25 @@ func ChatCompletions(c *gin.Context) {
 
 	// --- 持久化对话消息（有 session_id 时：流式 + 非流式均存 assistant 回复）---
 	if enh.SessionID != "" {
-		_ = conversation.AppendMessage(&conversation.Message{
+		if err := conversation.AppendMessage(&conversation.Message{
 			SessionID: enh.SessionID,
 			Role:      "user",
 			Content:   cacheKey,
 			Tokens:    pt,
 			ModelName: model,
-		})
+		}); err != nil {
+			log.Errorf(context.Background(), "[aigateway] persist user message failed: %v", err)
+		}
 		if assistantContent != "" {
-			_ = conversation.AppendMessage(&conversation.Message{
+			if err := conversation.AppendMessage(&conversation.Message{
 				SessionID: enh.SessionID,
 				Role:      "assistant",
 				Content:   assistantContent,
 				Tokens:    ct,
 				ModelName: model,
-			})
+			}); err != nil {
+				log.Errorf(context.Background(), "[aigateway] persist assistant message failed: %v", err)
+			}
 		}
 	}
 
@@ -233,13 +243,14 @@ func ChatCompletions(c *gin.Context) {
 	_ = cost
 }
 
-// bufferedProxyWithCapture 透传整包响应，解析 usage，并返回响应体副本（用于缓存/日志）。
-func bufferedProxyWithCapture(c *gin.Context, resp *http.Response) (promptTokens, compTokens int64, body []byte) {
+// captureUpstream 读取上游整包响应、解析 usage 并返回副本与状态信息，但不写客户端。
+// 调用方据此决定写入原始响应，或审核拦截后的安全提示（避免对已写出的 body 二次写入）。
+func captureUpstream(resp *http.Response) (promptTokens, compTokens int64, body []byte, status int, contentType string) {
+	status = resp.StatusCode
+	contentType = resp.Header.Get("Content-Type")
 	buf, err := io.ReadAll(resp.Body)
 	if err != nil {
-		copyHeaders(c, resp)
-		c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), nil)
-		return 0, 0, nil
+		return 0, 0, nil, status, contentType
 	}
 	var ou struct {
 		Usage struct {
@@ -249,9 +260,7 @@ func bufferedProxyWithCapture(c *gin.Context, resp *http.Response) (promptTokens
 		} `json:"usage"`
 	}
 	_ = json.Unmarshal(buf, &ou)
-	copyHeaders(c, resp)
-	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), buf)
-	return ou.Usage.PromptTokens, ou.Usage.CompletionTokens, buf
+	return ou.Usage.PromptTokens, ou.Usage.CompletionTokens, buf, status, contentType
 }
 
 // Embeddings OpenAI 兼容 embeddings 代理（整包，无流式）。
@@ -398,6 +407,8 @@ func injectStreamOptions(body []byte) []byte {
 func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, stream bool, pathSuffix string) (*http.Response, *apikey.KeySelection, error) {
 	const maxAttempts = 3
 	var lastErr error
+	// 复用同一 http.Client 以跨重试复用连接池（避免每次重试新建连接）。
+	client := &http.Client{Timeout: gatewayUpstreamTO}
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		sel, err := apikey.SelectKey(tenantID, modelAlias)
 		if err != nil {
@@ -407,7 +418,6 @@ func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, 
 		if err != nil {
 			return nil, nil, err
 		}
-		client := &http.Client{Timeout: gatewayUpstreamTO}
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = err
@@ -434,13 +444,10 @@ func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, 
 
 // buildUpstreamRequest 构造转发到服务商的请求，按 AuthType 注入鉴权。
 // pathSuffix 为相对路径，如 "/chat/completions"、"/embeddings"。
+// baseURL 应包含版本前缀（如 "https://api.openai.com/v1"），直接追加 pathSuffix。
 func buildUpstreamRequest(sel *apikey.KeySelection, body []byte, pathSuffix string) (*http.Request, error) {
 	base := strings.TrimRight(sel.Provider.BaseURL, "/")
-	// 兼容 baseURL 是否已含 /v1
 	target := base + pathSuffix
-	if strings.HasSuffix(base, "/v1") {
-		target = base + pathSuffix
-	}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -453,7 +460,10 @@ func buildUpstreamRequest(sel *apikey.KeySelection, body []byte, pathSuffix stri
 	case "header", "apikey":
 		req.Header.Set("Authorization", sel.APIKey)
 	case "query":
-		req.Header.Set("X-API-Key", sel.APIKey)
+		// AuthType=query：密钥放入 URL 查询参数（而非请求头）
+		q := req.URL.Query()
+		q.Set("key", sel.APIKey)
+		req.URL.RawQuery = q.Encode()
 	default:
 		req.Header.Set("Authorization", "Bearer "+sel.APIKey)
 	}
@@ -528,6 +538,10 @@ func streamProxy(c *gin.Context, resp *http.Response) (promptTokens, compTokens 
 		if ok {
 			flusher.Flush()
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		// 上游连接中断导致流被截断：已发出的内容不可撤回，仅记录以便排查。
+		log.Errorf(context.Background(), "[aigateway] upstream stream truncated: %v", err)
 	}
 	return promptTokens, compTokens, contentAccum.String()
 }

@@ -22,6 +22,7 @@ type bucket struct {
 	config     BucketConfig
 	tokens     float64
 	lastRefill time.Time
+	lastAccess time.Time // 最近一次被访问的时间，用于空闲桶清理
 	mu         sync.Mutex
 }
 
@@ -37,6 +38,7 @@ func (b *bucket) refill() {
 		b.tokens = float64(b.config.Burst)
 	}
 	b.lastRefill = now
+	b.lastAccess = now
 }
 
 // tryConsume attempts to refill and then consume 1 token. Returns true if successful.
@@ -104,6 +106,7 @@ func (l *Limiter) getOrCreate(principalID string) *bucket {
 		config:     l.defaultConfig,
 		tokens:     float64(l.defaultConfig.Burst), // start full
 		lastRefill: time.Now(),
+		lastAccess: time.Now(),
 	}
 	l.buckets[principalID] = b
 	return b
@@ -120,6 +123,7 @@ func (l *Limiter) SetConfig(principalID string, rate float64, burst int) {
 	if !ok {
 		b = &bucket{
 			lastRefill: time.Now(),
+			lastAccess: time.Now(),
 		}
 		l.buckets[principalID] = b
 	}
@@ -130,6 +134,7 @@ func (l *Limiter) SetConfig(principalID string, rate float64, burst int) {
 	b.config = BucketConfig{Rate: rate, Burst: burst}
 	b.tokens = float64(burst)
 	b.lastRefill = time.Now()
+	b.lastAccess = time.Now()
 }
 
 // Allow checks whether 1 token is available for the principal. Consumes it if so.
@@ -143,6 +148,25 @@ func (l *Limiter) Remove(principalID string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.buckets, principalID)
+}
+
+// Cleanup removes buckets that have been idle (no access) for longer than maxAge.
+// 用于回收瞬时 principal（如轮换的 API Key、匿名调用方）残留的桶，避免内存无限增长。
+func (l *Limiter) Cleanup(maxAge time.Duration) int {
+	cutoff := time.Now().Add(-maxAge)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	removed := 0
+	for id, b := range l.buckets {
+		b.mu.Lock()
+		idle := b.lastAccess.Before(cutoff)
+		b.mu.Unlock()
+		if idle {
+			delete(l.buckets, id)
+			removed++
+		}
+	}
+	return removed
 }
 
 // Stats returns a snapshot of all current buckets.
