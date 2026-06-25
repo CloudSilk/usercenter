@@ -79,11 +79,13 @@ func TestBuildUpstreamRequest_Auth(t *testing.T) {
 		storedKey string // 存储的原始 Key（明文）
 		wantHdr   string
 		wantVal   string // 代码按 authType 拼装后的完整 header 值
+		queryKey  string // 非 空 → query 模式：期望出现在 URL ?key= 中的值
 		wantURL   string
 	}{
-		{"bearer", "bearer", "https://api.openai.com/v1", "sk-x", "Authorization", "Bearer sk-x", "https://api.openai.com/v1/chat/completions"},
-		{"default-empty", "", "https://api.deepseek.com", "sk-y", "Authorization", "Bearer sk-y", "https://api.deepseek.com/chat/completions"},
-		{"header", "header", "https://api.anthropic.com/v1", "sk-z", "Authorization", "sk-z", "https://api.anthropic.com/v1/chat/completions"},
+		{"bearer", "bearer", "https://api.openai.com/v1", "sk-x", "Authorization", "Bearer sk-x", "", "https://api.openai.com/v1/chat/completions"},
+		{"default-empty", "", "https://api.deepseek.com", "sk-y", "Authorization", "Bearer sk-y", "", "https://api.deepseek.com/chat/completions"},
+		{"header", "header", "https://api.anthropic.com/v1", "sk-z", "Authorization", "sk-z", "", "https://api.anthropic.com/v1/chat/completions"},
+		{"query", "query", "https://api.example.com/v1", "sk-q", "", "", "sk-q", "https://api.example.com/v1/chat/completions?key=sk-q"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -98,8 +100,18 @@ func TestBuildUpstreamRequest_Auth(t *testing.T) {
 			if req.URL.String() != tc.wantURL {
 				t.Fatalf("url: got %s want %s", req.URL.String(), tc.wantURL)
 			}
-			if got := req.Header.Get(tc.wantHdr); got != tc.wantVal {
-				t.Fatalf("header %s: got %q want %q", tc.wantHdr, got, tc.wantVal)
+			if tc.queryKey != "" {
+				// query 模式：密钥在 URL 查询参数中，且不应出现在 Authorization 头
+				if got := req.URL.Query().Get("key"); got != tc.queryKey {
+					t.Fatalf("query key: got %q want %q", got, tc.queryKey)
+				}
+				if ah := req.Header.Get("Authorization"); ah != "" {
+					t.Fatalf("query mode must not set Authorization header, got %q", ah)
+				}
+			} else {
+				if got := req.Header.Get(tc.wantHdr); got != tc.wantVal {
+					t.Fatalf("header %s: got %q want %q", tc.wantHdr, got, tc.wantVal)
+				}
 			}
 		})
 	}
