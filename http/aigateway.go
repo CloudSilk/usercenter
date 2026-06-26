@@ -58,6 +58,12 @@ func RegisterAIGatewayRouter(r *gin.Engine) {
 // ListModels 返回当前租户可用的模型别名（来自已配置的 ModelRoute）。
 func ListModels(c *gin.Context) {
 	tenantID := ucm.GetTenantID(c)
+	principalID := ucm.GetUserID(c)
+	if !ratelimit.CheckRateLimit(principalID) {
+		c.Header("Retry-After", "1")
+		c.JSON(http.StatusTooManyRequests, errResp("请求过于频繁", http.StatusTooManyRequests))
+		return
+	}
 	routes, err := apikey.GetRoutes(tenantID)
 	if err != nil {
 		writeErr(c, err)
@@ -142,7 +148,10 @@ func ChatCompletions(c *gin.Context) {
 	}
 
 	// --- 语义缓存检查（仅非流式）---
-	cacheKey := extractLastUserMessage(cleanBody)
+	// cacheKey 含完整对话上下文（system+历史+user），避免"相同最后一句但上下文不同"误命中缓存；
+	// userContent 仅取最后一条 user 消息，用于会话持久化。
+	cacheKey := buildCachePrompt(cleanBody)
+	userContent := extractLastUserMessage(cleanBody)
 	if !stream && cacheKey != "" {
 		if entry, hit := aicache.Get(cacheKey, model); hit {
 			c.Header("X-Cache", "HIT")
@@ -219,7 +228,7 @@ func ChatCompletions(c *gin.Context) {
 		if err := conversation.AppendMessage(&conversation.Message{
 			SessionID: enh.SessionID,
 			Role:      "user",
-			Content:   cacheKey,
+			Content:   userContent,
 			Tokens:    pt,
 			ModelName: model,
 		}); err != nil {
@@ -274,6 +283,13 @@ func Embeddings(c *gin.Context) {
 		principalKind = 0
 	}
 
+	// --- 限流检查（每用户令牌桶）---
+	if !ratelimit.CheckRateLimit(principalID) {
+		c.Header("Retry-After", "1")
+		c.JSON(http.StatusTooManyRequests, errResp("请求过于频繁", http.StatusTooManyRequests))
+		return
+	}
+
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, errResp("读取请求体失败", http.StatusBadRequest))
@@ -316,6 +332,7 @@ func Embeddings(c *gin.Context) {
 		providerName = sel.Provider.Name
 	}
 	cost := recordGatewayUsage(sel, tenantID, principalID, principalKind, peek.Model, pt, ct, 0, time.Since(start), true, "")
+	recordGatewayLog(c, tenantID, principalID, peek.Model, "", pt, ct, cost, time.Since(start), 200, true, "", "", false)
 	_ = providerName
 	_ = cost
 }
@@ -330,6 +347,13 @@ func ImageGenerations(c *gin.Context) {
 	principalKind := pk - 1
 	if principalKind < 0 {
 		principalKind = 0
+	}
+
+	// --- 限流检查（每用户令牌桶）---
+	if !ratelimit.CheckRateLimit(principalID) {
+		c.Header("Retry-After", "1")
+		c.JSON(http.StatusTooManyRequests, errResp("请求过于频繁", http.StatusTooManyRequests))
+		return
 	}
 
 	bodyBytes, err := io.ReadAll(c.Request.Body)
@@ -379,6 +403,7 @@ func ImageGenerations(c *gin.Context) {
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), buf)
 	// 图像生成计为 1 次完成 token(不含输入/输出 token 计数)
 	cost := recordGatewayUsage(sel, tenantID, principalID, principalKind, peek.Model, 0, 1, 0, time.Since(start), true, "")
+	recordGatewayLog(c, tenantID, principalID, peek.Model, "", 0, 1, cost, time.Since(start), resp.StatusCode, resp.StatusCode < 400, "", "", false)
 	_ = cost
 }
 

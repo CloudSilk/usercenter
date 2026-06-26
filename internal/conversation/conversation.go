@@ -144,3 +144,35 @@ func CountMessages(sessionID string) (int64, error) {
 	err := store.DB().Model(&Message{}).Where("session_id = ?", sessionID).Count(&count).Error
 	return count, err
 }
+
+// CleanupOldSessions removes sessions not updated within maxAge, cascading to their messages.
+// 返回删除的会话数。用于防止 conversation_session / conversation_message 表无限增长。
+func CleanupOldSessions(maxAge time.Duration) (int64, error) {
+	if store.DB() == nil {
+		return 0, nil
+	}
+	cutoff := time.Now().Add(-maxAge)
+	var ids []string
+	if err := store.DB().Model(&Session{}).Where("updated_at < ?", cutoff).Pluck("id", &ids).Error; err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	store.DB().Where("session_id IN ?", ids).Delete(&Message{})
+	res := store.DB().Where("id IN ?", ids).Delete(&Session{})
+	return res.RowsAffected, res.Error
+}
+
+func init() {
+	// 每天清理一次超过 30 天未更新的会话及其消息，避免表无限增长。
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if _, err := CleanupOldSessions(30 * 24 * time.Hour); err != nil {
+				log.Errorf(context.Background(), "cleanup old sessions failed: %v", err)
+			}
+		}
+	}()
+}

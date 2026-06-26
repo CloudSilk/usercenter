@@ -203,6 +203,7 @@ func TestCache_SemanticMatchWithEmbeddings(t *testing.T) {
 	// 存入一个长 prompt（>20 字符才触发语义匹配）
 	original := "请问今天天气怎么样，需要带伞吗，我想出门逛街"
 	c.Set(original, `{"choices":[{"message":{"content":"晴，25度"}}]}`, "gpt-4", 10, 5, 0.001)
+	c.embedWG.Wait() // 等待异步嵌入计算完成
 
 	// 用不同措辞但语义相近的 prompt 查询（向量高度相似）
 	similar := "今天天气如何呢，要不要带伞，准备出门呢"
@@ -233,6 +234,7 @@ func TestCache_SemanticMissOnUnrelated(t *testing.T) {
 	c.SetEmbeddingFunc(embedFn)
 
 	c.Set("请问今天天气怎么样需要带伞吗我想出门逛街", "天气回答", "gpt-4", 5, 5, 0)
+	c.embedWG.Wait()
 
 	// 完全不相关的 prompt
 	if _, ok := c.Get("帮我写一段快速排序的代码实现并解释原理", "gpt-4"); ok {

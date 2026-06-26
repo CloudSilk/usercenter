@@ -148,6 +148,29 @@ func applyConversationHistory(body []byte, sessionID string, limit int) ([]byte,
 	return out, nil
 }
 
+// buildCachePrompt 从 messages 数组构建用于缓存键的完整提示文本（含 system/历史/user 全部上下文）。
+// 相比仅取最后一条 user 消息，含完整上下文可避免"相同最后一句但上下文不同"时误命中缓存。
+// 返回原始文本（不 hash）：aicache 内部对它做 SHA-256 精确匹配 + embedding 语义匹配，两者都依赖原始文本。
+func buildCachePrompt(body []byte) string {
+	var m struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content any    `json:"content"`
+		} `json:"messages"`
+	}
+	if json.Unmarshal(body, &m) != nil {
+		return ""
+	}
+	var sb strings.Builder
+	for _, msg := range m.Messages {
+		sb.WriteString(msg.Role)
+		sb.WriteString(":")
+		sb.WriteString(fmt.Sprintf("%v", msg.Content))
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
 // extractLastUserMessage 从 messages 数组中提取最后一条 user 消息。
 func extractLastUserMessage(body []byte) string {
 	var m struct {
@@ -416,6 +439,13 @@ func Moderations(c *gin.Context) {
 		principalKind = 0
 	}
 
+	// --- 限流检查（每用户令牌桶）---
+	if !ratelimit.CheckRateLimit(principalID) {
+		c.Header("Retry-After", "1")
+		c.JSON(http.StatusTooManyRequests, errResp("请求过于频繁", http.StatusTooManyRequests))
+		return
+	}
+
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, errResp("读取请求体失败", http.StatusBadRequest))
@@ -446,6 +476,15 @@ func Moderations(c *gin.Context) {
 	recordGatewayLog(c, tenantID, principalID, model, "", 0, 1, cost, time.Since(start), resp.StatusCode, resp.StatusCode < 400, "", "", false)
 }
 
+// moderationFailOpen 控制审核服务不可用 / 结果无法解析时的策略：
+// true（默认）= fail-open 放行（保证可用性）；false = fail-close 拒绝（保证安全性，合规场景使用）。
+var moderationFailOpen = true
+
+// SetModerationFailOpen 配置审核 fail-open/close 策略。
+func SetModerationFailOpen(failOpen bool) {
+	moderationFailOpen = failOpen
+}
+
 // moderateInput 在 chat completion 前对输入做内容审核。
 // 返回 true 表示安全可放行，false 表示不安全需拒绝。
 func moderateInput(c *gin.Context, body []byte, tenantID, model string) (safe bool) {
@@ -458,13 +497,13 @@ func moderateText(c *gin.Context, tenantID, text string) (safe bool) {
 		return true
 	}
 	moderationBody := map[string]any{
-		"model": "text-moderation-latest",
+		"model": aiAuxModerationModel,
 		"input": text,
 	}
 	mb, _ := json.Marshal(moderationBody)
-	resp, _, err := forwardWithRetry(c, tenantID, "text-moderation-latest", mb, false, "/moderations")
+	resp, _, err := forwardWithRetry(c, tenantID, aiAuxModerationModel, mb, false, "/moderations")
 	if err != nil || resp == nil {
-		return true // 审核失败不阻断（fail-open）
+		return moderationFailOpen // 审核服务不可用：fail-open 放行 / fail-close 拒绝
 	}
 	defer resp.Body.Close()
 	buf, _ := io.ReadAll(resp.Body)
@@ -476,7 +515,29 @@ func moderateText(c *gin.Context, tenantID, text string) (safe bool) {
 	if json.Unmarshal(buf, &result) == nil && len(result.Results) > 0 {
 		return !result.Results[0].Flagged
 	}
-	return true
+	return moderationFailOpen // 无法解析审核结果：按 fail-open/close 策略
+}
+
+// AI 网关辅助任务（标题生成 / 嵌入 / 内容审核）使用的模型别名。
+// 默认值为 OpenAI 公共别名，可通过 SetAIAuxModels 覆盖以适配不同部署的可用模型。
+var (
+	aiAuxTitleModel      = "gpt-3.5-turbo"
+	aiAuxEmbeddingModel  = "text-embedding-3-small"
+	aiAuxModerationModel = "text-moderation-latest"
+)
+
+// SetAIAuxModels 配置网关辅助任务使用的模型别名（传空串则保留原值）。
+// 用于适配非 OpenAI 部署（如 DeepSeek、自建模型），避免硬编码 gpt-3.5-turbo 等导致路由选 Key 失败。
+func SetAIAuxModels(titleModel, embeddingModel, moderationModel string) {
+	if titleModel != "" {
+		aiAuxTitleModel = titleModel
+	}
+	if embeddingModel != "" {
+		aiAuxEmbeddingModel = embeddingModel
+	}
+	if moderationModel != "" {
+		aiAuxModerationModel = moderationModel
+	}
 }
 
 // initAIEnhancements 初始化增强能力（缓存 + 嵌入函数）。
@@ -516,7 +577,7 @@ func summarizeSession(sessionID string) {
 	promptText := "请用不超过20个中文字符为以下对话生成一个简短标题，只返回标题文字，不要标点：\n" + sb.String()
 
 	body, _ := json.Marshal(map[string]any{
-		"model":       "gpt-3.5-turbo",
+		"model":       aiAuxTitleModel,
 		"max_tokens":  30,
 		"temperature": 0,
 		"messages": []map[string]string{
@@ -524,7 +585,7 @@ func summarizeSession(sessionID string) {
 		},
 	})
 
-	title := callLLMForText(body)
+	title := callLLMForText(aiAuxTitleModel, body)
 	if title != "" {
 		// 截断到合理长度
 		if len([]rune(title)) > 30 {
@@ -535,8 +596,8 @@ func summarizeSession(sessionID string) {
 }
 
 // callLLMForText 调用 chat completions 提取纯文本回复（用于标题生成等辅助任务）。
-func callLLMForText(body []byte) string {
-	sel, err := apikey.SelectKey("", "gpt-3.5-turbo")
+func callLLMForText(model string, body []byte) string {
+	sel, err := apikey.SelectKey("", model)
 	if err != nil || sel == nil {
 		return ""
 	}
@@ -566,12 +627,12 @@ func generateEmbedding(prompt string) []float32 {
 		text = text[:8000]
 	}
 	body, _ := json.Marshal(map[string]any{
-		"model": "text-embedding-3-small",
+		"model": aiAuxEmbeddingModel,
 		"input": text,
 	})
 
 	// 用空 tenantID 查询全局路由，直接选 Key 转发（无需 gin.Context）
-	sel, err := apikey.SelectKey("", "text-embedding-3-small")
+	sel, err := apikey.SelectKey("", aiAuxEmbeddingModel)
 	if err != nil || sel == nil {
 		return nil
 	}

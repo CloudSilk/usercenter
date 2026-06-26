@@ -40,6 +40,7 @@ func RegisterAIGatewayAdminRoutes(g *gin.RouterGroup) {
 
 	// --- 限流配置 ---
 	g.GET("/ratelimit/stats", ratelimitStats)
+	g.PUT("/ratelimit/:principal", setRatelimitConfig)
 }
 
 // listConversations 列出对话会话
@@ -198,4 +199,28 @@ func ratelimitStats(c *gin.Context) {
 	}
 	stats := ratelimit.Default.Stats()
 	c.JSON(http.StatusOK, gin.H{"code": apipb.Code_Success, "data": stats})
+}
+
+// setRatelimitConfig 设置指定 principal 的令牌桶速率与突发容量。
+// 请求体: {"ratePerSecond": 10, "burst": 20}。配置立即生效（桶重置为满）。
+func setRatelimitConfig(c *gin.Context) {
+	principalID := c.Param("principal")
+	if principalID == "" {
+		writeBadRequest(c, errStr("缺少 principal"))
+		return
+	}
+	var req struct {
+		RatePerSecond int `json:"ratePerSecond"`
+		Burst         int `json:"burst"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeBadRequest(c, err)
+		return
+	}
+	if req.RatePerSecond <= 0 || req.Burst <= 0 {
+		writeBadRequest(c, errStr("ratePerSecond 和 burst 必须为正数"))
+		return
+	}
+	ratelimit.SetBudgetRateLimit(principalID, req.RatePerSecond, req.Burst)
+	writeOK(c, gin.H{"principal": principalID, "ratePerSecond": req.RatePerSecond, "burst": req.Burst})
 }

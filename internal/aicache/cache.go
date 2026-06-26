@@ -50,6 +50,7 @@ type Cache struct {
 	config      CacheConfig
 	stats       CacheStats
 	embeddingFn EmbeddingFunc
+	embedWG     sync.WaitGroup // 跟踪进行中的异步嵌入计算，便于测试等待
 }
 
 // CacheStats holds cache performance statistics
@@ -189,13 +190,12 @@ func (c *Cache) Set(prompt, response, modelName string, promptTokens, compTokens
 		Prompt:       prompt,
 	}
 
-	// 若有 embeddingFn，为该 prompt 计算嵌入（用于后续语义匹配）
+	// 若有 embeddingFn，异步为该 prompt 计算嵌入（避免阻塞当前请求）。
+	// 嵌入在后台算好后写回条目：写时持锁，semanticMatch 也在锁内判定 embedding==nil，
+	// 因此 nil→set 的转换由互斥量同步，转换后字段不再变化，无数据竞争。
 	c.mu.RLock()
 	fn := c.embeddingFn
 	c.mu.RUnlock()
-	if fn != nil && len(prompt) > 20 {
-		entry.embedding = fn(prompt)
-	}
 
 	c.mu.Lock()
 	c.entries[hash] = entry
@@ -204,6 +204,24 @@ func (c *Cache) Set(prompt, response, modelName string, promptTokens, compTokens
 
 	// Persist to DB asynchronously（不持久化 embedding/Prompt 字段）
 	go c.persistEntry(entry)
+
+	// 异步计算嵌入并写回（仅当条目仍是当前条目时，避免写入被淘汰/替换的条目）
+	if fn != nil && len(prompt) > 20 {
+		c.embedWG.Add(1)
+		go func() {
+			defer c.embedWG.Done()
+			defer func() { _ = recover() }()
+			emb := fn(prompt)
+			if emb == nil {
+				return
+			}
+			c.mu.Lock()
+			if cur, ok := c.entries[hash]; ok && cur == entry {
+				entry.embedding = emb
+			}
+			c.mu.Unlock()
+		}()
+	}
 
 	// 淘汰超额条目
 	c.EnforceMaxEntries()
@@ -219,6 +237,27 @@ func (c *Cache) Clear() {
 	if store.DB() != nil {
 		store.DB().Exec("DELETE FROM ai_cache_entries")
 	}
+}
+
+// CleanupExpired removes entries whose TTL has elapsed, from both memory and DB.
+// 用于回收 loadFromDB 不会重载、但 EnforceMaxEntries（按数量淘汰）也不会删除的过期 DB 行。
+func (c *Cache) CleanupExpired() int {
+	now := time.Now()
+	c.mu.Lock()
+	var expired []string
+	for hash, e := range c.entries {
+		if now.After(e.ExpiresAt) {
+			delete(c.entries, hash)
+			expired = append(expired, hash)
+		}
+	}
+	c.stats.Entries = len(c.entries)
+	c.mu.Unlock()
+
+	if len(expired) > 0 && store.DB() != nil {
+		store.DB().Where("prompt_hash IN ?", expired).Delete(&CacheEntry{})
+	}
+	return len(expired)
 }
 
 // Stats returns current cache statistics
@@ -412,4 +451,23 @@ func Stats() CacheStats {
 		return CacheStats{}
 	}
 	return Default.Stats()
+}
+
+// CleanupExpired removes expired entries from the default cache (memory + DB).
+func CleanupExpired() int {
+	if Default == nil {
+		return 0
+	}
+	return Default.CleanupExpired()
+}
+
+func init() {
+	// 每小时清理一次过期缓存条目（内存 + DB），避免 ai_cache_entries 累积过期行。
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			CleanupExpired()
+		}
+	}()
 }
