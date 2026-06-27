@@ -1,0 +1,173 @@
+package http_test
+
+import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/CloudSilk/usercenter/internal/apikey"
+	"github.com/CloudSilk/usercenter/internal/gatewaylog"
+	"github.com/CloudSilk/usercenter/internal/principal"
+	"github.com/CloudSilk/usercenter/internal/store"
+	"github.com/CloudSilk/usercenter/internal/usage"
+	userhttp "github.com/CloudSilk/usercenter/http"
+)
+
+// seedAIProvider 在测试 DB 中播种一个指向 baseURL 的服务商 + Key + 路由，
+// 使 ChatCompletions 的 forwardWithRetry → apikey.SelectKey 能选到它。
+func seedAIProvider(t *testing.T, baseURL, modelAlias string) {
+	t.Helper()
+	apikey.SetEncryptionKeyFrom("test-encryption-key") // 派生 AES-GCM 密钥，CreateKey 加密明文
+
+	p := &apikey.AIProvider{
+		TenantID: platformTenant,
+		Name:     "mock-provider",
+		BaseURL:  baseURL,
+		AuthType: "bearer",
+		Healthy:  true,
+	}
+	pid, err := apikey.CreateProvider(p)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	k := &apikey.AIKey{
+		TenantID:   platformTenant,
+		ProviderID: pid,
+		Name:       "mock-key",
+		Priority:   0,
+		Enable:     true,
+	}
+	if _, err := apikey.CreateKey(k, "sk-mock-plaintext"); err != nil {
+		t.Fatalf("create key: %v", err)
+	}
+	rt := &apikey.ModelRoute{
+		TenantID:   platformTenant,
+		ModelAlias: modelAlias,
+		ProviderID: pid,
+		Priority:   0,
+		Enable:     true,
+	}
+	if _, err := apikey.CreateRoute(rt); err != nil {
+		t.Fatalf("create route: %v", err)
+	}
+}
+
+// newAIGatewayEngine 构造一个注入 Human Principal 的 gin 引擎并注册 AI 网关路由。
+func newAIGatewayEngine(userID, tenantID string) *gin.Engine {
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("Principal", principal.NewHuman(userID, tenantID, nil))
+		c.Next()
+	})
+	userhttp.RegisterAIGatewayRouter(r)
+	return r
+}
+
+// TestChatCompletions_E2E 端到端验证整条链路：
+// 请求 → 限流 → 解析 → 配额 → 路由选 Key(解密) → 转发 mock 上游 → 计量/日志落库。
+func TestChatCompletions_E2E(t *testing.T) {
+	// mock 上游：记录收到的鉴权头，返回固定 OpenAI 响应
+	var gotAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"x","choices":[{"message":{"role":"assistant","content":"pong"}}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`))
+	}))
+	defer upstream.Close()
+
+	seedAIProvider(t, upstream.URL, "mock-model")
+	r := newAIGatewayEngine("u1", platformTenant)
+
+	body := []byte(`{"model":"mock-model","messages":[{"role":"user","content":"ping"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte("pong")) {
+		t.Fatalf("expected response to contain 'pong', got %s", w.Body.String())
+	}
+	// 上游应收到解密后的 Bearer 明文 key（验证加密存储→解密转发链路）
+	if gotAuth != "Bearer sk-mock-plaintext" {
+		t.Fatalf("expected upstream Authorization 'Bearer sk-mock-plaintext', got %q", gotAuth)
+	}
+	// 用量记录应落库
+	var usageCount int64
+	store.DB().Model(&usage.UsageRecord{}).Where("model_name = ?", "mock-model").Count(&usageCount)
+	if usageCount != 1 {
+		t.Fatalf("expected 1 usage record for mock-model, got %d", usageCount)
+	}
+	// 网关日志应落库
+	var logCount int64
+	store.DB().Model(&gatewaylog.GatewayLog{}).Where("model_alias = ?", "mock-model").Count(&logCount)
+	if logCount != 1 {
+		t.Fatalf("expected 1 gateway log for mock-model, got %d", logCount)
+	}
+}
+
+// TestChatCompletions_E2E_QuotaBlocked 验证无可用路由时返回 502（forwardWithRetry 失败链路）。
+func TestChatCompletions_E2E_NoRoute(t *testing.T) {
+	r := newAIGatewayEngine("u2", platformTenant)
+	// 不播种任何 provider/route → SelectKey 失败 → 502
+
+	body := []byte(`{"model":"nonexistent-model","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 for missing route, got %d (body=%s)", w.Code, w.Body.String())
+	}
+}
+
+// TestChatCompletions_E2E_MissingModel 验证缺 model 字段返回 400。
+func TestChatCompletions_E2E_MissingModel(t *testing.T) {
+	r := newAIGatewayEngine("u3", platformTenant)
+
+	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing model, got %d (body=%s)", w.Code, w.Body.String())
+	}
+}
+
+// TestCheckBudget_EnforcesModelBudget 回归测试：验证按模型配额能真正拦截。
+// 修复前 CheckBudget 查询列名写成 model（实际为 model_name），导致 SQL 报错被当作
+// "无预算"放行 —— 配额被静默绕过。此用例在修复前会失败（allowed=true），修复后通过。
+func TestCheckBudget_EnforcesModelBudget(t *testing.T) {
+	// 种子：平台租户 + 模型日 token 上限 10
+	budget := &usage.UsageBudget{
+		TenantID:        platformTenant,
+		ModelName:       "mock-budget-model",
+		DailyTokenLimit: 10,
+		Enable:          true,
+	}
+	if err := store.DB().Create(budget).Error; err != nil {
+		t.Fatalf("create budget: %v", err)
+	}
+	// 种子：一条当日用量 total_tokens=20（超额）
+	usage.RecordUsage(&usage.UsageRecord{
+		TenantID:      platformTenant,
+		ModelName:     "mock-budget-model",
+		PromptTokens:  20,
+		PrincipalKind: 0,
+	})
+
+	allowed, _, _, err := usage.CheckBudget(platformTenant, "", "mock-budget-model")
+	if err != nil {
+		t.Fatalf("check budget: %v", err)
+	}
+	if allowed {
+		t.Fatal("expected budget to BLOCK (daily limit 10, used 20), got allowed=true")
+	}
+}

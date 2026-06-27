@@ -164,7 +164,7 @@ func CheckBudget(tenantID, principalID, modelName string) (allowed bool, dailyTo
 		db = db.Where("principal_id IN (?, '')", principalID)
 	}
 	if modelName != "" {
-		db = db.Where("model IN (?, '')", modelName)
+		db = db.Where("model_name IN (?, '')", modelName)
 	}
 	if e := db.First(budget).Error; e != nil {
 		return true, 0, 0, nil // 无预算 = 不限制
