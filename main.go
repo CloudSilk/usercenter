@@ -23,6 +23,7 @@ import (
 	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/alert"
+	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/bootstrap"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/provider"
@@ -116,6 +117,8 @@ func main() {
 		LoginLockMaxErr:  ucconfig.DefaultConfig.LoginLock.MaxErrCount,
 		LoginLockMinutes: ucconfig.DefaultConfig.LoginLock.LockMinutes,
 	})
+	// 密码过期策略：0=永不过期；>0 表示 N 天后强制改密。
+	auth.SetPwdMaxAge(ucconfig.DefaultConfig.PwdExpiredDays)
 	// 首次部署：users 表为空时自动播种平台租户 + 超级管理员角色 + 初始管理员。
 	// 口令取 defaultPwd 配置，未配置则随机生成并打印；初始账号强制首登改密。
 	bootstrap.SeedAdmin(ucconfig.DefaultConfig.PlatformTenantID, ucconfig.DefaultConfig.SuperAdminRoleID, ucconfig.DefaultConfig.DefaultPwd)

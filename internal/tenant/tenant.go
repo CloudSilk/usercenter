@@ -8,6 +8,7 @@ import (
 
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils"
+	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/store"
 	apipb "github.com/CloudSilk/usercenter/proto"
@@ -82,6 +83,9 @@ func CreateTenant(m *Tenant) error {
 	if duplication {
 		return errors.New("存在相同租户")
 	}
+	alert.FireEvent("tenant.created", map[string]interface{}{
+		"id": m.ID, "name": m.Name,
+	})
 	return nil
 }
 

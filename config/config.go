@@ -143,6 +143,8 @@ type Config struct {
 	// ModerationFailOpen 内容审核服务不可用时的策略。
 	// nil（未配置）= fail-open（放行，保证可用性）；false = fail-close（拒绝，合规场景）。
 	ModerationFailOpen *bool `yaml:"moderationFailOpen"`
+	// PwdExpiredDays 密码过期天数（0=永不过期），详见 internal/auth/pwdexpiry.go。
+	PwdExpiredDays int `yaml:"pwdExpiredDays"`
 }
 
 // AICacheConfig AI 网关语义缓存配置。

@@ -9,6 +9,7 @@ import (
 	"dubbo.apache.org/dubbo-go/v3/config"
 	"github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/alert"
+	"github.com/CloudSilk/usercenter/internal/apikeyauth"
 	"github.com/CloudSilk/usercenter/internal/authn"
 	"github.com/CloudSilk/usercenter/internal/principal"
 	apipb "github.com/CloudSilk/usercenter/proto"
@@ -116,6 +117,20 @@ func AuthRequired(c *gin.Context) {
 		path == "/health" || path == "/metrics" || path == "/admin/api/audit/stream" ||
 		strings.HasPrefix(path, "/api/oauth/") || path == "/api/social/providers" {
 		return
+	}
+	// API Key authentication (alternative to Bearer JWT)
+	if apiKey := c.GetHeader("X-API-Key"); apiKey != "" {
+		if keyAuth, err := apikeyauth.ValidateKey(apiKey); err == nil && keyAuth != nil {
+			p := principal.NewService(keyAuth.PrincipalID, keyAuth.TenantID, strings.Split(keyAuth.Roles, ","))
+			c.Set("Principal", p)
+			u := &apipb.CurrentUser{
+				Id: keyAuth.PrincipalID, TenantID: keyAuth.TenantID,
+				UserName: keyAuth.Name, RoleIDs: strings.Split(keyAuth.Roles, ","),
+			}
+			c.Set("User", u)
+			return
+		}
+		// Invalid API key — continue to JWT auth (don't abort, let JWT handle it)
 	}
 	t := GetAccessToken(c)
 	p, currentUser, code, err := authn.AuthenticatePrincipal(t, c.Request.Method, c.Request.URL.Path, true)

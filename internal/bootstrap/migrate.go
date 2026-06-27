@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/CloudSilk/usercenter/internal/aicache"
+	"github.com/CloudSilk/usercenter/internal/apikeyauth"
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/app"
 	"github.com/CloudSilk/usercenter/internal/audit"
@@ -27,6 +28,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/session"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/systemconfig"
+	"github.com/CloudSilk/usercenter/internal/webhook"
 	"github.com/CloudSilk/usercenter/internal/tenant"
 	"github.com/CloudSilk/usercenter/internal/usage"
 	"github.com/CloudSilk/usercenter/internal/user"
@@ -74,6 +76,10 @@ func AutoMigrate() error {
 		&conversation.Session{}, &conversation.Message{},
 		&gatewaylog.GatewayLog{},
 		&aicache.CacheEntry{},
+		// API Key authentication for external services
+		&apikeyauth.APIKeyAuth{},
+		// Webhook 事件订阅
+		&webhook.Subscription{},
 	)
 }
 

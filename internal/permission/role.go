@@ -11,6 +11,7 @@ import (
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils"
 	"github.com/CloudSilk/pkg/utils/log"
+	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/store"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"gorm.io/gorm"
@@ -223,6 +224,9 @@ func UpdateRole(newRole *Role) error {
 	if err := updateRoleAuth(newRole.ID); err != nil {
 		log.Errorf(context.Background(), "更新角色权限失败:%v", err)
 	}
+	alert.FireEvent("role.updated", map[string]interface{}{
+		"id": newRole.ID, "name": newRole.Name, "tenantID": newRole.TenantID,
+	})
 	return nil
 }
 

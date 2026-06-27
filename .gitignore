@@ -26,4 +26,5 @@ model/db_test.go
 
 # E2E 截图产物
 web/admin-ui/e2e/*.png
+web/admin-ui/test-results/.claude/
 web/admin-ui/test-results/

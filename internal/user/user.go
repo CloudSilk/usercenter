@@ -11,6 +11,7 @@ import (
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils"
 	"github.com/CloudSilk/pkg/utils/log"
+	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/permission"
@@ -50,6 +51,7 @@ type User struct {
 	ProjectID      string      `json:"projectID" gorm:"index;size:36"`
 	UserName       string      `json:"userName" validate:"required" gorm:"size:50;index;comment:用户登录名"`
 	Password       string      `json:"password" gorm:"size:200;comment:用户登录密码"`
+	PasswordUpdatedAt int64    `json:"passwordUpdatedAt" gorm:"default:0;comment:密码最后修改时间(unix)"`
 	Nickname       string      `json:"nickname" validate:"required" gorm:"size:100;index;default:未设置;comment:用户昵称"`
 	UserRoles      []*UserRole `json:"userRoles"`
 	RoleIDs        []string    `json:"roleIDs" gorm:"-"`
@@ -124,10 +126,11 @@ func CreateUser(user *User, isCreateFromWechat bool) error {
 		if err != nil {
 			return err
 		}
+		user.PasswordUpdatedAt = time.Now().Unix()
 	}
 	user.CanDel = true
 	user.UserName = strings.ToLower(user.UserName)
-	return store.DB().Transaction(func(tx *gorm.DB) error {
+	err := store.DB().Transaction(func(tx *gorm.DB) error {
 		count, err := statisticUserCount(tx, 0, user.TenantID, "")
 		if err != nil {
 			return err
@@ -160,24 +163,36 @@ func CreateUser(user *User, isCreateFromWechat bool) error {
 		}
 		return nil
 	})
+	if err == nil {
+		alert.FireEvent("user.created", map[string]interface{}{
+			"id": user.ID, "userName": user.UserName, "tenantID": user.TenantID,
+		})
+	}
+	return err
 }
 
 func DeleteUser(id string) (err error) {
-	return store.DB().Transaction(func(tx *gorm.DB) error {
-		var oldUser User
-		err := tx.Where("id = ?", id).First(&oldUser).Error
-		if err != nil {
-			return err
+	var oldUser User
+	_ = store.DB().Where("id = ?", id).First(&oldUser).Error
+	txErr := store.DB().Transaction(func(tx *gorm.DB) error {
+		var exists User
+		if e := tx.Where("id = ?", id).First(&exists).Error; e != nil {
+			return e
 		}
-		if !oldUser.CanDel {
+		if !exists.CanDel {
 			return errors.New("此用户不允许删除")
 		}
-		err = store.DB().Unscoped().Delete(&UserRole{}, "user_id=?", id).Error
-		if err != nil {
-			return err
+		if e := store.DB().Unscoped().Delete(&UserRole{}, "user_id=?", id).Error; e != nil {
+			return e
 		}
 		return store.DB().Delete(&User{}, "id=?", id).Error
 	})
+	if txErr == nil {
+		alert.FireEvent("user.deleted", map[string]interface{}{
+			"id": oldUser.ID, "userName": oldUser.UserName, "tenantID": oldUser.TenantID,
+		})
+	}
+	return txErr
 }
 
 func QueryUser(req *apipb.QueryUserRequest, resp *apipb.QueryUserResponse, preload bool) {
@@ -312,10 +327,11 @@ func ResetPwd(id string, pwd string) error {
 		return err
 	}
 	return store.DB().Model(&User{}).Where("id=?", id).UpdateColumns(map[string]interface{}{
-		"password":         password,
-		"force_change_pwd": true,
-		"err_number":       0,
-		"locked_expired":   0,
+		"password":          password,
+		"force_change_pwd":  true,
+		"password_updated_at": time.Now().Unix(),
+		"err_number":        0,
+		"locked_expired":    0,
 	}).Error
 }
 
@@ -409,6 +425,11 @@ func Login(req *apipb.LoginRequest, resp *apipb.LoginResponse) {
 		return
 	}
 	clearLoginFailure(u.ID)
+	if auth.IsPwdExpired(u.PasswordUpdatedAt) {
+		resp.Code = 41007
+		resp.Message = "密码已过期，请修改密码"
+		return
+	}
 	currentUser := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
 		RoleIDs: u.GetRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
@@ -780,6 +801,11 @@ func LoginByStaffNo(req *apipb.LoginByStaffNoRequest, resp *apipb.LoginByStaffNo
 		return
 	}
 	clearLoginFailure(u.ID)
+	if auth.IsPwdExpired(u.PasswordUpdatedAt) {
+		resp.Code = 41007
+		resp.Message = "密码已过期，请修改密码"
+		return
+	}
 	currentUser := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
 		RoleIDs: u.GetRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
