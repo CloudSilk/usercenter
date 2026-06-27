@@ -24,6 +24,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
@@ -91,11 +92,12 @@ type Adapter struct {
 func finalizer(a *Adapter) {
 	sqlDB, err := a.db.DB()
 	if err != nil {
-		panic(err)
+		log.Errorf(context.Background(), "finalizer get DB failed: %v", err)
+		return
 	}
 	err = sqlDB.Close()
 	if err != nil {
-		panic(err)
+		log.Errorf(context.Background(), "finalizer close DB failed: %v", err)
 	}
 }
 
@@ -222,11 +224,11 @@ func NewAdapterByDBUseTableName(db *gorm.DB, prefix string, tableName string) (*
 // a = initAdapterWithGormInstanceByMulDb(t,dbPool,"casbin2","","casbin_rule2")/*
 func InitDbResolver(dbArr []gorm.Dialector, dbNames []string) (DbPool, error) {
 	if len(dbArr) == 0 {
-		panic("dbArr len is 0")
+		return DbPool{}, fmt.Errorf("dbArr is empty")
 	}
 	source, e := gorm.Open(dbArr[0])
 	if e != nil {
-		panic(e.Error())
+		return DbPool{}, e
 	}
 	var p specificPolicy
 	p = 0
@@ -708,9 +710,8 @@ func (a *Adapter) Transaction(e casbin.IEnforcer, fc func(casbin.IEnforcer) erro
 	// reload policy from database to sync with the transaction
 	defer func() {
 		e.SetAdapter(&Adapter{db: oriAdapter})
-		err = e.LoadPolicy()
-		if err != nil {
-			panic(err)
+		if err := e.LoadPolicy(); err != nil {
+			log.Errorf(context.Background(), "reload policy after transaction failed: %v", err)
 		}
 	}()
 	copyDB := *a.db
