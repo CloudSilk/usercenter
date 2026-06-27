@@ -58,7 +58,6 @@ func (u *WechatProvider) SendTplMsg(ctx context.Context, in *apipb.SendTplMsgReq
 			"value": v.Value,
 		}
 	}
-	fmt.Println(req)
 	result, err := wechatOpenPlatformWeb.SendTplMsg(req)
 
 	if err != nil {

@@ -1,0 +1,71 @@
+# UserCenter 配置示例
+# 复制此文件到 /etc/usercenter/config.yaml（或通过 Nacos 配置 usercenter-config / group: nooocode 加载）
+# 所有字段均可选；留空或 0 值 = 使用代码内默认值
+
+# ---- 数据库 ----
+mysql: "root:root123@tcp(127.0.0.1:3306)/usercenter?charset=utf8mb4&parseTime=True&loc=Local"
+sqlite: "/data/usercenter.db"
+dbType: "mysql"            # mysql | sqlite
+debug: true                # 开启 debug 也暴露 Swagger 文档
+
+# ---- Token / JWT ----
+token:
+  key: ""                  # JWT 签名密钥（必填生产；留空=panic）
+  redisAddr: ""            # token 缓存 Redis 地址（空=使用本地内存）
+  redisName: ""
+  redisPwd: ""
+  expired: 1440            # access_token 有效期（分钟，默认 1440=24h）
+
+# ---- 租户与角色 ----
+platformTenantID: "platform"
+superAdminRoleID: "1"
+defaultRoleID: "1"
+enableTenant: true
+
+# ---- 默认口令 ----
+defaultPwd: "Admin@123456"  # 首次部署播种管理员口令；留空=随机生成
+
+# ---- 登录锁定策略 ----
+loginLock:
+  maxErrCount: 5           # 连续失败次数上限（默认 5）
+  lockMinutes: 15          # 锁定时间（分钟，默认 15）
+
+# ---- 加密密钥隔离 ----
+apiKeyEncKey: ""           # AI Key AES-GCM 加密密钥（留空=从 token.key 派生）
+piiEncKey: ""              # PII 字段加密密钥（留空=从 token.key 派生）
+oidcSigningKey: ""         # OIDC id_token RS256 签名 PEM（留空=启动时自动生成 2048-bit RSA）
+
+# ---- 微信小程序 ----
+miniApp:
+  - id: ""
+    name: ""
+    secret: ""
+    tenantID: ""
+
+# ---- 告警 ----
+alertWebhookURL: ""        # 飞书/钉钉/Slack Webhook（空=禁用推送）
+
+# ---- 社交登录 ----
+socialLogins:
+  - provider: "github"
+    clientID: ""
+    clientSecret: ""
+    redirectURI: "https://yourdomain.com/api/oauth/github/callback"
+
+# ============ AI 网关增强配置（仅 v50+）============
+
+# -- 语义缓存 --
+aiCache:
+  enabled: true
+  similarityThreshold: 0.95   # 语义相似度阈值 0-1（默认 0.95）
+  ttlSeconds: 86400           # 缓存有效期秒（默认 86400 = 24h）
+  maxEntries: 10000           # 最多缓存条目数（默认 10000）
+
+# -- 辅助模型别名（非 OpenAI 部署时覆盖）--
+aiAuxModels:
+  title: "gpt-3.5-turbo"           # 会话标题生成模型
+  embedding: "text-embedding-3-small" # 语义缓存嵌入模型
+  moderation: "text-moderation-latest" # 内容审核模型
+
+# -- 审核策略 --
+moderationFailOpen: true           # 审核服务不可用时：true=放行（默认）；false=拒绝（合规场景）

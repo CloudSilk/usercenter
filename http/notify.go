@@ -4,7 +4,6 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/xml"
-	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -39,8 +38,6 @@ func WechatNotify(c *gin.Context) {
 	rawString := strings.Join(params, "")
 	hash := sha1.Sum([]byte(rawString))
 	hashString := hex.EncodeToString(hash[:])
-
-	fmt.Println(hashString, signature)
 	if signature != hashString {
 		c.Data(http.StatusOK, "text/html", []byte("非法请求"))
 		return
@@ -51,22 +48,17 @@ func WechatNotify(c *gin.Context) {
 		//解析消息
 		var msg WechatNotifyRequest
 		if err := c.ShouldBindXML(&msg); err != nil {
-			fmt.Println(err)
 			c.Data(http.StatusOK, "text/html", []byte("非法请求"))
 			return
 		}
-		//处理消息
-		fmt.Printf("消息：%#v\n", msg)
 		// 处理关注事件
 		if msg.MsgType == "event" && (msg.Event == "subscribe" || msg.Event == "SCAN") {
 			// 注册应用账号
 			resp, err := wechatOpenPlatformWeb.GetWechatOfficialAccoutUserInfo(msg.FromUserName)
 			if err != nil {
-				fmt.Println(err)
 				c.Data(http.StatusOK, "text/html", []byte("非法请求"))
 				return
 			}
-			fmt.Printf("获取用户基本信息(UnionID机制)：%#v\n", resp)
 			loginResp := &apipb.LoginResponse{
 				Code: apipb.Code_Success,
 			}
@@ -96,8 +88,6 @@ func WechatNotify(c *gin.Context) {
 					Content:      "欢迎关注我们的公众号，登录成功。",
 				})
 			} else {
-				wechatOpenPlatformWeb.UpdateQRConnectResult(msg.Ticket, true, false, loginResp.Data)
-				fmt.Printf("登录失败：%#v\n", loginResp)
 				c.XML(http.StatusOK, WechatNotifyRequest{
 					ToUserName:   msg.FromUserName,
 					FromUserName: msg.ToUserName,

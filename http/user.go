@@ -399,29 +399,24 @@ func ImportUser(c *gin.Context) {
 	resp := &apipb.QueryUserResponse{
 		Code: apipb.Code_Success,
 	}
-	file, fileHeader, err := c.Request.FormFile("files")
+	file, _, err := c.Request.FormFile("files")
 	if err != nil {
-		fmt.Println(err)
 		resp.Code = apipb.Code_BadRequest
 		resp.Message = err.Error()
 		c.JSON(http.StatusBadRequest, resp)
 		return
 	}
 	defer file.Close()
-	fmt.Println("filename: " + fileHeader.Filename)
 	buf, err := io.ReadAll(file)
 	if err != nil {
-		fmt.Println(err)
 		resp.Code = apipb.Code_BadRequest
 		resp.Message = err.Error()
 		c.JSON(http.StatusBadRequest, resp)
 		return
 	}
-
 	var list []*apipb.UserInfo
 	err = json.Unmarshal(buf, &list)
 	if err != nil {
-		fmt.Println(err)
 		resp.Code = apipb.Code_BadRequest
 		resp.Message = err.Error()
 		c.JSON(http.StatusBadRequest, resp)
@@ -436,7 +431,6 @@ func ImportUser(c *gin.Context) {
 		}
 		if err != nil {
 			failCount++
-			fmt.Println(err)
 		} else {
 			successCount++
 		}

@@ -189,7 +189,6 @@ func (u *UserProvider) Logout(ctx context.Context, in *apipb.LogoutRequest) (*ap
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	//TODO
 	err := user.Logout(in.Token)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError

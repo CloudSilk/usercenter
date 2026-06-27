@@ -97,13 +97,13 @@ func ClearCasbin(v int, p ...string) (bool, error) {
 func NewEnforcer() *casbin.Enforcer {
 	a, err := NewAdapterByDBWithCustomTable(store.DB(), &CasbinRule{})
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("创建 Casbin 适配器失败: %v", err))
 	}
 	m, _ := casbinmodel.NewModelFromString(rbacModel)
 
 	e, err := casbin.NewEnforcer(m, a)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("创建 Casbin Enforcer 失败: %v", err))
 	}
 	e.AddFunction("ParamsMatch", ParamsMatchFunc)
 	e.EnableAutoSave(false)

@@ -142,10 +142,7 @@ func ExtractorCurrentUser(t *jwt.Token) *apipb.CurrentUser {
 	if _, ok := claims["roleIDs"]; ok {
 		str, ok := claims["roleIDs"].(string)
 		if ok {
-			err := json.Unmarshal([]byte(str), &currentUser.RoleIDs)
-			if err != nil {
-				fmt.Println(err)
-			}
+			_ = json.Unmarshal([]byte(str), &currentUser.RoleIDs)
 		}
 	}
 
