@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/user"
 	"github.com/CloudSilk/usercenter/wechat"
 	apipb "github.com/CloudSilk/usercenter/proto"
@@ -16,7 +15,7 @@ type WechatProvider struct {
 
 func (u *WechatProvider) SendTplMsg(ctx context.Context, in *apipb.SendTplMsgRequest) (*apipb.SendTplMsgResponse, error) {
 	resp := &apipb.SendTplMsgResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	wechatOpenPlatformWeb := wechat.GetWechatOpenPlatformWeb(in.App)
 	if wechatOpenPlatformWeb == nil {

@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 
-	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
@@ -14,7 +13,7 @@ type APIProvider struct {
 
 func (u *APIProvider) Add(ctx context.Context, in *apipb.APIInfo) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := permission.CreateAPI(permission.PBToAPI(in))
 	if err != nil {
@@ -26,7 +25,7 @@ func (u *APIProvider) Add(ctx context.Context, in *apipb.APIInfo) (*apipb.Common
 
 func (u *APIProvider) Update(ctx context.Context, in *apipb.APIInfo) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := permission.UpdateAPI(permission.PBToAPI(in))
 	if err != nil {
@@ -38,7 +37,7 @@ func (u *APIProvider) Update(ctx context.Context, in *apipb.APIInfo) (*apipb.Com
 
 func (u *APIProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := permission.DeleteApi(in.Id)
 	if err != nil {
@@ -50,7 +49,7 @@ func (u *APIProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*apipb.
 
 func (u *APIProvider) Query(ctx context.Context, in *apipb.QueryAPIRequest) (*apipb.QueryAPIResponse, error) {
 	resp := &apipb.QueryAPIResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	permission.QueryAPI(in, resp)
 	return resp, nil
@@ -58,7 +57,7 @@ func (u *APIProvider) Query(ctx context.Context, in *apipb.QueryAPIRequest) (*ap
 
 func (u *APIProvider) Enable(ctx context.Context, in *apipb.EnableRequest) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := permission.EnableAPI(in.Id, in.Enable)
 	if err != nil {
@@ -70,7 +69,7 @@ func (u *APIProvider) Enable(ctx context.Context, in *apipb.EnableRequest) (*api
 
 func (u *APIProvider) GetAll(ctx context.Context, in *apipb.QueryAPIRequest) (*apipb.GetAllAPIResponse, error) {
 	resp := &apipb.GetAllAPIResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	apis, err := permission.GetAllAPIs(in)
 	if err != nil {
@@ -85,7 +84,7 @@ func (u *APIProvider) GetAll(ctx context.Context, in *apipb.QueryAPIRequest) (*a
 
 func (u *APIProvider) GetDetail(ctx context.Context, in *apipb.GetDetailRequest) (*apipb.GetAPIDetailResponse, error) {
 	resp := &apipb.GetAPIDetailResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	api, err := permission.GetAPIById(in.Id)
 	if err != nil {

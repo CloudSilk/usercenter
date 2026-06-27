@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 
-	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	apipb "github.com/CloudSilk/usercenter/proto"
 )
@@ -14,7 +13,7 @@ type MenuProvider struct {
 
 func (u *MenuProvider) Add(ctx context.Context, in *apipb.MenuInfo) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := permission.AddMenu(permission.PBToMenu(in))
 	if err != nil {
@@ -26,7 +25,7 @@ func (u *MenuProvider) Add(ctx context.Context, in *apipb.MenuInfo) (*apipb.Comm
 
 func (u *MenuProvider) Update(ctx context.Context, in *apipb.MenuInfo) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := permission.UpdateMenu(permission.PBToMenu(in))
 	if err != nil {
@@ -38,7 +37,7 @@ func (u *MenuProvider) Update(ctx context.Context, in *apipb.MenuInfo) (*apipb.C
 
 func (u *MenuProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := permission.DeleteMenu(in.Id)
 	if err != nil {
@@ -50,7 +49,7 @@ func (u *MenuProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*apipb
 
 func (u *MenuProvider) Query(ctx context.Context, in *apipb.QueryMenuRequest) (*apipb.QueryMenuResponse, error) {
 	resp := &apipb.QueryMenuResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	permission.QueryMenu(in, resp, false)
 	return resp, nil
@@ -58,7 +57,7 @@ func (u *MenuProvider) Query(ctx context.Context, in *apipb.QueryMenuRequest) (*
 
 func (u *MenuProvider) GetAll(ctx context.Context, in *apipb.QueryMenuRequest) (*apipb.GetAllMenuResponse, error) {
 	resp := &apipb.GetAllMenuResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	menus, err := permission.GetAllMenus(in)
 	if err != nil {
@@ -73,7 +72,7 @@ func (u *MenuProvider) GetAll(ctx context.Context, in *apipb.QueryMenuRequest) (
 
 func (u *MenuProvider) GetDetail(ctx context.Context, in *apipb.GetDetailRequest) (*apipb.GetMenuDetailResponse, error) {
 	resp := &apipb.GetMenuDetailResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	menu, err := permission.GetMenuByID(in.Id)
 	if err != nil {

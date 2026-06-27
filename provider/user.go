@@ -14,7 +14,7 @@ type UserProvider struct {
 
 func (u *UserProvider) LoginByStaffNo(ctx context.Context, in *apipb.LoginByStaffNoRequest) (*apipb.LoginByStaffNoResponse, error) {
 	resp := &apipb.LoginByStaffNoResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	user.LoginByStaffNo(in, resp)
 	return resp, nil
@@ -22,7 +22,7 @@ func (u *UserProvider) LoginByStaffNo(ctx context.Context, in *apipb.LoginByStaf
 
 func (u *UserProvider) LogoutByUserName(ctx context.Context, in *apipb.LogoutByUserNameRequest) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 
 	user.LogoutByUserName(in, resp)
@@ -32,7 +32,7 @@ func (u *UserProvider) LogoutByUserName(ctx context.Context, in *apipb.LogoutByU
 
 func (u *UserProvider) Login(ctx context.Context, in *apipb.LoginRequest) (*apipb.LoginResponse, error) {
 	resp := &apipb.LoginResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	user.Login(in, resp)
 	return resp, nil
@@ -40,7 +40,7 @@ func (u *UserProvider) Login(ctx context.Context, in *apipb.LoginRequest) (*apip
 
 func (u *UserProvider) Add(ctx context.Context, in *apipb.UserInfo) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	usr := user.PBToUser(in)
 	usr.Password = in.Password
@@ -54,7 +54,7 @@ func (u *UserProvider) Add(ctx context.Context, in *apipb.UserInfo) (*apipb.Comm
 
 func (u *UserProvider) Update(ctx context.Context, in *apipb.UserInfo) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := user.UpdateUser(user.PBToUser(in))
 	if err != nil {
@@ -66,7 +66,7 @@ func (u *UserProvider) Update(ctx context.Context, in *apipb.UserInfo) (*apipb.C
 
 func (u *UserProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := user.DeleteUser(in.Id)
 	if err != nil {
@@ -78,7 +78,7 @@ func (u *UserProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*apipb
 
 func (u *UserProvider) Query(ctx context.Context, in *apipb.QueryUserRequest) (*apipb.QueryUserResponse, error) {
 	resp := &apipb.QueryUserResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	user.QueryUser(in, resp, false)
 	return resp, nil
@@ -86,7 +86,7 @@ func (u *UserProvider) Query(ctx context.Context, in *apipb.QueryUserRequest) (*
 
 func (u *UserProvider) GetProfile(ctx context.Context, in *apipb.GetDetailRequest) (*apipb.GetProfileResponse, error) {
 	resp := &apipb.GetProfileResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	usrProfile, err := user.GetUserProfile(in.Id, true)
 	if err != nil {
@@ -99,7 +99,7 @@ func (u *UserProvider) GetProfile(ctx context.Context, in *apipb.GetDetailReques
 
 func (u *UserProvider) UpdateProfile(ctx context.Context, in *apipb.UserProfile) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := user.UpdateProfile(user.UserProfileToUser(in), false)
 	if err != nil {
@@ -111,7 +111,7 @@ func (u *UserProvider) UpdateProfile(ctx context.Context, in *apipb.UserProfile)
 
 func (u *UserProvider) UpdateProfileAndUserName(ctx context.Context, in *apipb.UserProfile) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := user.UpdateProfile(user.UserProfileToUser(in), true)
 	if err != nil {
@@ -123,7 +123,7 @@ func (u *UserProvider) UpdateProfileAndUserName(ctx context.Context, in *apipb.U
 
 func (u *UserProvider) Enable(ctx context.Context, in *apipb.EnableRequest) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := user.EnableUser(in.Id, in.Enable)
 	if err != nil {
@@ -135,7 +135,7 @@ func (u *UserProvider) Enable(ctx context.Context, in *apipb.EnableRequest) (*ap
 
 func (u *UserProvider) GetAll(ctx context.Context, in *apipb.GetAllUsersRequest) (*apipb.GetAllUsersResponse, error) {
 	resp := &apipb.GetAllUsersResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	users, err := user.GetAllUsers(in)
 	if err != nil {
@@ -150,7 +150,7 @@ func (u *UserProvider) GetAll(ctx context.Context, in *apipb.GetAllUsersRequest)
 
 func (u *UserProvider) GetDetail(ctx context.Context, in *apipb.GetDetailRequest) (*apipb.GetUserDetailResponse, error) {
 	resp := &apipb.GetUserDetailResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	usr, err := user.GetUserById(in.Id)
 	if err != nil {
@@ -163,7 +163,7 @@ func (u *UserProvider) GetDetail(ctx context.Context, in *apipb.GetDetailRequest
 
 func (u *UserProvider) ResetPwd(ctx context.Context, in *apipb.GetDetailRequest) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := user.ResetPwd(in.Id, user.DefaultPwd)
 	if err != nil {
@@ -175,7 +175,7 @@ func (u *UserProvider) ResetPwd(ctx context.Context, in *apipb.GetDetailRequest)
 
 func (u *UserProvider) ChangePwd(ctx context.Context, in *apipb.ChangePwdRequest) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := user.UpdatePwd(in.Id, in.OldPwd, in.NewPwd)
 	if err != nil {
@@ -187,7 +187,7 @@ func (u *UserProvider) ChangePwd(ctx context.Context, in *apipb.ChangePwdRequest
 
 func (u *UserProvider) Logout(ctx context.Context, in *apipb.LogoutRequest) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	//TODO
 	err := user.Logout(in.Token)
@@ -200,7 +200,7 @@ func (u *UserProvider) Logout(ctx context.Context, in *apipb.LogoutRequest) (*ap
 
 func (u *UserProvider) StatisticCount(ctx context.Context, in *apipb.StatisticUserCountRequest) (*apipb.StatisticCountResponse, error) {
 	resp := &apipb.StatisticCountResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	count, err := user.StatisticUserCount(int(in.Type), in.TenantID, in.Group)
 	if err != nil {
@@ -224,7 +224,7 @@ func (u *UserProvider) Export(ctx context.Context, in *apipb.CommonExportRequest
 
 func (u *UserProvider) UpdateBasics(ctx context.Context, in *apipb.BasicsInfo) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	i := &user.User{
 		TenantModel: commonmodel.TenantModel{
@@ -247,7 +247,7 @@ func (u *UserProvider) UpdateBasics(ctx context.Context, in *apipb.BasicsInfo) (
 
 func (u *UserProvider) GetBasics(ctx context.Context, in *apipb.GetDetailRequest) (*apipb.GetBasicsResponse, error) {
 	resp := &apipb.GetBasicsResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	usr, err := user.GetUserById(in.Id)
 	if err != nil {
@@ -260,7 +260,7 @@ func (u *UserProvider) GetBasics(ctx context.Context, in *apipb.GetDetailRequest
 
 func (u *UserProvider) UpdateUserAgeHeightWeight(ctx context.Context, in *apipb.UpdateUserAgeHeightWeightRequest) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	i := &user.User{
 		TenantModel: commonmodel.TenantModel{

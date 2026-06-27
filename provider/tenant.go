@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/CloudSilk/pkg/constants"
-	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/tenant"
 	"github.com/CloudSilk/usercenter/internal/user"
@@ -17,7 +16,7 @@ type TenantProvider struct {
 
 func (u *TenantProvider) Add(ctx context.Context, in *apipb.TenantInfo) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	err := tenant.CreateTenant(tenant.PBToTenant(in))
 	if err != nil {
@@ -29,10 +28,10 @@ func (u *TenantProvider) Add(ctx context.Context, in *apipb.TenantInfo) (*apipb.
 
 func (u *TenantProvider) Update(ctx context.Context, in *apipb.TenantInfo) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	if in.Id == constants.PlatformTenantID {
-		resp.Code = commonmodel.BadRequest
+		resp.Code = apipb.Code_BadRequest
 		resp.Message = "平台租户不允许更新"
 		return resp, nil
 	}
@@ -46,10 +45,10 @@ func (u *TenantProvider) Update(ctx context.Context, in *apipb.TenantInfo) (*api
 
 func (u *TenantProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	if in.Id == constants.PlatformTenantID {
-		resp.Code = commonmodel.BadRequest
+		resp.Code = apipb.Code_BadRequest
 		resp.Message = "平台租户不允许删除"
 		return resp, nil
 	}
@@ -63,7 +62,7 @@ func (u *TenantProvider) Delete(ctx context.Context, in *apipb.DelRequest) (*api
 
 func (u *TenantProvider) Query(ctx context.Context, in *apipb.QueryTenantRequest) (*apipb.QueryTenantResponse, error) {
 	resp := &apipb.QueryTenantResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	tenant.QueryTenant(in, resp)
 	return resp, nil
@@ -71,10 +70,10 @@ func (u *TenantProvider) Query(ctx context.Context, in *apipb.QueryTenantRequest
 
 func (u *TenantProvider) Enable(ctx context.Context, in *apipb.EnableRequest) (*apipb.CommonResponse, error) {
 	resp := &apipb.CommonResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	if in.Id == constants.PlatformTenantID {
-		resp.Code = commonmodel.BadRequest
+		resp.Code = apipb.Code_BadRequest
 		resp.Message = "平台租户不允许更新"
 		return resp, nil
 	}
@@ -88,7 +87,7 @@ func (u *TenantProvider) Enable(ctx context.Context, in *apipb.EnableRequest) (*
 
 func (u *TenantProvider) GetAll(ctx context.Context, in *apipb.GetAllRequest) (*apipb.GetAllTenantResponse, error) {
 	resp := &apipb.GetAllTenantResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	users, err := tenant.GetAllTenant()
 	if err != nil {
@@ -103,7 +102,7 @@ func (u *TenantProvider) GetAll(ctx context.Context, in *apipb.GetAllRequest) (*
 
 func (u *TenantProvider) GetDetail(ctx context.Context, in *apipb.GetDetailRequest) (*apipb.GetTenantDetailResponse, error) {
 	resp := &apipb.GetTenantDetailResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	tenant1, err := tenant.GetTenantByID(in.Id)
 	if err != nil {
@@ -116,7 +115,7 @@ func (u *TenantProvider) GetDetail(ctx context.Context, in *apipb.GetDetailReque
 
 func (u *TenantProvider) StatisticCount(ctx context.Context, in *apipb.StatisticTenantCountRequest) (*apipb.StatisticCountResponse, error) {
 	resp := &apipb.StatisticCountResponse{
-		Code: commonmodel.Success,
+		Code: apipb.Code_Success,
 	}
 	count, err := tenant.StatisticTenantCount()
 	if err != nil {
