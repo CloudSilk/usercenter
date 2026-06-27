@@ -531,6 +531,19 @@ func LoginByWechat(register bool, req *User, resp *apipb.LoginResponse) {
 		resp.Message = "用户已禁用!"
 		return
 	}
+	// MFA 二阶段：微信登录同样强制（绑定 MFA 的用户需二次验证）
+	if auth.HasEnabledMFA(u.ID) {
+		challenge, err := auth.IssueMFAChallenge(u.ID)
+		if err != nil {
+			resp.Code = apipb.Code_InternalServerError
+			resp.Message = err.Error()
+			return
+		}
+		resp.Code = 41008
+		resp.Message = "需要 MFA 二次验证"
+		resp.Data = challenge
+		return
+	}
 	currentUser := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
 		RoleIDs: u.GetRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
@@ -850,6 +863,11 @@ func LoginByStaffNo(req *apipb.LoginByStaffNoRequest, resp *apipb.LoginByStaffNo
 	if auth.IsPwdExpired(u.PasswordUpdatedAt) {
 		resp.Code = 41007
 		resp.Message = "密码已过期，请修改密码"
+		return
+	}
+	if auth.HasEnabledMFA(u.ID) {
+		resp.Code = 41008
+		resp.Message = "需要 MFA 二次验证"
 		return
 	}
 	currentUser := &apipb.CurrentUser{
