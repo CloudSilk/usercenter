@@ -115,7 +115,8 @@ func AuthRequired(c *gin.Context) {
 	if strings.HasPrefix(path, "/.well-known/") || path == "/oauth/token" || path == "/oauth/revoke" ||
 		path == "/readyz" ||
 		path == "/health" || path == "/metrics" || path == "/admin/api/audit/stream" ||
-		strings.HasPrefix(path, "/api/oauth/") || path == "/api/social/providers" {
+		strings.HasPrefix(path, "/api/oauth/") || path == "/api/social/providers" ||
+		path == "/api/core/auth/user/login" || path == "/api/core/auth/user/mfa/verify" {
 		return
 	}
 	// API Key authentication (alternative to Bearer JWT)

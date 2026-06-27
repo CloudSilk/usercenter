@@ -49,6 +49,11 @@ func VerifyTOTP(secret, code string) bool {
 	return false
 }
 
+// GenerateTOTPCode 生成当前 30s 窗口的 6 位 TOTP 码（用于测试/演示，生产用 VerifyTOTP 校验）。
+func GenerateTOTPCode(secret string) string {
+	return generateTOTPCode(secret, time.Now().Unix()/30)
+}
+
 func generateTOTPCode(secret string, timestamp int64) string {
 	key, err := base32.StdEncoding.DecodeString(strings.ToUpper(secret))
 	if err != nil {

@@ -59,6 +59,24 @@ func Login(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// MFALoginVerify 完成 MFA 二阶段登录。
+// body: {"mfaToken": "...", "code": "123456"}。成功返回 access_token（resp.Data）。
+func MFALoginVerify(c *gin.Context) {
+	var req struct {
+		MFAToken string `json:"mfaToken" binding:"required"`
+		Code     string `json:"code" binding:"required"`
+	}
+	resp := &apipb.LoginResponse{Code: apipb.Code_Success}
+	if err := c.BindJSON(&req); err != nil {
+		resp.Code = apipb.Code_BadRequest
+		resp.Message = err.Error()
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+	user.CompleteMFALogin(req.MFAToken, req.Code, resp)
+	c.JSON(http.StatusOK, resp)
+}
+
 // Profile godoc
 // @Summary 获取个人信息
 // @Tags 用户管理
@@ -508,6 +526,7 @@ func GetBasicsByToken(c *gin.Context) {
 func RegisterUserRouter(r *gin.Engine) {
 	userGroup := r.Group("/api/core/auth/user")
 	userGroup.POST("login", Login)
+	userGroup.POST("mfa/verify", MFALoginVerify)
 	userGroup.POST("logout", Logout)
 	userGroup.GET("profile", Profile)
 	userGroup.PUT("profile", UpdateProfile)

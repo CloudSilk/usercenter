@@ -430,6 +430,52 @@ func Login(req *apipb.LoginRequest, resp *apipb.LoginResponse) {
 		resp.Message = "密码已过期，请修改密码"
 		return
 	}
+	// MFA 二阶段：若用户绑定了启用的因子，签发一次性 challenge，要求二次验证（不签发 access_token）。
+	if auth.HasEnabledMFA(u.ID) {
+		challenge, err := auth.IssueMFAChallenge(u.ID)
+		if err != nil {
+			resp.Code = apipb.Code_InternalServerError
+			resp.Message = err.Error()
+			return
+		}
+		resp.Code = 41008 // MfaRequired
+		resp.Message = "需要 MFA 二次验证"
+		resp.Data = challenge
+		return
+	}
+	currentUser := &apipb.CurrentUser{
+		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
+		RoleIDs: u.GetRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
+	}
+	t, err := token.EncodeToken(currentUser)
+	if err != nil {
+		resp.Code = apipb.Code_InternalServerError
+		resp.Message = err.Error()
+		return
+	}
+	resp.Data = t
+}
+
+// CompleteMFALogin 完成 MFA 第二因素验证并签发 access_token。
+// mfaToken 来自 Login 返回的 challenge（code=41008 时 resp.Data），code 为 6 位 TOTP。
+func CompleteMFALogin(mfaToken, code string, resp *apipb.LoginResponse) {
+	userID, ok := auth.ConsumeMFAChallenge(mfaToken)
+	if !ok {
+		resp.Code = 41009 // MfaChallengeInvalid
+		resp.Message = "MFA 令牌无效或已过期，请重新登录"
+		return
+	}
+	if !auth.VerifyMFACode(userID, code) {
+		resp.Code = 41010 // MfaCodeInvalid
+		resp.Message = "MFA 验证码不正确"
+		return
+	}
+	u := &User{}
+	if err := store.DB().Preload("UserRoles").First(u, "id = ?", userID).Error; err != nil {
+		resp.Code = apipb.Code_InternalServerError
+		resp.Message = err.Error()
+		return
+	}
 	currentUser := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
 		RoleIDs: u.GetRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,

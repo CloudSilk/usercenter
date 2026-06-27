@@ -34,6 +34,8 @@ func TestMain(m *testing.M) {
 	}
 	// 初始化 token 缓存（内存模式，不依赖 Redis）；提供非空密钥以满足启动校验
 	token.InitTokenCache("test-secret-key", "", "", "", 120)
+	// 初始化 PII 加密密钥（MFA factor secret 用 AES-GCM 加密）
+	auth.SetPIIKeyFrom("test-secret-key")
 	store.SetDB(db.NewDBClient(gdb, false))
 	if err := bootstrap.RunMigration(); err != nil {
 		panic(err)
