@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -110,7 +111,51 @@ func TestChatCompletions_E2E(t *testing.T) {
 	}
 }
 
-// TestChatCompletions_E2E_QuotaBlocked 验证无可用路由时返回 502（forwardWithRetry 失败链路）。
+// TestChatCompletions_E2E_Streaming 端到端验证流式链路：
+// stream:true → streamProxy 逐行透传 SSE + 累积 delta.content + 从最后一块提取 usage → 用量落库。
+// 这是此前 P0 双写 bug 所在路径，必须有覆盖。
+func TestChatCompletions_E2E_Streaming(t *testing.T) {
+	sse := []byte("data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":2}}\n\n" +
+		"data: [DONE]\n\n")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write(sse)
+	}))
+	defer upstream.Close()
+
+	seedAIProvider(t, upstream.URL, "mock-stream-model")
+	r := newAIGatewayEngine("us", platformTenant)
+
+	body := []byte(`{"model":"mock-stream-model","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", w.Code, w.Body.String())
+	}
+	// SSE 内容应完整透传到客户端
+	respBody := w.Body.String()
+	if !strings.Contains(respBody, "Hel") || !strings.Contains(respBody, "[DONE]") {
+		t.Fatalf("expected SSE stream to contain 'Hel' and '[DONE]', got %s", respBody)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("expected SSE content-type, got %q", ct)
+	}
+	// 流式 usage 应从最后一块提取并落库（completion_tokens=2）
+	var rec usage.UsageRecord
+	if err := store.DB().Where("model_name = ?", "mock-stream-model").First(&rec).Error; err != nil {
+		t.Fatalf("expected usage record for stream model, got %v", err)
+	}
+	if rec.CompTokens != 2 || rec.PromptTokens != 8 {
+		t.Fatalf("expected prompt=8 comp=2 from stream usage chunk, got prompt=%d comp=%d", rec.PromptTokens, rec.CompTokens)
+	}
+}
+
+// TestChatCompletions_E2E_NoRoute 验证无可用路由时返回 502（forwardWithRetry 失败链路）。
 func TestChatCompletions_E2E_NoRoute(t *testing.T) {
 	r := newAIGatewayEngine("u2", platformTenant)
 	// 不播种任何 provider/route → SelectKey 失败 → 502
