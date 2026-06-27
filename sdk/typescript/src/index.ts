@@ -39,6 +39,75 @@ export interface Role {
   public?: boolean;
 }
 
+
+export interface Menu {
+  id?: string;
+  tenantID?: string;
+  name: string;
+  parentID?: string;
+  path?: string;
+  icon?: string;
+  sort?: number;
+  enable?: boolean;
+}
+
+export interface Tenant {
+  id?: string;
+  name: string;
+  contact?: string;
+  cellPhone?: string;
+  address?: string;
+  enable?: boolean;
+  province?: string;
+  city?: string;
+  area?: string;
+  userCount?: number;
+  roleCount?: number;
+}
+
+export interface APIInfo {
+  id?: string;
+  tenantID?: string;
+  name: string;
+  path: string;
+  method: string;
+  group?: string;
+  enable?: boolean;
+}
+
+export interface MenuListResponse extends CommonResponse {
+  data?: Menu[];
+  records?: number;
+  pages?: number;
+  total?: number;
+}
+
+export interface TenantListResponse extends CommonResponse {
+  data?: Tenant[];
+  records?: number;
+}
+
+export interface RoleListResponse extends CommonResponse {
+  data?: Role[];
+  records?: number;
+  pages?: number;
+  total?: number;
+}
+
+export interface RoleDetailResponse extends CommonResponse {
+  data?: Role;
+}
+
+export interface APIListResponse extends CommonResponse {
+  data?: APIInfo[];
+  records?: number;
+  pages?: number;
+  total?: number;
+}
+
+export interface MenuDetailResponse extends CommonResponse {
+  data?: Menu;
+}
 export interface LoginResponse extends CommonResponse {
   data?: string; // JWT token
 }
@@ -141,6 +210,156 @@ export class UserCenterClient {
     return this.request("GET", "/api/core/auth/role/all");
   }
 
+
+  // Menu CRUD
+  async addMenu(menu: Menu): Promise<CommonResponse> {
+    return this.request("POST", "/api/core/auth/menu/add", menu);
+  }
+
+  async updateMenu(menu: Menu): Promise<CommonResponse> {
+    return this.request("PUT", "/api/core/auth/menu/update", menu);
+  }
+
+  async deleteMenu(id: string): Promise<CommonResponse> {
+    return this.request("DELETE", "/api/core/auth/menu/delete", { id });
+  }
+
+  async queryMenus(pageIndex = 1, pageSize = 10, filters?: Record<string, string>): Promise<MenuListResponse> {
+    const params = new URLSearchParams({ pageIndex: String(pageIndex), pageSize: String(pageSize), ...filters });
+    return this.request("GET", "/api/core/auth/menu/query?" + params);
+  }
+
+  async getMenuDetail(id: string, tenantID?: string): Promise<MenuDetailResponse> {
+    const params = new URLSearchParams({ id });
+    if (tenantID) params.set("tenantID", tenantID);
+    return this.request("GET", "/api/core/auth/menu/detail?" + params);
+  }
+
+  async getMenuTree(): Promise<MenuListResponse> {
+    return this.request("GET", "/api/core/auth/menu/tree");
+  }
+
+  // Tenant CRUD
+  async addTenant(tenant: Tenant): Promise<CommonResponse> {
+    return this.request("POST", "/api/core/auth/tenant/add", tenant);
+  }
+
+  async updateTenant(tenant: Tenant): Promise<CommonResponse> {
+    return this.request("PUT", "/api/core/auth/tenant/update", tenant);
+  }
+
+  async deleteTenant(id: string): Promise<CommonResponse> {
+    return this.request("DELETE", "/api/core/auth/tenant/delete", { id });
+  }
+
+  async queryTenants(pageIndex = 1, pageSize = 10, filters?: Record<string, string>): Promise<TenantListResponse> {
+    const params = new URLSearchParams({ pageIndex: String(pageIndex), pageSize: String(pageSize), ...filters });
+    return this.request("GET", "/api/core/auth/tenant/query?" + params);
+  }
+
+  async getAllTenants(): Promise<TenantListResponse> {
+    return this.request("GET", "/api/core/auth/tenant/all");
+  }
+
+  async getTenantDetail(id: string): Promise<{ code: number; data: Tenant }> {
+    return this.request("GET", "/api/core/auth/tenant/detail?id=" + id);
+  }
+
+  async enableTenant(id: string, enable: boolean): Promise<CommonResponse> {
+    return this.request("POST", "/api/core/auth/tenant/enable", { id, enable });
+  }
+
+  // Role CRUD
+  async updateRole(role: Role): Promise<CommonResponse> {
+    return this.request("PUT", "/api/core/auth/role/update", role);
+  }
+
+  async deleteRole(id: string): Promise<CommonResponse> {
+    return this.request("DELETE", "/api/core/auth/role/delete", { id });
+  }
+
+  async queryRoles(pageIndex = 1, pageSize = 10, filters?: Record<string, string>): Promise<RoleListResponse> {
+    const params = new URLSearchParams({ pageIndex: String(pageIndex), pageSize: String(pageSize), ...filters });
+    return this.request("GET", "/api/core/auth/role/query?" + params);
+  }
+
+  async getRoleDetail(id: string, tenantID?: string): Promise<RoleDetailResponse> {
+    const params = new URLSearchParams({ id });
+    if (tenantID) params.set("tenantID", tenantID);
+    return this.request("GET", "/api/core/auth/role/detail?" + params);
+  }
+
+  // API CRUD
+  async addApi(api: APIInfo): Promise<CommonResponse> {
+    return this.request("POST", "/api/core/auth/api/add", api);
+  }
+
+  async updateApi(api: APIInfo): Promise<CommonResponse> {
+    return this.request("PUT", "/api/core/auth/api/update", api);
+  }
+
+  async deleteApi(id: string): Promise<CommonResponse> {
+    return this.request("DELETE", "/api/core/auth/api/delete", { id });
+  }
+
+  async queryApis(pageIndex = 1, pageSize = 10, filters?: Record<string, string>): Promise<APIListResponse> {
+    const params = new URLSearchParams({ pageIndex: String(pageIndex), pageSize: String(pageSize), ...filters });
+    return this.request("GET", "/api/core/auth/api/query?" + params);
+  }
+
+  async getAllApis(): Promise<APIListResponse> {
+    return this.request("GET", "/api/core/auth/api/all");
+  }
+
+  async getApiDetail(id: string): Promise<{ code: number; data: APIInfo }> {
+    return this.request("GET", "/api/core/auth/api/detail?id=" + id);
+  }
+
+  async enableApi(id: string, enable: boolean): Promise<CommonResponse> {
+    return this.request("POST", "/api/core/auth/api/enable", { id, enable });
+  }
+
+  // User extras
+  async enableUser(id: string, enable: boolean): Promise<CommonResponse> {
+    return this.request("POST", "/api/core/auth/user/enable", { id, enable });
+  }
+
+  async getAllUsers(filters?: Record<string, string>): Promise<UserListResponse> {
+    const params = new URLSearchParams(filters || {});
+    return this.request("GET", "/api/core/auth/user/all?" + params);
+  }
+
+  async getUserDetail(id: string): Promise<{ code: number; data: User }> {
+    return this.request("GET", "/api/core/auth/user/detail?id=" + id);
+  }
+
+  async updateProfile(profile: Partial<User>): Promise<CommonResponse> {
+    return this.request("PUT", "/api/core/auth/user/profile", profile);
+  }
+
+  // OIDC / OAuth2
+  async oidcDiscovery(): Promise<any> {
+    return this.request("GET", "/.well-known/openid-configuration");
+  }
+
+  async jwks(): Promise<any> {
+    return this.request("GET", "/.well-known/jwks");
+  }
+
+  async oauthToken(code: string, redirectUri: string, clientId: string, clientSecret: string): Promise<any> {
+    const params = new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirectUri, client_id: clientId, client_secret: clientSecret });
+    return this.requestRaw("POST", "/oauth/token?" + params, null, {});
+  }
+
+  async oauthUserinfo(): Promise<any> {
+    return this.request("GET", "/oauth/userinfo");
+  }
+
+  async oauthRevoke(token: string): Promise<CommonResponse> {
+    return this.request("POST", "/oauth/revoke", { token });
+  }
+
+  // Health
   // Health
   async health(): Promise<boolean> {
     try {

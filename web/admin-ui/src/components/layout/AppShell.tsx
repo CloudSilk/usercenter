@@ -50,7 +50,9 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Dashboard", path: "/", icon: <BarChart3 className="h-4 w-4" /> },
       { label: "Users", path: "/users", icon: <User className="h-4 w-4" /> },
+      { label: "User Mgmt", path: "/user-management", icon: <User className="h-4 w-4" /> },
       { label: "Roles", path: "/roles", icon: <School className="h-4 w-4" /> },
+      { label: "Role Mgmt", path: "/role-management", icon: <School className="h-4 w-4" /> },
       { label: "Tenants", path: "/tenants", icon: <Building2 className="h-4 w-4" /> },
     ],
   },

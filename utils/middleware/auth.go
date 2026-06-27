@@ -100,6 +100,10 @@ func GetAccessToken(c *gin.Context) string {
 }
 
 
+type RateLimiter interface {
+	Allow(principalID string) bool
+}
+
 func AuthRequired(c *gin.Context) {
 	if strings.HasPrefix(c.Request.URL.Path, "/swagger/") || strings.HasPrefix(c.Request.URL.Path, "/web/") {
 		return

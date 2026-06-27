@@ -1,0 +1,15 @@
+{
+  "name": "usercenter-client",
+  "version": "0.1.0",
+  "description": "UserCenter REST API TypeScript SDK",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist/", "src/"],
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["usercenter", "sdk", "rest"],
+  "license": "MIT"
+}
