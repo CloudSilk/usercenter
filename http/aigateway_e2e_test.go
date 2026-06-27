@@ -2,6 +2,7 @@ package http_test
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,8 +10,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/CloudSilk/usercenter/internal/apikey"
+	"github.com/CloudSilk/usercenter/internal/conversation"
 	"github.com/CloudSilk/usercenter/internal/gatewaylog"
 	"github.com/CloudSilk/usercenter/internal/principal"
+	"github.com/CloudSilk/usercenter/internal/prompt"
+	"github.com/CloudSilk/usercenter/internal/ratelimit"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/usage"
 	userhttp "github.com/CloudSilk/usercenter/http"
@@ -214,5 +218,117 @@ func TestCheckBudget_EnforcesModelBudget(t *testing.T) {
 	}
 	if allowed {
 		t.Fatal("expected budget to BLOCK (daily limit 10, used 20), got allowed=true")
+	}
+}
+
+// TestChatCompletions_E2E_SessionPersistence 验证带 session_id 时 user + assistant 消息落库。
+func TestChatCompletions_E2E_SessionPersistence(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"session-reply"}}],"usage":{"prompt_tokens":3,"completion_tokens":1}}`))
+	}))
+	defer upstream.Close()
+	seedAIProvider(t, upstream.URL, "mock-sess-model")
+
+	// 预创建会话（网关只 AppendMessage，不自动建 session）
+	sess := &conversation.Session{
+		TenantID:    platformTenant,
+		PrincipalID: "us",
+		ModelAlias:  "mock-sess-model",
+		Title:       "test-session",
+	}
+	sid, err := conversation.CreateSession(sess)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	r := newAIGatewayEngine("us", platformTenant)
+	body := []byte(`{"model":"mock-sess-model","session_id":"` + sid + `","messages":[{"role":"user","content":"hello"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", w.Code, w.Body.String())
+	}
+
+	// 应持久化 user + assistant 两条消息
+	var msgCount int64
+	store.DB().Model(&conversation.Message{}).Where("session_id = ?", sid).Count(&msgCount)
+	if msgCount != 2 {
+		t.Fatalf("expected 2 persisted messages (user+assistant), got %d", msgCount)
+	}
+	var assistantMsg conversation.Message
+	store.DB().Where("session_id = ? AND role = ?", sid, "assistant").First(&assistantMsg)
+	if assistantMsg.Content != "session-reply" {
+		t.Fatalf("expected assistant message 'session-reply', got %q", assistantMsg.Content)
+	}
+}
+
+// TestChatCompletions_E2E_RateLimited 验证超出令牌桶 burst 时返回 429（限流先于路由/配额）。
+func TestChatCompletions_E2E_RateLimited(t *testing.T) {
+	// 为专用 principal 设低 burst=2，使第 3 个请求即被限流
+	ratelimit.Default.SetConfig("rateuser", 1, 2)
+	r := newAIGatewayEngine("rateuser", platformTenant)
+
+	body := []byte(`{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
+	got429 := false
+	for i := 0; i < 4; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code == http.StatusTooManyRequests {
+			got429 = true
+		}
+	}
+	if !got429 {
+		t.Fatal("expected at least one 429 when exceeding burst=2")
+	}
+}
+
+// TestChatCompletions_E2E_PromptTemplateInjection 验证 prompt_template_id 渲染注入 system message，
+// 且增强字段从转发给上游的 body 中剥离。
+func TestChatCompletions_E2E_PromptTemplateInjection(t *testing.T) {
+	tpl := &prompt.PromptTemplate{
+		TenantID:  platformTenant,
+		Name:      "test-tpl",
+		Content:   "You are a {{role}} assistant.",
+		Variables: "role",
+		Enable:    true,
+		Version:   1,
+	}
+	tid, err := prompt.Create(tpl)
+	if err != nil {
+		t.Fatalf("create template: %v", err)
+	}
+
+	var forwarded string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		forwarded = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer upstream.Close()
+	seedAIProvider(t, upstream.URL, "mock-tpl-model")
+
+	r := newAIGatewayEngine("ut", platformTenant)
+	body := []byte(`{"model":"mock-tpl-model","prompt_template_id":"` + tid + `","prompt_vars":{"role":"support"},"messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", w.Code, w.Body.String())
+	}
+
+	// 转发 body 应含渲染后的模板（变量已替换）
+	if !strings.Contains(forwarded, "You are a support assistant.") {
+		t.Fatalf("expected rendered template in forwarded body, got %s", forwarded)
+	}
+	// 增强字段应从转发 body 剥离（上游不认识）
+	if strings.Contains(forwarded, "prompt_template_id") || strings.Contains(forwarded, "prompt_vars") {
+		t.Fatalf("enhancement fields must be stripped before forwarding, got %s", forwarded)
 	}
 }
