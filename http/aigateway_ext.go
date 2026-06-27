@@ -540,14 +540,33 @@ func SetAIAuxModels(titleModel, embeddingModel, moderationModel string) {
 	}
 }
 
+// cacheConfigOverride 允许在路由注册前覆盖默认缓存配置（由 main.go 从 config 注入）。
+// 为 nil 时 initAIEnhancements 使用内置默认值。
+var cacheConfigOverride *aicache.CacheConfig
+
+// SetCacheConfig 覆盖语义缓存默认配置（必须在 RegisterAIGatewayRouter 之前调用）。
+// 各字段为 0 值时由 aicache.New 回填默认（threshold 0.95 / TTL 24h / maxEntries 10000）。
+func SetCacheConfig(enabled bool, threshold float64, ttl time.Duration, maxEntries int) {
+	cacheConfigOverride = &aicache.CacheConfig{
+		Enabled:             enabled,
+		SimilarityThreshold: threshold,
+		TTL:                 ttl,
+		MaxEntries:          maxEntries,
+	}
+}
+
 // initAIEnhancements 初始化增强能力（缓存 + 嵌入函数）。
 func initAIEnhancements() {
-	aicache.Init(aicache.CacheConfig{
+	cfg := aicache.CacheConfig{
 		Enabled:             true,
 		SimilarityThreshold: 0.95,
 		TTL:                 24 * time.Hour,
 		MaxEntries:          10000,
-	})
+	}
+	if cacheConfigOverride != nil {
+		cfg = *cacheConfigOverride
+	}
+	aicache.Init(cfg)
 
 	// 注入嵌入函数：调用 /v1/embeddings 生成 prompt 向量，使缓存支持语义相似度匹配。
 	// 平台租户（tenantID=""）查询全局路由；失败时返回 nil，缓存回退到精确哈希。

@@ -119,7 +119,34 @@ func main() {
 	// 首次部署：users 表为空时自动播种平台租户 + 超级管理员角色 + 初始管理员。
 	// 口令取 defaultPwd 配置，未配置则随机生成并打印；初始账号强制首登改密。
 	bootstrap.SeedAdmin(ucconfig.DefaultConfig.PlatformTenantID, ucconfig.DefaultConfig.SuperAdminRoleID, ucconfig.DefaultConfig.DefaultPwd)
+
+	// AI 网关增强配置（仅在显式配置时覆盖内置默认；零配置 = 保持默认行为）
+	applyAIGatewayConfig(ucconfig.DefaultConfig)
+
 	Start(GetPort("ATALI_PORT", 48080))
+}
+
+// applyAIGatewayConfig 把 AI 网关的缓存/辅助模型/审核策略配置注入 http 包。
+// 各项仅在显式配置（非零值）时生效，避免覆盖未配置部署的默认行为。
+func applyAIGatewayConfig(cfg *ucconfig.Config) {
+	// 语义缓存：任一字段非零值才视为显式配置
+	ac := cfg.AICache
+	if ac.Enabled || ac.SimilarityThreshold != 0 || ac.TTLSeconds != 0 || ac.MaxEntries != 0 {
+		enabled := ac.Enabled
+		if !enabled && (ac.SimilarityThreshold != 0 || ac.TTLSeconds != 0 || ac.MaxEntries != 0) {
+			enabled = true // 配了参数但未开 enabled，视为启用
+		}
+		userhttp.SetCacheConfig(enabled, ac.SimilarityThreshold, time.Duration(ac.TTLSeconds)*time.Second, ac.MaxEntries)
+	}
+	// 辅助模型别名
+	aux := cfg.AIAuxModels
+	if aux.Title != "" || aux.Embedding != "" || aux.Moderation != "" {
+		userhttp.SetAIAuxModels(aux.Title, aux.Embedding, aux.Moderation)
+	}
+	// 审核 fail-open/close
+	if cfg.ModerationFailOpen != nil {
+		userhttp.SetModerationFailOpen(*cfg.ModerationFailOpen)
+	}
 }
 
 // checkKeyIsolation 检测三密钥隔离：tokenKey / apiKeyEncKey / piiEncKey 任意两个相同则 panic。

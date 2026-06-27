@@ -136,6 +136,32 @@ type Config struct {
 	AlertWebhookURL string `yaml:"alertWebhookURL"`
 	// SocialLogins 社交登录 provider 配置（GitHub/Google 等）。
 	SocialLogins []httpSocialLogin `yaml:"socialLogins"`
+	// AICache AI 网关语义缓存配置。全部留空 = 启用默认值。
+	AICache AICacheConfig `yaml:"aiCache"`
+	// AIAuxModels AI 网关辅助任务（标题生成/嵌入/内容审核）模型别名。留空使用 OpenAI 默认。
+	AIAuxModels AIAuxModelsConfig `yaml:"aiAuxModels"`
+	// ModerationFailOpen 内容审核服务不可用时的策略。
+	// nil（未配置）= fail-open（放行，保证可用性）；false = fail-close（拒绝，合规场景）。
+	ModerationFailOpen *bool `yaml:"moderationFailOpen"`
+}
+
+// AICacheConfig AI 网关语义缓存配置。
+type AICacheConfig struct {
+	// Enabled 是否启用缓存。未配置任何字段时默认启用。
+	Enabled bool `yaml:"enabled"`
+	// SimilarityThreshold 语义相似度阈值（0-1），0=默认 0.95。
+	SimilarityThreshold float64 `yaml:"similarityThreshold"`
+	// TTLSeconds 缓存有效期（秒），0=默认 86400（24h）。
+	TTLSeconds int `yaml:"ttlSeconds"`
+	// MaxEntries 最大缓存条目数，0=默认 10000。
+	MaxEntries int `yaml:"maxEntries"`
+}
+
+// AIAuxModelsConfig AI 网关辅助任务模型别名。
+type AIAuxModelsConfig struct {
+	Title      string `yaml:"title"`      // 标题生成模型，默认 gpt-3.5-turbo
+	Embedding  string `yaml:"embedding"`  // 嵌入模型，默认 text-embedding-3-small
+	Moderation string `yaml:"moderation"` // 内容审核模型，默认 text-moderation-latest
 }
 
 // httpSocialLogin 与 http.SocialLoginConfig 结构一致（避免 config 反向依赖 http 包）。
