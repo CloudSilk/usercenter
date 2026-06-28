@@ -15,6 +15,9 @@ import (
 	"strings"
 	"time"
 
+	commonmodel "github.com/CloudSilk/pkg/model"
+	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/tenant"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/user"
 	"github.com/gin-gonic/gin"
@@ -64,6 +67,21 @@ type SCIMGroupRef struct {
 	Type    string `json:"type,omitempty"`
 }
 
+// SCIMGroup SCIM 2.0 Group 资源(RFC 7643 §4.2)
+type SCIMGroup struct {
+	Schemas      []string          `json:"schemas"`
+	ID           string            `json:"id"`
+	DisplayName  string            `json:"displayName"`
+	Members      []SCIMGroupMember `json:"members,omitempty"`
+	Meta         SCIMMeta          `json:"meta"`
+}
+
+type SCIMGroupMember struct {
+	Value   string `json:"value"`              // member ID (User ID)
+	Display string `json:"display,omitempty"`   // user display name
+	Type    string `json:"type,omitempty"`      // "User"
+}
+
 type SCIMMeta struct {
 	ResourceType string `json:"resourceType"`
 	Created      string `json:"created,omitempty"`
@@ -90,7 +108,6 @@ type SCIMError struct {
 
 // --- 数据映射 ---
 
-// userToSCIM 将 internal/user.User 转换为 SCIM 2.0 User
 func userToSCIM(u *user.User) *SCIMUser {
 	su := &SCIMUser{
 		Schemas:    []string{"urn:ietf:params:scim:schemas:core:2.0:User"},
@@ -106,6 +123,8 @@ func userToSCIM(u *user.User) *SCIMUser {
 		Title:       u.Title,
 		Meta: SCIMMeta{
 			ResourceType: "User",
+			Created:      u.CreatedAt.Format(time.RFC3339),
+			LastModified: u.UpdatedAt.Format(time.RFC3339),
 			Location:     "/scim/v2/Users/" + u.ID,
 		},
 	}
@@ -115,7 +134,52 @@ func userToSCIM(u *user.User) *SCIMUser {
 	if u.Mobile != "" {
 		su.PhoneNumbers = []SCIMPhone{{Value: u.Mobile, Type: "mobile", Primary: true}}
 	}
+	// 填充用户的角色组成员关系
+	var roles []*permission.Role
+	if err := store.DB().Model(&permission.Role{}).
+		Joins("JOIN user_role ON user_role.role_id = roles.id").
+		Where("user_role.user_id = ?", u.ID).Find(&roles).Error; err == nil {
+		for _, r := range roles {
+			su.Groups = append(su.Groups, SCIMGroupRef{
+				Value:   r.ID,
+				Display: r.Name,
+				Type:    "Group",
+			})
+		}
+	}
 	return su
+}
+
+// roleToSCIMGroup 将内部 Role 转换为 SCIM Group
+func roleToSCIMGroup(r *permission.Role) *SCIMGroup {
+	return &SCIMGroup{
+		Schemas:     []string{"urn:ietf:params:scim:schemas:core:2.0:Group"},
+		ID:          r.ID,
+		DisplayName: r.Name,
+		Meta: SCIMMeta{
+			ResourceType: "Group",
+			Created:      r.CreatedAt.Format(time.RFC3339),
+			LastModified: r.UpdatedAt.Format(time.RFC3339),
+			Location:     "/scim/v2/Groups/" + r.ID,
+		},
+	}
+}
+
+// scimToRole 将 SCIM Group 转换为内部 Role（部分字段）
+func scimToRole(sg *SCIMGroup) *permission.Role {
+	return &permission.Role{
+		Model: commonmodel.Model{ID: sg.ID},
+		Name:  sg.DisplayName,
+	}
+}
+
+// groupToSCIMGroupRef 将 Role 转换为 SCIMGroupRef
+func groupToSCIMGroupRef(r *permission.Role) SCIMGroupRef {
+	return SCIMGroupRef{
+		Value:   r.ID,
+		Display: r.Name,
+		Type:    "Group",
+	}
 }
 
 // scimToUser 将 SCIM 2.0 User 转换为 internal/user.User
@@ -320,9 +384,13 @@ func RegisterSCIMRouter(r *gin.Engine, scimToken string) {
 	g.PATCH("/Users/:id", PatchUser)
 	g.DELETE("/Users/:id", DeleteUser)
 
-	// /Groups (基于 Role)
+	// /Groups
 	g.GET("/Groups", ListGroups)
+	g.POST("/Groups", CreateGroup)
 	g.GET("/Groups/:id", GetGroup)
+	g.PUT("/Groups/:id", ReplaceGroup)
+	g.PATCH("/Groups/:id", PatchGroup)
+	g.DELETE("/Groups/:id", DeleteGroup)
 
 	// /ServiceProviderConfig
 	g.GET("/ServiceProviderConfig", ServiceProviderConfig)
@@ -495,19 +563,207 @@ func DeleteUser(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// --- /Groups 端点(基于 Role,只读) ---
+// --- /Groups 端点(基于 Role) ---
 
 func ListGroups(c *gin.Context) {
-	// SCIM Group → usercenter Role
+	startIndex, _ := strconv.Atoi(c.DefaultQuery("startIndex", "1"))
+	count, _ := strconv.Atoi(c.DefaultQuery("count", "100"))
+	filter := c.Query("filter")
+
+	if startIndex < 1 {
+		startIndex = 1
+	}
+	if count < 1 || count > 500 {
+		count = 100
+	}
+
+	db := store.DB().Model(&permission.Role{})
+	if filter != "" {
+		where, args := parseFilter(filter)
+		if where != "" {
+			db = db.Where(where, args...)
+		}
+	}
+
+	var total int64
+	db.Count(&total)
+
+	var roles []*permission.Role
+	offset := startIndex - 1
+	db.Order("name").Offset(offset).Limit(count).Find(&roles)
+
+	resources := make([]interface{}, len(roles))
+	for i, r := range roles {
+		resources[i] = roleToSCIMGroup(r)
+	}
+
 	c.JSON(http.StatusOK, &SCIMListResponse{
-		TotalResults: 0,
+		TotalResults: int(total),
+		ItemsPerPage: count,
+		StartIndex:   startIndex,
 		Schemas:      []string{"urn:ietf:params:scim:api:messages:2.0:ListResponse"},
-		Resources:    []interface{}{},
+		Resources:    resources,
 	})
 }
 
 func GetGroup(c *gin.Context) {
-	scimError(c, http.StatusNotFound, "Group not found")
+	id := c.Param("id")
+	var role permission.Role
+	if err := store.DB().Where("id = ?", id).First(&role).Error; err != nil {
+		scimError(c, http.StatusNotFound, "Group not found")
+		return
+	}
+
+	sg := roleToSCIMGroup(&role)
+	// 填充组成员
+	var members []struct {
+		UserID   string
+		Nickname string
+	}
+	store.DB().Table("user_role").
+		Select("user_role.user_id, users.nickname").
+		Joins("JOIN users ON users.id = user_role.user_id").
+		Where("user_role.role_id = ?", id).Scan(&members)
+	for _, m := range members {
+		sg.Members = append(sg.Members, SCIMGroupMember{
+			Value:   m.UserID,
+			Display: m.Nickname,
+			Type:    "User",
+		})
+	}
+
+	c.JSON(http.StatusOK, sg)
+}
+
+func CreateGroup(c *gin.Context) {
+	var sg SCIMGroup
+	if err := c.ShouldBindJSON(&sg); err != nil {
+		scimError(c, http.StatusBadRequest, "Invalid SCIM Group JSON: "+err.Error())
+		return
+	}
+	if sg.DisplayName == "" {
+		scimError(c, http.StatusBadRequest, "displayName is required")
+		return
+	}
+
+	// 从请求头或 query 获取 tenantID（SCIM token 关联的租户）
+	tenantID := c.GetHeader("X-Tenant-ID")
+	if tenantID == "" {
+		tenantID = c.Query("tenantID")
+	}
+
+	role := &permission.Role{
+		Name:        sg.DisplayName,
+		TenantID:    tenantID,
+		Description: "SCIM provisioned role",
+		CanDel:      true,
+	}
+	if err := permission.CreateRole(role, tenant.GetTenantUserCount); err != nil {
+		scimError(c, http.StatusConflict, "Group already exists: "+err.Error())
+		return
+	}
+
+	result := roleToSCIMGroup(role)
+	c.Header("Location", "/scim/v2/Groups/"+role.ID)
+	c.JSON(http.StatusCreated, result)
+}
+
+func ReplaceGroup(c *gin.Context) {
+	id := c.Param("id")
+	var sg SCIMGroup
+	if err := c.ShouldBindJSON(&sg); err != nil {
+		scimError(c, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	var existing permission.Role
+	if err := store.DB().Where("id = ?", id).First(&existing).Error; err != nil {
+		scimError(c, http.StatusNotFound, "Group not found")
+		return
+	}
+
+	existing.Name = sg.DisplayName
+	if err := permission.UpdateRole(&existing); err != nil {
+		scimError(c, http.StatusInternalServerError, "Update failed: "+err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, roleToSCIMGroup(&existing))
+}
+
+func PatchGroup(c *gin.Context) {
+	id := c.Param("id")
+	var req SCIMPatchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		scimError(c, http.StatusBadRequest, "Invalid PATCH request")
+		return
+	}
+
+	var role permission.Role
+	if err := store.DB().Where("id = ?", id).First(&role).Error; err != nil {
+		scimError(c, http.StatusNotFound, "Group not found")
+		return
+	}
+
+	// 处理成员增减（add/remove members）
+	for _, op := range req.Operations {
+		switch op.Op {
+		case "add":
+			if v, ok := op.Value.(map[string]interface{}); ok {
+				// try: {"members": [{"value": "user-id"}]}
+				if members, mok := v["members"].([]interface{}); mok {
+					for _, m := range members {
+						if mm, mmok := m.(map[string]interface{}); mmok {
+							if uid, uok := mm["value"].(string); uok {
+								_ = store.DB().Exec("INSERT IGNORE INTO user_role (role_id, user_id) VALUES (?, ?)", id, uid)
+							}
+						}
+					}
+				}
+			}
+		case "remove":
+			if path := strings.ToLower(op.Path); strings.Contains(path, "member") {
+				if v, ok := op.Value.(map[string]interface{}); ok {
+					if uid, uok := v["value"].(string); uok {
+						_ = store.DB().Exec("DELETE FROM user_role WHERE role_id = ? AND user_id = ?", id, uid)
+					}
+				} else if uid := c.Query("memberID"); uid != "" {
+					_ = store.DB().Exec("DELETE FROM user_role WHERE role_id = ? AND user_id = ?", id, uid)
+				}
+			}
+		case "replace":
+			if strings.Contains(strings.ToLower(op.Path), "displayname") || op.Path == "" {
+				if v, ok := op.Value.(map[string]interface{}); ok {
+					if dn, dnok := v["displayName"].(string); dnok {
+						role.Name = dn
+					}
+					if m, mok := v["members"].([]interface{}); mok {
+						_ = store.DB().Exec("DELETE FROM user_role WHERE role_id = ?", id)
+						for _, mm := range m {
+							if mem, memok := mm.(map[string]interface{}); memok {
+								if uid, uok := mem["value"].(string); uok {
+									_ = store.DB().Exec("INSERT IGNORE INTO user_role (role_id, user_id) VALUES (?, ?)", id, uid)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if err := permission.UpdateRole(&role); err != nil {
+		scimError(c, http.StatusInternalServerError, "Patch failed: "+err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, roleToSCIMGroup(&role))
+}
+
+func DeleteGroup(c *gin.Context) {
+	id := c.Param("id")
+	if err := permission.DeleteRole(id); err != nil {
+		scimError(c, http.StatusNotFound, "Delete failed: "+err.Error())
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // --- 元数据端点 ---

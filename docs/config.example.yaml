@@ -69,3 +69,6 @@ aiAuxModels:
 
 # -- 审核策略 --
 moderationFailOpen: true           # 审核服务不可用时：true=放行（默认）；false=拒绝（合规场景）
+
+# ---- SCIM 2.0 同步 ----
+scimToken: ""                      # SCIM Bearer token（空=不启用 SCIM 端点）

@@ -145,6 +145,8 @@ type Config struct {
 	ModerationFailOpen *bool `yaml:"moderationFailOpen"`
 	// PwdExpiredDays 密码过期天数（0=永不过期），详见 internal/auth/pwdexpiry.go。
 	PwdExpiredDays int `yaml:"pwdExpiredDays"`
+	// SCIMToken SCIM 2.0 同步使用的 Bearer token（空=不启用 SCIM）。
+	SCIMToken string `yaml:"scimToken"`
 }
 
 // AICacheConfig AI 网关语义缓存配置。

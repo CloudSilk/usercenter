@@ -26,6 +26,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/bootstrap"
 	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/scim"
 	"github.com/CloudSilk/usercenter/provider"
 	"github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/CloudSilk/usercenter/web"
@@ -199,6 +200,7 @@ func Start(port int) {
 	userhttp.RegisterAIGatewayRouter(r)  // OpenAI 兼容 AI 网关：/v1/chat/completions、/v1/models
 	userhttp.RegisterOIDCRouter(r)       // OIDC/OAuth2 Provider：/.well-known/* /oauth/*
 	userhttp.RegisterSocialLoginRouter(r) // 社交登录画廊：/api/oauth/:provider/{login,callback}
+	scim.RegisterSCIMRouter(r, ucconfig.DefaultConfig.SCIMToken) // SCIM 2.0 用户/组同步
 	userhttp.RegisterMetricsRouter(r)    // /metrics Prometheus 抓取端点
 
 	// 管理后台单页应用（React + Vite 构建产物，go:embed 打包进二进制）。

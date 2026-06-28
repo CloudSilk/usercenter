@@ -29,3 +29,4 @@ web/admin-ui/e2e/*.png
 web/admin-ui/test-results/.claude/
 web/admin-ui/test-results/
 .claude/
+.claude/
