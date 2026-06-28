@@ -1,106 +1,88 @@
-## 项目名称
-> 请介绍一下你的项目吧  
+# UserCenter — 统一用户中心与 AI 网关
 
+企业级身份认证、权限管理、AI 网关的统一平台。支持 OIDC/OAuth2 认证、SCIM 2.0 用户/组同步、OpenAI 兼容 AI 网关鉴权与用量计量。
 
+## 架构概览
 
-## 运行条件
-> 列出运行该项目所必须的条件和相关依赖  
-* 条件一
-* 条件二
-* 条件三
-
-
-
-## 运行说明
-> 说明如何运行和使用你的项目，建议给出具体的步骤说明
-* 添加配置文件
-```yaml
-dubbo:
-  config-center:
-    protocol: nacos
-    address: 127.0.0.1:8848
-    data-id: "usercenter"
-    group: basic
-    namespace: nooocode
+```
+┌─────────────────────────────────────┐
+│  UserCenter                         │
+│  ┌─────────────────────────────┐    │
+│  │ Auth (JWT / OIDC / MFA)     │    │
+│  │ RBAC (Casbin)               │    │
+│  │ User / Role / Tenant        │    │
+│  │ SCIM 2.0 User & Group sync  │    │
+│  └─────────────────────────────┘    │
+│  ┌─────────────────────────────┐    │
+│  │ AI Gateway (OpenAI compat)  │    │
+│  │  - Chat/Embed/Images/Audio  │    │
+│  │  - Semantic cache + quotas  │    │
+│  │  - Rate limiting per user   │    │
+│  └─────────────────────────────┘    │
+│  ┌─────────────────────────────┐    │
+│  │ Admin Panel (React+Vite SPA)│    │
+│  └─────────────────────────────┘    │
+└─────────────────────────────────────┘
 ```
 
-```yaml
-dubbo:
-  config-center:
-    protocol: nacos
-    address: 127.0.0.1:8848
-    data-id: "usercenter"
-    params:
-      mysql: "root:123456@(127.0.0.1:3306)/usercenter?charset=utf8mb4&parseTime=True&loc=Local"
-      debug: "true"
-      token-key: "Lowcode"
-      redis-addr: ""
-      redis-user-name: ""
-      redis-pwd: ""
-      token-expired: 120
-  application: # 应用配置
-    name: usercenter
-    module: local
-    version: 1.0.0 
-    owner: nooocode
-    organization: nooocode
-    metadata-type: local # 元数据上报方式，默认为本地
-  metadata-report: # 元数据上报配置, 不包含此字段则不开启元数据上报，应用级服务发现依赖此字段，参考例子：https://github.com/apache/dubbo-go-samples/tree/master/registry/servicediscovery
-    protocol: nacos # 元数据上报方式，支持nacos/zookeeper 
-    address: 127.0.0.1:8848 
-    username: ""
-    password: ""
-    timeout: "3s"
-  registries:
-    nacos:
-      protocol: nacos
-      timeout: 3s
-      address: 127.0.0.1:8848
-  protocols:
-    triple:
-      name: tri
-      port: 20003
-  provider:
-    registry-ids: nacos
-    services:
-      # you may refer to `Reference()` method defined in `protobuf/triple/helloworld.pb.go`
-      UserProvider:
-        protocol-ids: triple
-        # interface is for registry
-        interface: org.nooocode.User
-      TenantProvider:
-        protocol-ids: triple
-        # interface is for registry
-        interface: org.nooocode.Tenant
-      RoleProvider:
-        protocol-ids: triple
-        # interface is for registry
-        interface: org.nooocode.Role
-      MenuProvider:
-        protocol-ids: triple
-        # interface is for registry
-        interface: org.nooocode.Menu
-      APIProvider:
-        protocol-ids: triple
-        # interface is for registry
-        interface: org.nooocode.API
-      IdentityProvider:
-        protocol-ids: triple
-        interface: org.nooocode.Identity
+## 快速开始（开发模式）
+
+依赖：Go 1.25+、本地 MySQL 8.0+（默认端口 13306）。
+
+```bash
+# 启动纯 HTTP 开发服务（自动建表 + 播种管理员）
+NO_PROXY=localhost,127.0.0.1 go run ./cmd/devserver/
+
+# 打开管理后台
+open http://localhost:48080/web/admin
+# 默认管理员：admin / Admin@123456
 ```
-* 操作二
-* 操作三  
 
+环境变量：`UC_MYSQL_DSN`（MySQL 连接串）、`UC_PORT`（HTTP 端口）、`UC_TOKEN_KEY`（token 签名密钥）。
 
+## 功能特性
 
-## 测试说明
-> 如果有测试相关内容需要说明，请填写在这里  
+### 身份认证
+- 用户名密码 / 微信扫码 / 小程序 / 工号登录
+- OIDC/OAuth2 Provider（authorization_code / client_credentials / refresh_token + PKCE）
+- TOTP MFA 两阶段登录（enroll → confirm → 挑战-响应）
+- 登录失败锁定 + 暴力破解告警
 
+### 权限管理
+- 基于 Casbin 的 RBAC 权限模型（菜单 + API 两级）
+- 多租户数据隔离
 
+### AI 网关
+OpenAI 兼容端点：`/v1/chat/completions`（流式/非流式）、`/v1/embeddings`、`/v1/images/generations`、`/v1/audio/transcriptions`、`/v1/audio/speech`、`/v1/moderations`、`/v1/models`
 
-## 技术架构
-> 使用的技术框架或系统架构图等相关说明，请填写在这里  
+内置：模型路由 + API Key 主从池 + 429 自动冷却、语义缓存、用量配额、每用户限流、对话会话管理、Prompt 模板注入、请求日志。
 
+### SCIM 2.0 同步
+`/scim/v2/Users`（用户 CRUD + filter）和 `/scim/v2/Groups`（角色 CRUD + 成员管理），Bearer Token 鉴权。
 
-## 协作者
-> 高效的协作会激发无尽的创造力，将他们的名字记录在这里吧
+### 管理面板
+内嵌 React+Vite SPA（`/web/admin`）：用户/角色管理、AI Provider/Key/Route 配置、用量面板、请求日志、MFA 管理、Webhook 订阅等。
+
+## 生产部署
+
+依赖：Nacos 配置中心、MySQL 8.0+、可选 Redis。
+
+```bash
+DUBBO_GO_CONFIG_PATH="./dubbogo.yaml" go run main.go
+```
+
+配置通过 Nacos（dataId: `usercenter-config`，group: `nooocode`）或 `/etc/usercenter/config.yaml` 加载。
+
+## SDK
+
+- [Go SDK](sdk/go/) — 完整覆盖 + AI 网关 + 单元测试（6 用例）
+- [Python SDK](sdk/python/) — `pip install usercenter-client`
+- [TypeScript SDK](sdk/typescript/) — `npm install usercenter-client`
+
+## 构建
+
+```bash
+make web          # 构建前端 SPA
+make build-image  # Docker 镜像
+make gen-doc      # 生成 Swagger 文档
+```
