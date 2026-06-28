@@ -30,7 +30,7 @@
 
 ### 1.1 环境要求
 
-- Go 1.23+
+- Go 1.25+
 - MySQL 5.7+ 或 SQLite(开发)
 - Redis(可选,用于 token 缓存 + Casbin 多实例同步)
 - Nacos(配置中心 + 服务注册)
@@ -176,6 +176,28 @@ uri := auth.GenerateTOTPURI(secret, "user@example.com", "UserCenter")
 // 验证 TOTP 码
 valid := auth.VerifyTOTP(secret, "123456")
 ```
+
+**强制两阶段登录（重要）**：用户绑定任何启用的 TOTP 因子后，所有登录入口（用户名密码 / 微信 / 工号）均不再直接签发 access_token，而是返回 `code=41008`（MfaRequired）+ 一次性 challenge 令牌。前端需引导用户输入 6 位码，调用 `/api/core/auth/user/mfa/verify` 完成第二因素验证后才签发 token。
+
+```
+# 第一阶段：密码登录（用户已绑定 MFA）
+POST /api/core/auth/user/login
+{"userName":"alice","password":"..."}
+# → {"code":41008,"message":"需要 MFA 二次验证","data":"mfa_<challenge>"}
+
+# 第二阶段：提交 TOTP 码
+POST /api/core/auth/user/mfa/verify
+{"mfaToken":"mfa_<challenge>","code":"123456"}
+# → {"code":20000,"data":"<JWT_ACCESS_TOKEN>"}
+```
+
+| 响应码 | 含义 |
+|--------|------|
+| 41008 | 需要二次验证（resp.Data 为 challenge 令牌） |
+| 41009 | challenge 令牌无效或已过期（5 分钟 / 单次使用） |
+| 41010 | MFA 验证码不正确 |
+
+绑定管理端点（`/admin/api/mfa`）：`POST /totp/enroll`（生成密钥）、`POST /totp/confirm`（校验码并落库）、`GET /factors`（列出已绑定因子）、`DELETE /:id`（解绑）。
 
 敏感操作需要 step-up 认证:
 
@@ -585,17 +607,30 @@ scim.RegisterSCIMRouter(r, "scim-bearer-token-xxx")
 
 ### 9.2 SCIM API
 
+**用户端点**：
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/scim/v2/Users?filter=userName eq "test"` | 查询用户(支持 filter) |
 | POST | `/scim/v2/Users` | 创建用户 |
-| GET | `/scim/v2/Users/:id` | 获取用户 |
+| GET | `/scim/v2/Users/:id` | 获取用户（含 groups[] 角色） |
 | PUT | `/scim/v2/Users/:id` | 替换用户 |
 | PATCH | `/scim/v2/Users/:id` | 增量更新(activate/deactivate) |
 | DELETE | `/scim/v2/Users/:id` | 删除用户 |
 
+**组端点**（Group ↔ Role 映射）：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/scim/v2/Groups?filter=displayName co "admin"` | 列出组(角色)，支持 filter |
+| POST | `/scim/v2/Groups` | 创建组（内部创建 Role） |
+| GET | `/scim/v2/Groups/:id` | 获取组 + members 列表 |
+| PUT | `/scim/v2/Groups/:id` | 替换组 displayName |
+| PATCH | `/scim/v2/Groups/:id` | 增删成员 / 替换成员 / 改名 |
+| DELETE | `/scim/v2/Groups/:id` | 删除组（删除 Role） |
+
 ```bash
-# SCIM 请求示例
+# SCIM 用户请求示例
 curl -X POST http://localhost:48080/scim/v2/Users \
   -H "Authorization: Bearer scim-bearer-token-xxx" \
   -H "X-Tenant-ID: tenant-001" \
@@ -607,6 +642,15 @@ curl -X POST http://localhost:48080/scim/v2/Users \
     "emails": [{"value": "new@company.com", "type": "work"}],
     "name": {"familyName": "张"}
   }'
+
+# SCIM 组：添加成员（把用户加入角色）
+curl -X PATCH http://localhost:48080/scim/v2/Groups/<role-id> \
+  -H "Authorization: Bearer scim-bearer-token-xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+    "Operations": [{"op": "add", "value": {"members": [{"value": "<user-id>"}]}}]
+  }'
 ```
 
 ### 9.3 Filter 支持
@@ -616,6 +660,7 @@ userName eq "alice"
 active eq true and userName co "test"
 emails.value co "@company.com"
 externalId eq "EMP001"
+displayName co "admin"   # Groups
 ```
 
 ---
@@ -940,10 +985,80 @@ GET /admin/api/audit/stream?access_token=<jwt>
 
 新产生的审计事件（用户/管理员/AI 网关操作）实时推送给订阅者。token 走 query（EventSource 不能带 Authorization 头）。
 
-### 15.3 Webhook 告警
+### 15.3 Webhook 告警与事件订阅
 
-配置 `alertWebhookURL` 后，关键事件（AI 配额超额 `ai_quota_exceeded`、暴力破解 `brute_force_login`）
-以 JSON POST 异步推送到该 URL，供 Slack/钉钉/飞书/自建平台消费。失败仅记日志，不阻塞业务。
+**告警通道（单 URL）**：配置 `alertWebhookURL` 后，关键告警事件（`ai_quota_exceeded`、`brute_force_login`）以 JSON POST 异步推送到该 URL，供 Slack/钉钉/飞书消费。失败仅记日志，不阻塞业务。
+
+**事件订阅系统（多目标 + 签名）**：通过 `/admin/api/webhooks` 注册订阅，按事件类型（逗号分隔）匹配后推送到各自的 URL，并携带 HMAC-SHA256 签名头（`X-Signature-256`）供接收方验签。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/admin/api/webhooks` | 列出订阅（租户隔离） |
+| POST | `/admin/api/webhooks` | 创建订阅（url / events / secret） |
+| PUT | `/admin/api/webhooks/:id` | 更新订阅 |
+| DELETE | `/admin/api/webhooks/:id` | 删除订阅 |
+
+当前内置触发事件：`user.created`、`user.deleted`、`role.updated`、`tenant.created`。
+
+```bash
+# 注册：当有用户创建/删除时，推送到自建回调
+curl -X POST http://localhost:48080/admin/api/webhooks \
+  -H "Authorization: Bearer <admin-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "CRM 同步",
+    "url": "https://crm.company.com/hooks/usercenter",
+    "events": "user.created,user.deleted",
+    "secret": "shared-hmac-secret"
+  }'
+
+# 接收方收到（带签名）：
+# Headers: X-Event-Type: user.created
+#          X-Signature-256: <hex(HMAC-SHA256(body, secret))>
+# Body: {"event":"user.created","ts":1234567890,"payload":{"id":"...","userName":"alice","tenantID":"t1"}}
+```
+
+### 15.4 API Key 认证（外部服务）
+
+外部服务/脚本可不依赖人类 JWT，使用长生命周期 API Key 认证。Key 以 `uc_` 前缀 + 32 位随机，SHA-256 哈希存储，明文仅在创建时返回一次。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/admin/api/api-keys` | 列出 API Key（仅返回 prefix/hint） |
+| POST | `/admin/api/api-keys` | 创建（**返回明文，仅一次**） |
+| DELETE | `/admin/api/api-keys/:id` | 吊销 |
+
+```bash
+# 创建 API Key
+curl -X POST http://localhost:48080/admin/api/api-keys \
+  -H "Authorization: Bearer <admin-jwt>" \
+  -d '{"name":"ci-runner","principalID":"svc-1","roles":"viewer"}'
+# → {"code":20000,"data":{"id":"...","plaintext":"uc_a1b2c3..."}}
+
+# 用 API Key 访问（X-API-Key 头，替代 Bearer JWT）
+curl http://localhost:48080/api/core/auth/user/all \
+  -H "X-API-Key: uc_a1b2c3..."
+```
+
+中间件 `AuthRequired` 先检查 `X-API-Key`（命中即签发 Service 主体），未命中则走 JWT。无效 API Key 不阻断，fallthrough 到 JWT。
+
+### 15.5 密码过期与限流配置
+
+**密码过期**：配置 `pwdExpiredDays`（0=永不过期）后，用户密码超过该天数未修改时登录返回 `code=41007`（密码已过期，请修改密码）。`User.PasswordUpdatedAt` 在创建/重置/修改密码时自动更新。
+
+**REST API 限流配置**：每用户令牌桶限流默认 10 req/s、burst 20。管理员可按 principal 动态调整：
+
+```bash
+# 查看当前限流桶状态
+GET /admin/api/ratelimit/stats
+
+# 调整某用户的速率/突发
+PUT /admin/api/ratelimit/<principalID>
+{"ratePerSecond": 5, "burst": 10}
+# → 立即生效（桶重置为满）
+```
+
+空闲超过 30 分钟的令牌桶由后台协程自动回收，避免瞬时 principal 内存泄漏。
 
 ---
 
