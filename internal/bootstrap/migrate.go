@@ -10,8 +10,8 @@ import (
 	"fmt"
 
 	"github.com/CloudSilk/usercenter/internal/aicache"
-	"github.com/CloudSilk/usercenter/internal/apikeyauth"
 	"github.com/CloudSilk/usercenter/internal/apikey"
+	"github.com/CloudSilk/usercenter/internal/apikeyauth"
 	"github.com/CloudSilk/usercenter/internal/app"
 	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/auth"
@@ -28,12 +28,12 @@ import (
 	"github.com/CloudSilk/usercenter/internal/session"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/systemconfig"
-	"github.com/CloudSilk/usercenter/internal/webhook"
 	"github.com/CloudSilk/usercenter/internal/tenant"
 	"github.com/CloudSilk/usercenter/internal/usage"
 	"github.com/CloudSilk/usercenter/internal/user"
-	"github.com/CloudSilk/usercenter/internal/wechatconfig"
+	"github.com/CloudSilk/usercenter/internal/webhook"
 	"github.com/CloudSilk/usercenter/internal/website"
+	"github.com/CloudSilk/usercenter/internal/wechatconfig"
 )
 
 // AutoMigrate builds the schema for every domain table in one shot.
@@ -50,7 +50,7 @@ func AutoMigrate() error {
 		&permission.MenuFunc{}, &permission.MenuFuncApi{}, &permission.Role{}, &permission.RoleMenu{},
 		&permission.ABACPolicy{},
 		// user domain
-		&user.User{}, &user.UserRole{}, &user.UserWechatOpenIDMap{},
+		&user.User{}, &user.UserRole{}, &user.UserWechatOpenIDMap{}, &user.PhoneVerificationChallenge{},
 		// app domain
 		&app.APP{}, &app.APPProp{},
 		// tenant domain

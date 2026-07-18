@@ -26,6 +26,8 @@ const (
 	AuditActionDeleteUser = "delete_user"
 	AuditActionEnableUser = "enable_user"
 	AuditActionUpdateRole = "update_role"
+	AuditActionPhoneCode  = "phone_code_request"
+	AuditActionPhoneLogin = "phone_login"
 )
 
 // RecordAudit 记录审计日志(principalKind=0 表示人类,向后兼容)。
