@@ -258,3 +258,15 @@ func EnforceCached(sub, obj, act string) (ok bool, err error) {
 func InvalidateAuthCache() {
 	authResultCache.Flush()
 }
+
+// ReloadCasbinPolicy refreshes the in-process enforcer after a transaction
+// replaces role authorization rules directly in the shared database.
+func ReloadCasbinPolicy() error {
+	if enforcer != nil {
+		if err := enforcer.LoadPolicy(); err != nil {
+			return err
+		}
+	}
+	InvalidateAuthCache()
+	return nil
+}

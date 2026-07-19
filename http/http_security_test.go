@@ -19,6 +19,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/bootstrap"
 	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/session"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/tenant"
 	"github.com/CloudSilk/usercenter/internal/user"
@@ -478,6 +479,541 @@ func TestRoleManagementEnforcesTenantScopeAndPreservesAuthorization(t *testing.T
 	}
 	if importedRole.TenantID != ownedRole.TenantID || importedRole.Public {
 		t.Fatalf("tenant import escaped its scope: %#v", importedRole)
+	}
+}
+
+type roleAuthorizationEnvelope struct {
+	Code    apipb.Code `json:"code"`
+	Message string     `json:"message"`
+	Data    json.RawMessage
+}
+
+type roleAuthorizationFixture struct {
+	ParentMenuID     string
+	ChildMenuID      string
+	ParentViewFunc   string
+	ParentManageFunc string
+	ChildEditFunc    string
+}
+
+func createRoleAuthorizationFixture(t *testing.T, prefix string) roleAuthorizationFixture {
+	t.Helper()
+	parentMenuID := prefix + "-menu-parent"
+	childMenuID := prefix + "-menu-child"
+	parentViewFunc := prefix + "-parent-view"
+	parentManageFunc := prefix + "-parent-manage"
+	childEditFunc := prefix + "-child-edit"
+
+	apis := []*permission.API{
+		{
+			Model:       commonmodel.Model{ID: prefix + "-api-parent-view"},
+			Path:        "/" + prefix + "/documents",
+			Method:      http.MethodGet,
+			Description: "list documents",
+			Enable:      true,
+			CheckAuth:   true,
+		},
+		{
+			Model:       commonmodel.Model{ID: prefix + "-api-parent-manage"},
+			Path:        "/" + prefix + "/documents",
+			Method:      http.MethodPost,
+			Description: "create document",
+			Enable:      true,
+			CheckAuth:   true,
+		},
+		{
+			Model:       commonmodel.Model{ID: prefix + "-api-child-edit"},
+			Path:        "/" + prefix + "/documents/:id",
+			Method:      http.MethodPut,
+			Description: "edit document",
+			Enable:      true,
+			CheckAuth:   true,
+		},
+		{
+			Model:       commonmodel.Model{ID: prefix + "-api-child-edit-duplicate"},
+			Path:        "/" + prefix + "/documents/:id",
+			Method:      http.MethodPut,
+			Description: "duplicate binding",
+			Enable:      true,
+			CheckAuth:   true,
+		},
+		{
+			Model:       commonmodel.Model{ID: prefix + "-api-child-disabled"},
+			Path:        "/" + prefix + "/documents/:id/archive",
+			Method:      http.MethodPost,
+			Description: "disabled archive API",
+			Enable:      false,
+			CheckAuth:   true,
+		},
+	}
+	if err := store.DB().Create(&apis).Error; err != nil {
+		t.Fatalf("create authorization APIs: %v", err)
+	}
+	menus := []*permission.Menu{
+		{
+			Model: commonmodel.Model{ID: parentMenuID},
+			Name:  prefix + "-parent",
+			Title: "Document center",
+			Path:  "/" + prefix,
+			Sort:  10,
+		},
+		{
+			Model:    commonmodel.Model{ID: childMenuID},
+			ParentID: parentMenuID,
+			Level:    1,
+			Name:     prefix + "-child",
+			Title:    "Document editing",
+			Path:     "/" + prefix + "/edit",
+			Sort:     20,
+		},
+	}
+	if err := store.DB().Create(&menus).Error; err != nil {
+		t.Fatalf("create authorization menus: %v", err)
+	}
+	functions := []*permission.MenuFunc{
+		{
+			Model:  commonmodel.Model{ID: prefix + "-func-parent-view"},
+			MenuID: parentMenuID,
+			Name:   parentViewFunc,
+			Title:  "View documents",
+		},
+		{
+			Model:  commonmodel.Model{ID: prefix + "-func-parent-manage"},
+			MenuID: parentMenuID,
+			Name:   parentManageFunc,
+			Title:  "Manage documents",
+		},
+		{
+			Model:  commonmodel.Model{ID: prefix + "-func-child-edit"},
+			MenuID: childMenuID,
+			Name:   childEditFunc,
+			Title:  "Edit documents",
+		},
+	}
+	if err := store.DB().Create(&functions).Error; err != nil {
+		t.Fatalf("create authorization functions: %v", err)
+	}
+	links := []*permission.MenuFuncApi{
+		{
+			Model:      commonmodel.Model{ID: prefix + "-link-parent-view"},
+			MenuFuncID: functions[0].ID,
+			APIID:      apis[0].ID,
+		},
+		{
+			Model:      commonmodel.Model{ID: prefix + "-link-parent-manage"},
+			MenuFuncID: functions[1].ID,
+			APIID:      apis[1].ID,
+		},
+		{
+			Model:      commonmodel.Model{ID: prefix + "-link-child-edit"},
+			MenuFuncID: functions[2].ID,
+			APIID:      apis[2].ID,
+		},
+		{
+			Model:      commonmodel.Model{ID: prefix + "-link-child-edit-duplicate"},
+			MenuFuncID: functions[2].ID,
+			APIID:      apis[3].ID,
+		},
+		{
+			Model:      commonmodel.Model{ID: prefix + "-link-child-disabled"},
+			MenuFuncID: functions[2].ID,
+			APIID:      apis[4].ID,
+		},
+	}
+	if err := store.DB().Create(&links).Error; err != nil {
+		t.Fatalf("create function API links: %v", err)
+	}
+	return roleAuthorizationFixture{
+		ParentMenuID:     parentMenuID,
+		ChildMenuID:      childMenuID,
+		ParentViewFunc:   parentViewFunc,
+		ParentManageFunc: parentManageFunc,
+		ChildEditFunc:    childEditFunc,
+	}
+}
+
+func decodeRoleAuthorizationEnvelope(t *testing.T, response *httptest.ResponseRecorder) roleAuthorizationEnvelope {
+	t.Helper()
+	var envelope roleAuthorizationEnvelope
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode role authorization response: %v (body=%s)", err, response.Body.String())
+	}
+	return envelope
+}
+
+func TestRoleAuthorizationPreviewAndPublishLifecycle(t *testing.T) {
+	fixture := createRoleAuthorizationFixture(t, "role-auth-lifecycle")
+	role := &permission.Role{
+		Model:         commonmodel.Model{ID: "role-auth-lifecycle-role"},
+		TenantID:      platformTenant,
+		Name:          "Authorization lifecycle role",
+		Description:   "metadata must survive authorization publishing",
+		DefaultRouter: "dashboard",
+		CanDel:        true,
+		Enable:        true,
+	}
+	if err := store.DB().Create(role).Error; err != nil {
+		t.Fatalf("create authorization role: %v", err)
+	}
+	if err := store.DB().Create(&permission.RoleMenu{
+		Model:  commonmodel.Model{ID: "role-auth-lifecycle-initial-menu"},
+		RoleID: role.ID,
+		MenuID: fixture.ParentMenuID,
+		Funcs:  fixture.ParentViewFunc,
+		Show:   true,
+	}).Error; err != nil {
+		t.Fatalf("create initial role authorization: %v", err)
+	}
+
+	targetUserID := mustCreateUser(t, "role-auth-target", platformTenant, "Abc12345")
+	if err := store.DB().Create(&user.UserRole{
+		Model:  commonmodel.Model{ID: "role-auth-lifecycle-user-role"},
+		UserID: targetUserID,
+		RoleID: role.ID,
+	}).Error; err != nil {
+		t.Fatalf("assign role to target user: %v", err)
+	}
+	activeSession := &session.Session{
+		Model:       commonmodel.Model{ID: "role-auth-lifecycle-session"},
+		PrincipalID: targetUserID,
+		TenantID:    platformTenant,
+		TokenSig:    "role-auth-lifecycle-token-signature",
+	}
+	if err := store.DB().Create(activeSession).Error; err != nil {
+		t.Fatalf("create active session: %v", err)
+	}
+	staleToken, err := token.EncodeToken(&apipb.CurrentUser{
+		Id: targetUserID, TenantID: platformTenant, UserName: "role-auth-target",
+	})
+	if err != nil {
+		t.Fatalf("encode stale token: %v", err)
+	}
+	if exists, err := token.DefaultTokenCache.Exists(targetUserID, staleToken); err != nil || !exists {
+		t.Fatalf("stale token should exist before publish: exists=%v err=%v", exists, err)
+	}
+
+	current := &apipb.CurrentUser{
+		Id: "role-auth-platform-admin", TenantID: platformTenant, UserName: "role-auth-platform-admin",
+	}
+	engine := newRoleTestEngine(current)
+	detailEnvelope := decodeRoleAuthorizationEnvelope(t, doJSONRequest(
+		t,
+		engine,
+		http.MethodGet,
+		"/api/core/auth/role/authorization?id="+role.ID,
+		nil,
+	))
+	if detailEnvelope.Code != apipb.Code_Success {
+		t.Fatalf("load role authorization failed: %v (%s)", detailEnvelope.Code, detailEnvelope.Message)
+	}
+	var detail permission.RoleAuthorizationDetail
+	if err := json.Unmarshal(detailEnvelope.Data, &detail); err != nil {
+		t.Fatalf("decode role authorization detail: %v", err)
+	}
+	if len(detail.Menus) != 2 || detail.Summary.SelectedMenuCount != 1 || detail.Summary.PolicyCount != 1 {
+		t.Fatalf("unexpected current authorization detail: %#v", detail)
+	}
+	initialRevision := detail.Revision
+
+	proposedSelections := []map[string]any{
+		{
+			"menuID": fixture.ParentMenuID,
+			"show":   true,
+			"funcs":  []string{fixture.ParentViewFunc, fixture.ParentManageFunc},
+		},
+		{
+			"menuID": fixture.ChildMenuID,
+			"show":   true,
+			"funcs":  []string{fixture.ChildEditFunc},
+		},
+	}
+	previewEnvelope := decodeRoleAuthorizationEnvelope(t, doJSONRequest(
+		t,
+		engine,
+		http.MethodPost,
+		"/api/core/auth/role/authorization/preview",
+		map[string]any{"roleID": role.ID, "selections": proposedSelections},
+	))
+	if previewEnvelope.Code != apipb.Code_Success {
+		t.Fatalf("preview role authorization failed: %v (%s)", previewEnvelope.Code, previewEnvelope.Message)
+	}
+	var preview permission.RoleAuthorizationPreview
+	if err := json.Unmarshal(previewEnvelope.Data, &preview); err != nil {
+		t.Fatalf("decode role authorization preview: %v", err)
+	}
+	if preview.CurrentRevision != initialRevision ||
+		preview.Summary.PolicyCount != 3 ||
+		preview.Summary.SkippedDisabledAPICount != 1 {
+		t.Fatalf("unexpected authorization preview: %#v", preview)
+	}
+	var unchangedMenuCount int64
+	if err := store.DB().Model(&permission.RoleMenu{}).
+		Where("role_id = ?", role.ID).
+		Count(&unchangedMenuCount).Error; err != nil {
+		t.Fatalf("count unchanged role menus: %v", err)
+	}
+	if unchangedMenuCount != 1 {
+		t.Fatalf("preview mutated role menus, count=%d", unchangedMenuCount)
+	}
+
+	publishEnvelope := decodeRoleAuthorizationEnvelope(t, doJSONRequest(
+		t,
+		engine,
+		http.MethodPut,
+		"/api/core/auth/role/authorization",
+		map[string]any{
+			"roleID":       role.ID,
+			"baseRevision": initialRevision,
+			"selections":   proposedSelections,
+		},
+	))
+	if publishEnvelope.Code != apipb.Code_Success {
+		t.Fatalf("publish role authorization failed: %v (%s)", publishEnvelope.Code, publishEnvelope.Message)
+	}
+	var publishResult struct {
+		Revision        string `json:"revision"`
+		SessionsRevoked int64  `json:"sessionsRevoked"`
+	}
+	if err := json.Unmarshal(publishEnvelope.Data, &publishResult); err != nil {
+		t.Fatalf("decode role authorization publish result: %v", err)
+	}
+	if publishResult.Revision != preview.ProposedRevision || publishResult.SessionsRevoked != 1 {
+		t.Fatalf("unexpected publish result: %#v", publishResult)
+	}
+
+	var storedRole permission.Role
+	if err := store.DB().First(&storedRole, "id = ?", role.ID).Error; err != nil {
+		t.Fatalf("reload role metadata: %v", err)
+	}
+	if storedRole.Name != role.Name ||
+		storedRole.TenantID != role.TenantID ||
+		storedRole.Description != role.Description ||
+		storedRole.DefaultRouter != role.DefaultRouter {
+		t.Fatalf("authorization publish changed role metadata: %#v", storedRole)
+	}
+	var storedRoleMenus []*permission.RoleMenu
+	if err := store.DB().Where("role_id = ?", role.ID).Order("menu_id").Find(&storedRoleMenus).Error; err != nil {
+		t.Fatalf("reload published role menus: %v", err)
+	}
+	if len(storedRoleMenus) != 2 {
+		t.Fatalf("published role menu count=%d, want 2", len(storedRoleMenus))
+	}
+	var policyCount int64
+	if err := store.DB().Model(&permission.CasbinRule{}).
+		Where("ptype = ? AND v0 = ?", "p", role.ID).
+		Count(&policyCount).Error; err != nil {
+		t.Fatalf("count published Casbin policies: %v", err)
+	}
+	if policyCount != 3 {
+		t.Fatalf("published Casbin policy count=%d, want 3", policyCount)
+	}
+	if err := store.DB().First(activeSession, "id = ?", activeSession.ID).Error; err != nil {
+		t.Fatalf("reload revoked session: %v", err)
+	}
+	if !activeSession.Revoked || activeSession.RevokedReason != "role authorization published" {
+		t.Fatalf("role authorization publish did not revoke session: %#v", activeSession)
+	}
+	if exists, err := token.DefaultTokenCache.Exists(targetUserID, staleToken); err != nil || exists {
+		t.Fatalf("stale token must be cleared after publish: exists=%v err=%v", exists, err)
+	}
+	var auditCount int64
+	if err := store.DB().Model(&audit.AuditLog{}).
+		Where("action = ? AND target_id = ?", audit.AuditActionPublishRoleAuth, role.ID).
+		Count(&auditCount).Error; err != nil {
+		t.Fatalf("count role authorization audit: %v", err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("role authorization audit count=%d, want 1", auditCount)
+	}
+
+	conflictEnvelope := decodeRoleAuthorizationEnvelope(t, doJSONRequest(
+		t,
+		engine,
+		http.MethodPut,
+		"/api/core/auth/role/authorization",
+		map[string]any{
+			"roleID":       role.ID,
+			"baseRevision": initialRevision,
+			"selections":   []map[string]any{},
+		},
+	))
+	if conflictEnvelope.Code != apipb.Code_BadRequest {
+		t.Fatalf("stale revision must be rejected, got %v", conflictEnvelope.Code)
+	}
+	var conflict struct {
+		Conflict bool `json:"conflict"`
+	}
+	if err := json.Unmarshal(conflictEnvelope.Data, &conflict); err != nil {
+		t.Fatalf("decode revision conflict: %v", err)
+	}
+	if !conflict.Conflict {
+		t.Fatalf("revision conflict flag missing: %#v", conflict)
+	}
+}
+
+func TestRoleAuthorizationEnforcesTenantAndHierarchyBoundaries(t *testing.T) {
+	fixture := createRoleAuthorizationFixture(t, "role-auth-boundary")
+	tenantA := &tenant.Tenant{
+		Model:     commonmodel.Model{ID: "role-auth-tenant-a"},
+		Name:      "role-auth-tenant-a",
+		Enable:    true,
+		Expired:   time.Now().Add(24 * time.Hour),
+		UserCount: 100,
+	}
+	tenantB := &tenant.Tenant{
+		Model:     commonmodel.Model{ID: "role-auth-tenant-b"},
+		Name:      "role-auth-tenant-b",
+		Enable:    true,
+		Expired:   time.Now().Add(24 * time.Hour),
+		UserCount: 100,
+	}
+	if err := store.DB().Create([]*tenant.Tenant{tenantA, tenantB}).Error; err != nil {
+		t.Fatalf("create authorization tenants: %v", err)
+	}
+	if err := store.DB().Create([]*tenant.TenantMenu{
+		{
+			Model:    commonmodel.Model{ID: "role-auth-tenant-parent-menu"},
+			TenantID: tenantA.ID,
+			MenuID:   fixture.ParentMenuID,
+			Funcs:    fixture.ParentViewFunc,
+		},
+		{
+			Model:    commonmodel.Model{ID: "role-auth-tenant-child-menu"},
+			TenantID: tenantA.ID,
+			MenuID:   fixture.ChildMenuID,
+			Funcs:    fixture.ChildEditFunc,
+		},
+	}).Error; err != nil {
+		t.Fatalf("create tenant menu authorization: %v", err)
+	}
+	ownedRole := &permission.Role{
+		Model:    commonmodel.Model{ID: "role-auth-boundary-owned-role"},
+		TenantID: tenantA.ID,
+		Name:     "Owned tenant role",
+		CanDel:   true,
+		Enable:   true,
+	}
+	foreignRole := &permission.Role{
+		Model:    commonmodel.Model{ID: "role-auth-boundary-foreign-role"},
+		TenantID: tenantB.ID,
+		Name:     "Foreign tenant role",
+		CanDel:   true,
+		Enable:   true,
+	}
+	disabledRole := &permission.Role{
+		Model:    commonmodel.Model{ID: "role-auth-boundary-disabled-role"},
+		TenantID: platformTenant,
+		Name:     "Disabled platform role",
+		CanDel:   true,
+		Enable:   false,
+	}
+	if err := store.DB().Create([]*permission.Role{ownedRole, foreignRole, disabledRole}).Error; err != nil {
+		t.Fatalf("create boundary roles: %v", err)
+	}
+	if err := store.DB().Model(&permission.Role{}).
+		Where("id = ?", disabledRole.ID).
+		Update("enable", false).Error; err != nil {
+		t.Fatalf("disable boundary role: %v", err)
+	}
+
+	tenantEngine := newRoleTestEngine(&apipb.CurrentUser{
+		Id: "role-auth-tenant-admin", TenantID: tenantA.ID, UserName: "role-auth-tenant-admin",
+	})
+	foreignEnvelope := decodeRoleAuthorizationEnvelope(t, doJSONRequest(
+		t,
+		tenantEngine,
+		http.MethodGet,
+		"/api/core/auth/role/authorization?id="+foreignRole.ID,
+		nil,
+	))
+	if foreignEnvelope.Code != apipb.Code_NoPermission {
+		t.Fatalf("cross-tenant authorization detail should be denied, got %v", foreignEnvelope.Code)
+	}
+
+	outOfScopeFunction := decodeRoleAuthorizationEnvelope(t, doJSONRequest(
+		t,
+		tenantEngine,
+		http.MethodPost,
+		"/api/core/auth/role/authorization/preview",
+		map[string]any{
+			"roleID": ownedRole.ID,
+			"selections": []map[string]any{{
+				"menuID": fixture.ParentMenuID,
+				"show":   true,
+				"funcs":  []string{fixture.ParentManageFunc},
+			}},
+		},
+	))
+	if outOfScopeFunction.Code != apipb.Code_BadRequest {
+		t.Fatalf("function outside tenant menu scope should be rejected, got %v", outOfScopeFunction.Code)
+	}
+
+	missingAncestor := decodeRoleAuthorizationEnvelope(t, doJSONRequest(
+		t,
+		tenantEngine,
+		http.MethodPost,
+		"/api/core/auth/role/authorization/preview",
+		map[string]any{
+			"roleID": ownedRole.ID,
+			"selections": []map[string]any{{
+				"menuID": fixture.ChildMenuID,
+				"show":   true,
+				"funcs":  []string{fixture.ChildEditFunc},
+			}},
+		},
+	))
+	if missingAncestor.Code != apipb.Code_BadRequest {
+		t.Fatalf("visible child without visible ancestor should be rejected, got %v", missingAncestor.Code)
+	}
+
+	platformEngine := newRoleTestEngine(&apipb.CurrentUser{
+		Id: "role-auth-platform-boundary-admin", TenantID: platformTenant, UserName: "role-auth-platform-boundary-admin",
+	})
+	disabledDetailEnvelope := decodeRoleAuthorizationEnvelope(t, doJSONRequest(
+		t,
+		platformEngine,
+		http.MethodGet,
+		"/api/core/auth/role/authorization?id="+disabledRole.ID,
+		nil,
+	))
+	if disabledDetailEnvelope.Code != apipb.Code_Success {
+		t.Fatalf("load disabled role authorization failed: %v (%s)", disabledDetailEnvelope.Code, disabledDetailEnvelope.Message)
+	}
+	var disabledDetail permission.RoleAuthorizationDetail
+	if err := json.Unmarshal(disabledDetailEnvelope.Data, &disabledDetail); err != nil {
+		t.Fatalf("decode disabled role detail: %v", err)
+	}
+	disabledPublish := decodeRoleAuthorizationEnvelope(t, doJSONRequest(
+		t,
+		platformEngine,
+		http.MethodPut,
+		"/api/core/auth/role/authorization",
+		map[string]any{
+			"roleID":       disabledRole.ID,
+			"baseRevision": disabledDetail.Revision,
+			"selections": []map[string]any{{
+				"menuID": fixture.ParentMenuID,
+				"show":   true,
+				"funcs":  []string{fixture.ParentViewFunc},
+			}},
+		},
+	))
+	if disabledPublish.Code != apipb.Code_Success {
+		t.Fatalf("disabled role selections should be saved: %v (%s)", disabledPublish.Code, disabledPublish.Message)
+	}
+	var disabledMenuCount, disabledPolicyCount int64
+	if err := store.DB().Model(&permission.RoleMenu{}).
+		Where("role_id = ?", disabledRole.ID).
+		Count(&disabledMenuCount).Error; err != nil {
+		t.Fatalf("count disabled role selections: %v", err)
+	}
+	if err := store.DB().Model(&permission.CasbinRule{}).
+		Where("ptype = ? AND v0 = ?", "p", disabledRole.ID).
+		Count(&disabledPolicyCount).Error; err != nil {
+		t.Fatalf("count disabled role policies: %v", err)
+	}
+	if disabledMenuCount != 1 || disabledPolicyCount != 0 {
+		t.Fatalf("disabled role must save selections without active policy, menus=%d policies=%d", disabledMenuCount, disabledPolicyCount)
 	}
 }
 

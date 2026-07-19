@@ -27,6 +27,7 @@ const (
 	AuditActionEnableUser      = "enable_user"
 	AuditActionUpdateRole      = "update_role"
 	AuditActionUpdateUserRoles = "update_user_roles"
+	AuditActionPublishRoleAuth = "publish_role_authorization"
 	AuditActionPhoneCode       = "phone_code_request"
 	AuditActionPhoneLogin      = "phone_login"
 )

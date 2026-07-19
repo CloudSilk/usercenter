@@ -2,12 +2,16 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/CloudSilk/pkg/constants"
+	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/tenant"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
@@ -281,6 +285,126 @@ func ImportRole(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+type roleAuthorizationRequest struct {
+	RoleID     string                                  `json:"roleID" binding:"required"`
+	Selections []permission.RoleAuthorizationSelection `json:"selections"`
+}
+
+type publishRoleAuthorizationRequest struct {
+	RoleID       string                                  `json:"roleID" binding:"required"`
+	BaseRevision string                                  `json:"baseRevision" binding:"required"`
+	Selections   []permission.RoleAuthorizationSelection `json:"selections"`
+}
+
+func roleAuthorizationError(c *gin.Context, err error) {
+	message := err.Error()
+	if errors.Is(err, permission.ErrRoleAuthorizationRevisionConflict) {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    apipb.Code_BadRequest,
+			"message": message,
+			"data": gin.H{
+				"conflict": true,
+			},
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    apipb.Code_BadRequest,
+		"message": message,
+	})
+}
+
+// GetRoleAuthorization returns the native role authorization source, tenant
+// scoped candidates, current revision and the exact active Casbin projection.
+func GetRoleAuthorization(c *gin.Context) {
+	roleID := c.Query("id")
+	if strings.TrimSpace(roleID) == "" {
+		roleAuthorizationError(c, errors.New("role ID cannot be empty"))
+		return
+	}
+	if !canManageRole(c, roleID) {
+		c.JSON(http.StatusOK, noRolePermissionResponse())
+		return
+	}
+	detail, err := permission.GetRoleAuthorization(roleID)
+	if err != nil {
+		roleAuthorizationError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": apipb.Code_Success, "data": detail})
+}
+
+// PreviewRoleAuthorization validates a proposed selection and projects its
+// Casbin policies without modifying role_menus, sessions or policy storage.
+func PreviewRoleAuthorization(c *gin.Context) {
+	req := &roleAuthorizationRequest{}
+	if err := c.ShouldBindJSON(req); err != nil {
+		roleAuthorizationError(c, err)
+		return
+	}
+	if !canManageRole(c, req.RoleID) {
+		c.JSON(http.StatusOK, noRolePermissionResponse())
+		return
+	}
+	preview, err := permission.PreviewRoleAuthorization(req.RoleID, req.Selections)
+	if err != nil {
+		roleAuthorizationError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": apipb.Code_Success, "data": preview})
+}
+
+// PublishRoleAuthorization atomically replaces role menu selections and their
+// Casbin projection, then revokes every affected login context.
+func PublishRoleAuthorization(c *gin.Context) {
+	req := &publishRoleAuthorizationRequest{}
+	if err := c.ShouldBindJSON(req); err != nil {
+		roleAuthorizationError(c, err)
+		return
+	}
+	if !canManageRole(c, req.RoleID) {
+		c.JSON(http.StatusOK, noRolePermissionResponse())
+		return
+	}
+	result, err := permission.PublishRoleAuthorization(req.RoleID, req.BaseRevision, req.Selections)
+	if err != nil {
+		roleAuthorizationError(c, err)
+		return
+	}
+	currentSessionRevoked := false
+	currentUserID := ucm.GetUserID(c)
+	for _, userID := range result.AffectedUserIDs {
+		if userID == currentUserID {
+			currentSessionRevoked = true
+			break
+		}
+	}
+	detail, _ := json.Marshal(map[string]interface{}{
+		"revision":        result.Revision,
+		"summary":         result.Summary,
+		"sessionsRevoked": result.SessionsRevoked,
+	})
+	audit.RecordAuditWithKind(
+		store.DB(),
+		ucm.GetUserID(c),
+		ucm.GetUserName(c),
+		int32(ucm.GetPrincipalKind(c)),
+		audit.AuditActionPublishRoleAuth,
+		req.RoleID,
+		c.ClientIP(),
+		string(detail),
+	)
+	c.JSON(http.StatusOK, gin.H{
+		"code": apipb.Code_Success,
+		"data": gin.H{
+			"revision":              result.Revision,
+			"summary":               result.Summary,
+			"sessionsRevoked":       result.SessionsRevoked,
+			"currentSessionRevoked": currentSessionRevoked,
+		},
+	})
+}
+
 func RegisterRoleRouter(r *gin.Engine) {
 	roleGroup := r.Group("/api/core/auth/role")
 	roleGroup.POST("add", AutoHandler(AddRole))
@@ -290,6 +414,9 @@ func RegisterRoleRouter(r *gin.Engine) {
 	roleGroup.DELETE("delete", AutoHandler(DeleteRole))
 	roleGroup.GET("all", GetAllRole)
 	roleGroup.GET("detail", GetRoleDetail)
+	roleGroup.GET("authorization", GetRoleAuthorization)
+	roleGroup.POST("authorization/preview", PreviewRoleAuthorization)
+	roleGroup.PUT("authorization", PublishRoleAuthorization)
 	roleGroup.GET("export", ExportRole)
 	roleGroup.POST("import", ImportRole)
 }
