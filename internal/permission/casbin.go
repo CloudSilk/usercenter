@@ -41,18 +41,22 @@ func InitCasbin() {
 
 // UpdateCasbin 更新 casbin 权限
 func UpdateCasbin(roleID string, casbinInfos []*CasbinRule) error {
-	ClearCasbin(0, roleID)
-	rules := [][]string{}
-	for _, v := range casbinInfos {
-		rules = append(rules, []string{roleID, v.Path, v.Method, v.CheckAuth})
-	}
-
-	success, err := enforcer.AddNamedPolicies("p", rules)
-	if err != nil {
+	if _, err := ClearCasbin(0, roleID); err != nil {
 		return err
 	}
-	if !success {
-		return errors.New("存在相同api,添加失败,请联系管理员")
+	if len(casbinInfos) > 0 {
+		for _, info := range casbinInfos {
+			info.Ptype = "p"
+			info.RoleID = roleID
+		}
+		if err := store.DB().Create(&casbinInfos).Error; err != nil {
+			return err
+		}
+	}
+	if enforcer != nil {
+		if err := enforcer.LoadPolicy(); err != nil {
+			return err
+		}
 	}
 	InvalidateAuthCache()
 	return nil
@@ -88,9 +92,25 @@ func GetPolicyPathByRoleID(roleID string) (pathMaps []*CasbinRule) {
 
 // ClearCasbin 清除匹配的权限
 func ClearCasbin(v int, p ...string) (bool, error) {
-	ok, err := enforcer.RemoveFilteredPolicy(v, p...)
+	fields := []string{"v0", "v1", "v2", "v3", "v4", "v5"}
+	if v < 0 || v+len(p) > len(fields) {
+		return false, errors.New("invalid casbin filter")
+	}
+	db := store.DB().Where("ptype = ?", "p")
+	for index, value := range p {
+		db = db.Where(fields[v+index]+" = ?", value)
+	}
+	result := db.Delete(&CasbinRule{})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if enforcer != nil {
+		if err := enforcer.LoadPolicy(); err != nil {
+			return false, err
+		}
+	}
 	InvalidateAuthCache()
-	return ok, err
+	return result.RowsAffected > 0, nil
 }
 
 // NewEnforcer 创建 Casbin enforcer（持久化到数据库 + 自定义规则）

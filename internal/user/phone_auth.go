@@ -357,7 +357,7 @@ func issueVerifiedUserToken(u *User, resp *apipb.LoginResponse) {
 	}
 	current := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
-		RoleIDs: u.GetRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
+		RoleIDs: u.GetEnabledRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
 	}
 	encoded, err := token.EncodeToken(current)
 	if err != nil {

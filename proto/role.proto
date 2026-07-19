@@ -41,6 +41,8 @@ message RoleInfo{
     string projectID=12;
     //系统必须要有的数据
     bool isMust=13;
+    //角色是否启用；停用后不再签发到新的登录权限上下文
+    bool enable=14;
 }
 
 message RoleMenu{

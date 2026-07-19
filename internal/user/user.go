@@ -118,6 +118,25 @@ func (u User) GetRoleIDs() []string {
 	return roleIDs
 }
 
+// GetEnabledRoleIDs returns only roles that are currently active. Role IDs are
+// embedded in JWTs, so disabled roles must never enter a newly issued login
+// context even when the historical user-role link is intentionally retained.
+func (u User) GetEnabledRoleIDs() []string {
+	roleIDs := u.GetRoleIDs()
+	if len(roleIDs) == 0 {
+		return nil
+	}
+	var enabledRoleIDs []string
+	if err := store.DB().Model(&permission.Role{}).
+		Where("id IN ? AND enable = ?", roleIDs, true).
+		Pluck("id", &enabledRoleIDs).Error; err != nil {
+		log.Errorf(context.Background(), "load enabled roles for user %s failed: %v", u.ID, err)
+		return nil
+	}
+	sort.Strings(enabledRoleIDs)
+	return enabledRoleIDs
+}
+
 func CreateUser(user *User, isCreateFromWechat bool) error {
 	if user.Password != "" {
 		if !auth.ValidPasswdStrength(user.Password) {
@@ -385,12 +404,13 @@ func UpdateUserRoles(userID string, roleIDs []string) (RoleAssignmentResult, err
 				Or(map[string]interface{}{"public": true})
 			if err := tx.
 				Where("id IN ?", result.RoleIDs).
+				Where("enable = ?", true).
 				Where(allowedScope).
 				Find(&roles).Error; err != nil {
 				return err
 			}
 			if len(roles) != len(result.RoleIDs) {
-				return errors.New("角色不存在或不属于该用户的租户范围")
+				return errors.New("角色不存在、已停用或不属于该用户的租户范围")
 			}
 		}
 
@@ -566,7 +586,7 @@ func Login(req *apipb.LoginRequest, resp *apipb.LoginResponse) {
 	}
 	currentUser := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
-		RoleIDs: u.GetRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
+		RoleIDs: u.GetEnabledRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
 	}
 	t, err := token.EncodeToken(currentUser)
 	if err != nil {
@@ -599,7 +619,7 @@ func CompleteMFALogin(mfaToken, code string, resp *apipb.LoginResponse) {
 	}
 	currentUser := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
-		RoleIDs: u.GetRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
+		RoleIDs: u.GetEnabledRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
 	}
 	t, err := token.EncodeToken(currentUser)
 	if err != nil {
@@ -667,7 +687,7 @@ func LoginByWechat(register bool, req *User, resp *apipb.LoginResponse) {
 	}
 	currentUser := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
-		RoleIDs: u.GetRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
+		RoleIDs: u.GetEnabledRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
 	}
 	t, err := token.EncodeToken(currentUser)
 	if err != nil {
@@ -729,6 +749,9 @@ func GetUserProfile(id string, needMenu bool) (*apipb.UserProfile, error) {
 	}
 	haveMenu := make(map[string]*permission.RoleMenu)
 	for _, userRole := range u.UserRoles {
+		if userRole.Role == nil || !userRole.Role.Enable {
+			continue
+		}
 		for _, roleMenu := range userRole.Role.RoleMenus {
 			oldMenu, ok := haveMenu[roleMenu.MenuID]
 			if ok {
@@ -994,7 +1017,7 @@ func LoginByStaffNo(req *apipb.LoginByStaffNoRequest, resp *apipb.LoginByStaffNo
 	}
 	currentUser := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
-		RoleIDs: u.GetRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
+		RoleIDs: u.GetEnabledRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
 	}
 	t, err := token.EncodeToken(currentUser)
 	if err != nil {

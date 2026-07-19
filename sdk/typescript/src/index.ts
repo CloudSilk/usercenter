@@ -37,6 +37,8 @@ export interface Role {
   description?: string;
   canDel?: boolean;
   public?: boolean;
+  isMust?: boolean;
+  enable?: boolean;
 }
 
 
@@ -278,6 +280,10 @@ export class UserCenterClient {
     return this.request("DELETE", "/api/core/auth/role/delete", { id });
   }
 
+  async enableRole(id: string, enable: boolean): Promise<CommonResponse> {
+    return this.request("POST", "/api/core/auth/role/enable", { id, enable });
+  }
+
   async queryRoles(pageIndex = 1, pageSize = 10, filters?: Record<string, string>): Promise<RoleListResponse> {
     const params = new URLSearchParams({ pageIndex: String(pageIndex), pageSize: String(pageSize), ...filters });
     return this.request("GET", "/api/core/auth/role/query?" + params);
@@ -348,7 +354,7 @@ export class UserCenterClient {
 
   async oauthToken(code: string, redirectUri: string, clientId: string, clientSecret: string): Promise<any> {
     const params = new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirectUri, client_id: clientId, client_secret: clientSecret });
-    return this.requestRaw("POST", "/oauth/token?" + params, null, {});
+    return this.requestRaw("POST", "/oauth/token?" + params, undefined, {});
   }
 
   async oauthUserinfo(): Promise<any> {

@@ -15,6 +15,19 @@ import (
 	"gorm.io/gorm"
 )
 
+func canManageRole(c *gin.Context, roleID string) bool {
+	currentTenantID := ucm.GetTenantID(c)
+	if currentTenantID == constants.PlatformTenantID {
+		return true
+	}
+	target, err := permission.GetRoleByID(roleID)
+	return err == nil && !target.Public && target.TenantID == currentTenantID
+}
+
+func noRolePermissionResponse() *apipb.CommonResponse {
+	return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "无权管理该角色"}
+}
+
 // AddRole godoc
 // @Summary 新增角色
 // @Tags 角色管理
@@ -26,6 +39,7 @@ func AddRole(c *gin.Context, req *apipb.RoleInfo) (*apipb.CommonResponse, error)
 	//只有平台租户才能为其他租户创建角色
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
+		req.Public = false
 	}
 	if err := permission.CreateRole(permission.PBToRole(req), tenant.GetTenantUserCount); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
@@ -41,9 +55,13 @@ func AddRole(c *gin.Context, req *apipb.RoleInfo) (*apipb.CommonResponse, error)
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/role/update [put]
 func UpdateRole(c *gin.Context, req *apipb.RoleInfo) (*apipb.CommonResponse, error) {
+	if !canManageRole(c, req.Id) {
+		return noRolePermissionResponse(), nil
+	}
 	//只有平台租户才能更改角色的租户
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
+		req.Public = false
 	}
 	if err := permission.UpdateRole(permission.PBToRole(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
@@ -59,7 +77,28 @@ func UpdateRole(c *gin.Context, req *apipb.RoleInfo) (*apipb.CommonResponse, err
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/role/delete [delete]
 func DeleteRole(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
+	if !canManageRole(c, req.Id) {
+		return noRolePermissionResponse(), nil
+	}
 	if err := permission.DeleteRole(req.Id); err != nil {
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
+	}
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
+}
+
+// EnableRole godoc
+// @Summary 禁用/启用角色
+// @Description 系统角色不允许停用；状态变化会撤销受影响用户的旧登录上下文并同步 Casbin 权限。
+// @Tags 角色管理
+// @Param authorization header string true "jwt token"
+// @Param data body apipb.EnableRequest true "请求参数"
+// @Success 200 {object} apipb.CommonResponse
+// @Router /api/core/auth/role/enable [post]
+func EnableRole(c *gin.Context, req *apipb.EnableRequest) (*apipb.CommonResponse, error) {
+	if !canManageRole(c, req.Id) {
+		return noRolePermissionResponse(), nil
+	}
+	if err := permission.SetRoleEnabled(req.Id, req.Enable); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
@@ -95,6 +134,12 @@ func GetRoleDetail(c *gin.Context) {
 	idStr := c.Query("id")
 	if idStr == "" {
 		resp.Code = apipb.Code_BadRequest
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+	if !canManageRole(c, idStr) {
+		resp.Code = apipb.Code_NoPermission
+		resp.Message = "无权查看该角色"
 		c.JSON(http.StatusOK, resp)
 		return
 	}
@@ -205,13 +250,28 @@ func ImportRole(c *gin.Context) {
 		return
 	}
 	successCount, failCount := 0, 0
+	currentTenantID := ucm.GetTenantID(c)
 	for _, f := range list {
-		if err := permission.UpdateRole(permission.PBToRole(f)); err != nil {
-			if err == gorm.ErrRecordNotFound {
-				err = permission.CreateRole(permission.PBToRole(f), tenant.GetTenantUserCount)
+		if currentTenantID != constants.PlatformTenantID {
+			f.TenantID = currentTenantID
+			f.Public = false
+			existing, lookupErr := permission.GetRoleByID(f.Id)
+			if lookupErr != nil && lookupErr != gorm.ErrRecordNotFound {
+				failCount++
+				continue
+			}
+			if lookupErr == nil && (existing.Public || existing.TenantID != currentTenantID) {
+				failCount++
+				continue
 			}
 		}
-		if err != nil {
+		itemErr := permission.UpdateRole(permission.PBToRole(f))
+		if itemErr != nil {
+			if itemErr == gorm.ErrRecordNotFound {
+				itemErr = permission.CreateRole(permission.PBToRole(f), tenant.GetTenantUserCount)
+			}
+		}
+		if itemErr != nil {
 			failCount++
 		} else {
 			successCount++
@@ -225,6 +285,7 @@ func RegisterRoleRouter(r *gin.Engine) {
 	roleGroup := r.Group("/api/core/auth/role")
 	roleGroup.POST("add", AutoHandler(AddRole))
 	roleGroup.PUT("update", AutoHandler(UpdateRole))
+	roleGroup.POST("enable", AutoHandler(EnableRole))
 	roleGroup.GET("query", AutoQueryHandler(QueryRole))
 	roleGroup.DELETE("delete", AutoHandler(DeleteRole))
 	roleGroup.GET("all", GetAllRole)

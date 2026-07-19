@@ -19,6 +19,9 @@ export interface Role {
   code: string
   description: string
   canDel: boolean
+  public?: boolean
+  isMust?: boolean
+  enable?: boolean
   tenantName?: string
   roleMenus?: RoleMenu[]
 }

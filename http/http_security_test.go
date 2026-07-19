@@ -3,6 +3,7 @@ package http_test
 import (
 	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -59,6 +60,16 @@ func newTestEngine(currentUser *apipb.CurrentUser) *gin.Engine {
 		c.Next()
 	})
 	userhttp.RegisterUserRouter(r)
+	return r
+}
+
+func newRoleTestEngine(currentUser *apipb.CurrentUser) *gin.Engine {
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("User", currentUser)
+		c.Next()
+	})
+	userhttp.RegisterRoleRouter(r)
 	return r
 }
 
@@ -122,6 +133,27 @@ func doJSONRequest(t *testing.T, r *gin.Engine, method, path string, body any) *
 	}
 	req := httptest.NewRequest(method, path, reader)
 	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func doMultipartJSONRequest(t *testing.T, r *gin.Engine, path, fieldName, fileName string, payload any) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile(fieldName, fileName)
+	if err != nil {
+		t.Fatalf("create multipart file: %v", err)
+	}
+	if err := json.NewEncoder(part).Encode(payload); err != nil {
+		t.Fatalf("encode multipart payload: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, path, &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
@@ -265,6 +297,187 @@ func TestUserManagementRejectsCrossTenantTargets(t *testing.T) {
 	}
 	if !target.Enable || target.Nickname == "越权修改" {
 		t.Fatalf("cross-tenant mutations changed target: %#v", target)
+	}
+}
+
+func TestRoleManagementEnforcesTenantScopeAndPreservesAuthorization(t *testing.T) {
+	if err := tenant.CreateTenant(&tenant.Tenant{
+		Model:     commonmodel.Model{ID: "managed-role-tenant-a"},
+		Name:      "managed-role-tenant-a",
+		Enable:    true,
+		Expired:   time.Now().Add(24 * time.Hour),
+		UserCount: 100,
+	}); err != nil {
+		t.Fatalf("create managed role tenant: %v", err)
+	}
+	ownedRole := &permission.Role{
+		Model:       commonmodel.Model{ID: "managed-role-owned"},
+		TenantID:    "managed-role-tenant-a",
+		Name:        "本租户角色",
+		Description: "原说明",
+		CanDel:      true,
+		Enable:      true,
+	}
+	foreignRole := &permission.Role{
+		Model:    commonmodel.Model{ID: "managed-role-foreign"},
+		TenantID: "managed-role-tenant-b",
+		Name:     "其他租户角色",
+		CanDel:   true,
+		Enable:   true,
+	}
+	if err := store.DB().Create([]*permission.Role{ownedRole, foreignRole}).Error; err != nil {
+		t.Fatalf("create roles: %v", err)
+	}
+	roleMenu := &permission.RoleMenu{
+		Model:  commonmodel.Model{ID: "managed-role-menu"},
+		RoleID: ownedRole.ID,
+		MenuID: "managed-role-menu-resource",
+		Funcs:  "view",
+		Show:   true,
+	}
+	if err := store.DB().Create(roleMenu).Error; err != nil {
+		t.Fatalf("create role menu: %v", err)
+	}
+
+	current := &apipb.CurrentUser{
+		Id: "managed-role-admin-a", TenantID: ownedRole.TenantID, UserName: "managed-role-admin-a",
+	}
+	r := newRoleTestEngine(current)
+
+	detail := doJSONRequest(t, r, http.MethodGet, "/api/core/auth/role/detail?id="+foreignRole.ID, nil)
+	var detailResp apipb.GetRoleDetailResponse
+	if err := json.Unmarshal(detail.Body.Bytes(), &detailResp); err != nil {
+		t.Fatalf("decode foreign role detail: %v", err)
+	}
+	if detailResp.Code != apipb.Code_NoPermission {
+		t.Fatalf("foreign role detail should be denied, got %v", detailResp.Code)
+	}
+
+	crossTenantRequests := []struct {
+		name   string
+		method string
+		path   string
+		body   any
+	}{
+		{
+			name: "update", method: http.MethodPut, path: "/api/core/auth/role/update",
+			body: map[string]any{"id": foreignRole.ID, "name": "越权修改", "tenantID": ownedRole.TenantID},
+		},
+		{
+			name: "enable", method: http.MethodPost, path: "/api/core/auth/role/enable",
+			body: map[string]any{"id": foreignRole.ID, "enable": false},
+		},
+		{
+			name: "delete", method: http.MethodDelete, path: "/api/core/auth/role/delete",
+			body: map[string]any{"id": foreignRole.ID},
+		},
+	}
+	for _, tc := range crossTenantRequests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := decodeCommonResponse(t, doJSONRequest(t, r, tc.method, tc.path, tc.body))
+			if resp.Code != apipb.Code_NoPermission {
+				t.Fatalf("cross-tenant role %s should be denied, got %v (%s)", tc.name, resp.Code, resp.Message)
+			}
+		})
+	}
+
+	update := decodeCommonResponse(t, doJSONRequest(t, r, http.MethodPut, "/api/core/auth/role/update", map[string]any{
+		"id": ownedRole.ID, "tenantID": foreignRole.TenantID, "name": "本租户角色已更新",
+		"description": "新说明", "public": true, "defaultRouter": "dashboard",
+	}))
+	if update.Code != apipb.Code_Success {
+		t.Fatalf("same-tenant role update failed: %v (%s)", update.Code, update.Message)
+	}
+	var stored permission.Role
+	if err := store.DB().First(&stored, "id = ?", ownedRole.ID).Error; err != nil {
+		t.Fatalf("reload owned role: %v", err)
+	}
+	if stored.TenantID != ownedRole.TenantID || stored.Public || stored.Name != "本租户角色已更新" {
+		t.Fatalf("tenant-scoped update escaped its boundary: %#v", stored)
+	}
+	var roleMenuCount int64
+	if err := store.DB().Model(&permission.RoleMenu{}).
+		Where("role_id = ?", ownedRole.ID).
+		Count(&roleMenuCount).Error; err != nil {
+		t.Fatalf("count preserved role menus: %v", err)
+	}
+	if roleMenuCount != 1 {
+		t.Fatalf("metadata-only role update removed authorization links, count=%d", roleMenuCount)
+	}
+
+	childRole := &permission.Role{
+		Model:    commonmodel.Model{ID: "managed-role-child"},
+		TenantID: ownedRole.TenantID,
+		Name:     "下级角色",
+		ParentID: ownedRole.ID,
+		CanDel:   true,
+		Enable:   true,
+	}
+	if err := store.DB().Create(childRole).Error; err != nil {
+		t.Fatalf("create child role: %v", err)
+	}
+	cycle := decodeCommonResponse(t, doJSONRequest(t, r, http.MethodPut, "/api/core/auth/role/update", map[string]any{
+		"id": ownedRole.ID, "tenantID": ownedRole.TenantID, "name": stored.Name,
+		"parentID": childRole.ID,
+	}))
+	if cycle.Code == apipb.Code_Success {
+		t.Fatal("role update must reject an indirect parent cycle")
+	}
+	if err := store.DB().First(&stored, "id = ?", ownedRole.ID).Error; err != nil {
+		t.Fatalf("reload owned role after cycle rejection: %v", err)
+	}
+	if stored.ParentID != "" {
+		t.Fatalf("cycle rejection changed the role parent: %#v", stored)
+	}
+
+	query := doJSONRequest(t, r, http.MethodGet, "/api/core/auth/role/query?pageIndex=1&pageSize=100", nil)
+	var queryResp apipb.QueryRoleResponse
+	if err := json.Unmarshal(query.Body.Bytes(), &queryResp); err != nil {
+		t.Fatalf("decode role query: %v", err)
+	}
+	for _, role := range queryResp.Data {
+		if role.Id == foreignRole.ID {
+			t.Fatalf("foreign role leaked into tenant query: %#v", role)
+		}
+	}
+
+	importedRoleID := "managed-role-import-created"
+	importResp := doMultipartJSONRequest(
+		t,
+		r,
+		"/api/core/auth/role/import",
+		"files",
+		"roles.json",
+		[]map[string]any{
+			{
+				"id": foreignRole.ID, "tenantID": ownedRole.TenantID,
+				"name": "越权导入修改", "public": false,
+			},
+			{
+				"id": importedRoleID, "tenantID": foreignRole.TenantID,
+				"name": "本租户导入角色", "public": true,
+			},
+		},
+	)
+	var imported apipb.QueryRoleResponse
+	if err := json.Unmarshal(importResp.Body.Bytes(), &imported); err != nil {
+		t.Fatalf("decode role import: %v (body=%s)", err, importResp.Body.String())
+	}
+	if imported.Code != apipb.Code_Success || imported.Message != "导入成功数量:1,导入失败数量:1" {
+		t.Fatalf("unexpected tenant-scoped import result: %#v", imported)
+	}
+	if err := store.DB().First(foreignRole, "id = ?", foreignRole.ID).Error; err != nil {
+		t.Fatalf("reload foreign role after import: %v", err)
+	}
+	if foreignRole.Name == "越权导入修改" {
+		t.Fatal("tenant import modified a foreign role")
+	}
+	var importedRole permission.Role
+	if err := store.DB().First(&importedRole, "id = ?", importedRoleID).Error; err != nil {
+		t.Fatalf("load imported role: %v", err)
+	}
+	if importedRole.TenantID != ownedRole.TenantID || importedRole.Public {
+		t.Fatalf("tenant import escaped its scope: %#v", importedRole)
 	}
 }
 

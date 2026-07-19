@@ -296,6 +296,106 @@ func TestUpdateUserRolesRejectsForeignTenantRoleWithoutChangingLinks(t *testing.
 	}
 }
 
+func TestDisabledRoleRevokesAccessAndCannotBeAssigned(t *testing.T) {
+	u := mustCreateUser(t, "disabled-role-user", "Abc12345")
+	if err := store.DB().Model(&user.User{}).Where("id = ?", u.ID).Update("tenant_id", "tenant-disabled-role").Error; err != nil {
+		t.Fatalf("set user tenant: %v", err)
+	}
+	role := &permission.Role{
+		Model:    commonmodel.Model{ID: "role-disabled-access"},
+		TenantID: "tenant-disabled-role",
+		Name:     "待停用角色",
+		CanDel:   true,
+		Enable:   true,
+	}
+	if err := store.DB().Create(role).Error; err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	if err := store.DB().Create(&user.UserRole{UserID: u.ID, RoleID: role.ID}).Error; err != nil {
+		t.Fatalf("create user role: %v", err)
+	}
+	if err := permission.UpdateCasbin(role.ID, []*permission.CasbinRule{{
+		Path: "/api/disabled-role-proof", Method: "GET", CheckAuth: "true",
+	}}); err != nil {
+		t.Fatalf("seed role policy: %v", err)
+	}
+
+	accessToken, err := token.EncodeToken(&apipb.CurrentUser{
+		Id: u.ID, UserName: u.UserName, TenantID: role.TenantID, RoleIDs: []string{role.ID},
+	})
+	if err != nil {
+		t.Fatalf("encode token: %v", err)
+	}
+	activeSession := &session.Session{
+		Model:       commonmodel.Model{ID: "disabled-role-session"},
+		PrincipalID: u.ID,
+		TenantID:    role.TenantID,
+	}
+	if err := store.DB().Create(activeSession).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	if err := permission.SetRoleEnabled(role.ID, false); err != nil {
+		t.Fatalf("disable role: %v", err)
+	}
+	if exists, err := token.DefaultTokenCache.Exists(u.ID, accessToken); err != nil || exists {
+		t.Fatalf("role state change must invalidate stale token: exists=%v err=%v", exists, err)
+	}
+	var storedSession session.Session
+	if err := store.DB().First(&storedSession, "id = ?", activeSession.ID).Error; err != nil {
+		t.Fatalf("reload session: %v", err)
+	}
+	if !storedSession.Revoked || storedSession.RevokedReason != "role state updated" {
+		t.Fatalf("role state change did not revoke session: %#v", storedSession)
+	}
+	var storedRole permission.Role
+	if err := store.DB().First(&storedRole, "id = ?", role.ID).Error; err != nil {
+		t.Fatalf("reload role: %v", err)
+	}
+	if storedRole.Enable {
+		t.Fatal("role should be disabled")
+	}
+	var policyCount int64
+	if err := store.DB().Model(&permission.CasbinRule{}).Where("v0 = ?", role.ID).Count(&policyCount).Error; err != nil {
+		t.Fatalf("count disabled role policies: %v", err)
+	}
+	if policyCount != 0 {
+		t.Fatalf("disabled role retained %d persisted policies", policyCount)
+	}
+	if enabled := u.GetEnabledRoleIDs(); len(enabled) != 0 {
+		t.Fatalf("disabled role leaked into login context: %#v", enabled)
+	}
+	loginResp := &apipb.LoginResponse{Code: commonmodel.Success}
+	user.Login(&apipb.LoginRequest{UserName: u.UserName, Password: "Abc12345"}, loginResp)
+	if loginResp.Code != apipb.Code_Success {
+		t.Fatalf("login with disabled role failed: %v (%s)", loginResp.Code, loginResp.Message)
+	}
+	currentUser, err := token.DecodeToken(loginResp.Data)
+	if err != nil {
+		t.Fatalf("decode new token: %v", err)
+	}
+	if len(currentUser.RoleIDs) != 0 {
+		t.Fatalf("new token contains disabled role: %#v", currentUser.RoleIDs)
+	}
+	if _, err := user.UpdateUserRoles(u.ID, []string{role.ID}); err == nil {
+		t.Fatal("disabled role assignment must be rejected")
+	}
+
+	systemRole := &permission.Role{
+		Model:  commonmodel.Model{ID: "role-required-system"},
+		Name:   "系统角色",
+		CanDel: false,
+		IsMust: true,
+		Enable: true,
+	}
+	if err := store.DB().Create(systemRole).Error; err != nil {
+		t.Fatalf("create system role: %v", err)
+	}
+	if err := permission.SetRoleEnabled(systemRole.ID, false); err == nil {
+		t.Fatal("system role must not be disabled")
+	}
+}
+
 func TestGetUserTenantID(t *testing.T) {
 	u := mustCreateUser(t, "tenantuser", "Abc12345")
 	store.DB().Model(&user.User{}).Where("id = ?", u.ID).Update("tenant_id", "tenant-xyz")

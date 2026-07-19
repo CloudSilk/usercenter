@@ -12,6 +12,7 @@ import (
 	"github.com/CloudSilk/pkg/utils"
 	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/CloudSilk/usercenter/internal/alert"
+	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/store"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"gorm.io/gorm"
@@ -31,6 +32,7 @@ type Role struct {
 	CanDel        bool        `json:"canDel" gorm:"default:1"`
 	Public        bool        `gorm:"comment:是否是公共角色;default:0"`
 	IsMust        bool        `json:"isMust" gorm:"index;comment:系统必须要有的数据"`
+	Enable        bool        `json:"enable" gorm:"index;default:1;comment:角色是否启用"`
 }
 
 type RoleMenu struct {
@@ -56,6 +58,9 @@ type RoleCopyResponse struct {
 
 func CreateRole(newRole *Role, tenantCountFn func(string) (bool, int32, error)) error {
 	err := store.DB().Transaction(func(tx *gorm.DB) error {
+		if err := validateRoleParent(tx, newRole.ID, newRole.ParentID, newRole.TenantID, newRole.Public); err != nil {
+			return err
+		}
 		count, err := statisticRoleCount(tx, newRole.TenantID)
 		if err != nil {
 			return err
@@ -71,6 +76,7 @@ func CreateRole(newRole *Role, tenantCountFn func(string) (bool, int32, error)) 
 			return fmt.Errorf("只能创建 %d 个角色", tenantRoleCount)
 		}
 		newRole.CanDel = true
+		newRole.Enable = true
 		duplication, err := store.Client().CreateWithCheckDuplicationWithDB(tx, newRole, "id = ?", newRole.ID)
 		if err != nil {
 			return err
@@ -97,9 +103,16 @@ func updateRoleAuth(id string) error {
 	if err != nil {
 		return err
 	}
+	if !roleDetail.Enable {
+		_, err = ClearCasbin(0, id)
+		return err
+	}
 	roleID := roleDetail.ID
 	var newRules = make(map[string]*CasbinRule)
 	for _, m := range roleDetail.RoleMenus {
+		if m.Menu == nil {
+			continue
+		}
 		funcs := strings.Split(m.Funcs, ",")
 		for _, fn := range m.Menu.MenuFuncs {
 			flag := false
@@ -186,29 +199,34 @@ func UpdateRole(newRole *Role) error {
 		if err != nil {
 			return err
 		}
-		var deleteRoleMenu []string
-		for _, oldRM := range oldRole.RoleMenus {
-			flag := false
-			for _, newRM := range newRole.RoleMenus {
-				if newRM.ID == oldRM.ID {
-					flag = true
+		if err := validateRoleParent(tx, newRole.ID, newRole.ParentID, newRole.TenantID, newRole.Public); err != nil {
+			return err
+		}
+		if newRole.RoleMenus != nil {
+			var deleteRoleMenu []string
+			for _, oldRM := range oldRole.RoleMenus {
+				flag := false
+				for _, newRM := range newRole.RoleMenus {
+					if newRM.ID == oldRM.ID {
+						flag = true
+					}
+				}
+				if !flag {
+					deleteRoleMenu = append(deleteRoleMenu, oldRM.ID)
 				}
 			}
-			if !flag {
-				deleteRoleMenu = append(deleteRoleMenu, oldRM.ID)
+			if len(deleteRoleMenu) > 0 {
+				err = tx.Unscoped().Delete(&RoleMenu{}, "id in ?", deleteRoleMenu).Error
+				if err != nil {
+					return err
+				}
 			}
-		}
-		if len(deleteRoleMenu) > 0 {
-			err = tx.Unscoped().Delete(&RoleMenu{}, "id in ?", deleteRoleMenu).Error
-			if err != nil {
-				return err
-			}
-		}
-		for _, m := range newRole.RoleMenus {
-			m.RoleID = newRole.ID
-			err = tx.Omit("created_at").Save(m).Error
-			if err != nil {
-				return err
+			for _, m := range newRole.RoleMenus {
+				m.RoleID = newRole.ID
+				err = tx.Omit("created_at").Save(m).Error
+				if err != nil {
+					return err
+				}
 			}
 		}
 		if newRole.TenantID == "" {
@@ -226,6 +244,110 @@ func UpdateRole(newRole *Role) error {
 	}
 	alert.FireEvent("role.updated", map[string]interface{}{
 		"id": newRole.ID, "name": newRole.Name, "tenantID": newRole.TenantID,
+	})
+	return nil
+}
+
+func validateRoleParent(tx *gorm.DB, roleID, parentID, tenantID string, public bool) error {
+	parentID = strings.TrimSpace(parentID)
+	if parentID == "" {
+		return nil
+	}
+	if parentID == roleID {
+		return errors.New("角色不能将自己设为父角色")
+	}
+	parent := &Role{}
+	if err := tx.Where("id = ?", parentID).First(parent).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return errors.New("父角色不存在")
+		}
+		return err
+	}
+	if public {
+		if !parent.Public {
+			return errors.New("公共角色只能继承公共角色")
+		}
+		return nil
+	}
+	if !parent.Public && parent.TenantID != tenantID {
+		return errors.New("父角色不属于当前租户范围")
+	}
+	visited := map[string]struct{}{parent.ID: {}}
+	for ancestorID := strings.TrimSpace(parent.ParentID); ancestorID != ""; {
+		if ancestorID == roleID {
+			return errors.New("父角色关系不能形成循环")
+		}
+		if _, exists := visited[ancestorID]; exists {
+			return errors.New("父角色关系中已存在循环")
+		}
+		visited[ancestorID] = struct{}{}
+		ancestor := &Role{}
+		if err := tx.Select("id", "parent_id").Where("id = ?", ancestorID).First(ancestor).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return errors.New("父角色层级中存在无效角色")
+			}
+			return err
+		}
+		ancestorID = strings.TrimSpace(ancestor.ParentID)
+	}
+	return nil
+}
+
+// SetRoleEnabled changes the native role state, revokes every affected login
+// context and synchronizes Casbin policies. System roles cannot be disabled.
+func SetRoleEnabled(roleID string, enable bool) error {
+	roleID = strings.TrimSpace(roleID)
+	if roleID == "" {
+		return errors.New("角色 ID 不能为空")
+	}
+	var affectedUserIDs []string
+	err := store.DB().Transaction(func(tx *gorm.DB) error {
+		role := &Role{}
+		if err := tx.Where("id = ?", roleID).First(role).Error; err != nil {
+			return err
+		}
+		if role.Enable == enable {
+			return nil
+		}
+		if !enable && (role.IsMust || !role.CanDel) {
+			return errors.New("系统角色不允许停用")
+		}
+		if err := tx.Model(&Role{}).Where("id = ?", roleID).Update("enable", enable).Error; err != nil {
+			return err
+		}
+		if err := tx.Table("user_roles").
+			Where("role_id = ?", roleID).
+			Distinct("user_id").
+			Pluck("user_id", &affectedUserIDs).Error; err != nil {
+			return err
+		}
+		if len(affectedUserIDs) > 0 {
+			if err := tx.Table("user_session").
+				Where("principal_id IN ? AND revoked = ?", affectedUserIDs, false).
+				Updates(map[string]interface{}{
+					"revoked":        true,
+					"revoked_reason": "role state updated",
+				}).Error; err != nil {
+				return err
+			}
+			if token.DefaultTokenCache != nil {
+				for _, userID := range affectedUserIDs {
+					if err := token.DefaultTokenCache.DelByUserID(userID); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if err := updateRoleAuth(roleID); err != nil {
+		return err
+	}
+	alert.FireEvent("role.updated", map[string]interface{}{
+		"id": roleID, "enable": enable,
 	})
 	return nil
 }
@@ -319,11 +441,11 @@ func GetFullRoleByID(id string) (*Role, error) {
 func GetAllRole(tenantID string, containerCommon bool) (roles []*Role, err error) {
 	db := store.DB()
 	if containerCommon {
-		db = db.Or("tenant_id=? or `public`=?", tenantID, containerCommon)
+		db = db.Where("tenant_id = ? OR `public` = ?", tenantID, true)
 	} else if tenantID != "" {
 		db = db.Where("tenant_id=?", tenantID)
 	}
-	err = db.Unscoped().Find(&roles).Error
+	err = db.Find(&roles).Error
 	return
 }
 
@@ -411,6 +533,7 @@ func PBToRole(in *apipb.RoleInfo) *Role {
 		RoleMenus:     PBToRoleMenus(in.RoleMenus),
 		Public:        in.Public,
 		IsMust:        in.IsMust,
+		Enable:        in.Enable,
 	}
 }
 
@@ -435,6 +558,7 @@ func RoleToPB(in *Role) *apipb.RoleInfo {
 		Children:      children,
 		Public:        in.Public,
 		IsMust:        in.IsMust,
+		Enable:        in.Enable,
 	}
 	return role
 }
