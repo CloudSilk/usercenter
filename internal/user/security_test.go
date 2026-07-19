@@ -214,6 +214,36 @@ func TestGetUserTenantID(t *testing.T) {
 	}
 }
 
+func TestDeleteUserUsesOneTransactionAndRemovesRoleLinks(t *testing.T) {
+	u := mustCreateUser(t, "deleteuser", "Abc12345")
+	if err := store.DB().Model(&user.User{}).Where("id = ?", u.ID).Update("can_del", true).Error; err != nil {
+		t.Fatalf("mark user deletable: %v", err)
+	}
+	link := &user.UserRole{UserID: u.ID, RoleID: "delete-test-role"}
+	if err := store.DB().Create(link).Error; err != nil {
+		t.Fatalf("create user role link: %v", err)
+	}
+
+	if err := user.DeleteUser(u.ID); err != nil {
+		t.Fatalf("DeleteUser must not self-lock its sqlite transaction: %v", err)
+	}
+
+	var activeUsers int64
+	if err := store.DB().Model(&user.User{}).Where("id = ?", u.ID).Count(&activeUsers).Error; err != nil {
+		t.Fatalf("count active users: %v", err)
+	}
+	if activeUsers != 0 {
+		t.Fatalf("expected user to be soft deleted, active count=%d", activeUsers)
+	}
+	var roleLinks int64
+	if err := store.DB().Unscoped().Model(&user.UserRole{}).Where("user_id = ?", u.ID).Count(&roleLinks).Error; err != nil {
+		t.Fatalf("count role links: %v", err)
+	}
+	if roleLinks != 0 {
+		t.Fatalf("expected user role links to be removed, count=%d", roleLinks)
+	}
+}
+
 func TestUserToPBRedactsPasswordAndKeepsManagementFields(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	u := &user.User{

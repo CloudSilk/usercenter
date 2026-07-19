@@ -182,10 +182,10 @@ func DeleteUser(id string) (err error) {
 		if !exists.CanDel {
 			return errors.New("此用户不允许删除")
 		}
-		if e := store.DB().Unscoped().Delete(&UserRole{}, "user_id=?", id).Error; e != nil {
+		if e := tx.Unscoped().Delete(&UserRole{}, "user_id=?", id).Error; e != nil {
 			return e
 		}
-		return store.DB().Delete(&User{}, "id=?", id).Error
+		return tx.Delete(&User{}, "id=?", id).Error
 	})
 	if txErr == nil {
 		alert.FireEvent("user.deleted", map[string]interface{}{
