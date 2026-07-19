@@ -88,7 +88,7 @@ type RoleInfo struct {
 	// 系统必须要有的数据
 	IsMust bool `protobuf:"varint,13,opt,name=isMust,proto3" json:"isMust,omitempty"`
 	// 角色是否启用；停用后不再签发到新的登录权限上下文
-	Enable bool `protobuf:"varint,14,opt,name=enable,proto3" json:"enable,omitempty"`
+	Enable bool `protobuf:"varint,14,opt,name=enable,proto3" json:"enable"`
 }
 
 func (x *RoleInfo) Reset() {
