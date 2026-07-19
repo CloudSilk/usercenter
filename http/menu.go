@@ -2,9 +2,11 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/usercenter/internal/permission"
@@ -16,6 +18,32 @@ import (
 	"gorm.io/gorm"
 )
 
+func menuMutationResponse(err error) *apipb.CommonResponse {
+	if err == nil {
+		return &apipb.CommonResponse{Code: apipb.Code_Success}
+	}
+	code := apipb.Code_InternalServerError
+	if errors.Is(err, permission.ErrInvalidMenu) ||
+		errors.Is(err, permission.ErrProtectedMenu) ||
+		errors.Is(err, permission.ErrMenuHasChild) {
+		code = apipb.Code_BadRequest
+	}
+	return &apipb.CommonResponse{Code: code, Message: err.Error()}
+}
+
+func canManageMenu(c *gin.Context, menuID string) bool {
+	currentTenantID := ucm.GetTenantID(c)
+	if currentTenantID == constants.PlatformTenantID {
+		return true
+	}
+	menu, err := permission.GetMenuByID(strings.TrimSpace(menuID))
+	return err == nil && menu.TenantID == currentTenantID
+}
+
+func noMenuPermissionResponse() *apipb.CommonResponse {
+	return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "no permission to manage this menu"}
+}
+
 // AddMenu godoc
 // @Summary 新增菜单
 // @Tags 菜单管理
@@ -24,12 +52,17 @@ import (
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/menu/add [post]
 func AddMenu(c *gin.Context, req *apipb.MenuInfo) (*apipb.CommonResponse, error) {
+	req.IsMust = false
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
+	} else if strings.TrimSpace(req.TenantID) == "" {
+		req.TenantID = constants.PlatformTenantID
 	}
-	if err := permission.AddMenu(permission.PBToMenu(req)); err != nil {
-		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
+	menu := permission.PBToMenu(req)
+	if err := permission.AddMenu(menu); err != nil {
+		return menuMutationResponse(err), nil
 	}
+	recordAudit(c, "create_menu", menu.ID, fmt.Sprintf("%s %s", menu.Name, menu.Path))
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
@@ -41,9 +74,20 @@ func AddMenu(c *gin.Context, req *apipb.MenuInfo) (*apipb.CommonResponse, error)
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/menu/update [put]
 func UpdateMenu(c *gin.Context, req *apipb.MenuInfo) (*apipb.CommonResponse, error) {
-	if err := permission.UpdateMenu(permission.PBToMenu(req)); err != nil {
-		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
+	if !canManageMenu(c, req.Id) {
+		return noMenuPermissionResponse(), nil
 	}
+	current, err := permission.GetMenuByID(req.Id)
+	if err != nil {
+		return menuMutationResponse(err), nil
+	}
+	req.TenantID = current.TenantID
+	req.ProjectID = current.ProjectID
+	req.IsMust = current.IsMust
+	if err := permission.UpdateMenu(permission.PBToMenu(req)); err != nil {
+		return menuMutationResponse(err), nil
+	}
+	recordAudit(c, "update_menu", req.Id, fmt.Sprintf("%s %s", req.Name, req.Path))
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
@@ -55,9 +99,13 @@ func UpdateMenu(c *gin.Context, req *apipb.MenuInfo) (*apipb.CommonResponse, err
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/menu/delete [delete]
 func DeleteMenu(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
-	if err := permission.DeleteMenu(req.Id); err != nil {
-		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
+	if !canManageMenu(c, req.Id) {
+		return noMenuPermissionResponse(), nil
 	}
+	if err := permission.DeleteMenu(req.Id); err != nil {
+		return menuMutationResponse(err), nil
+	}
+	recordAudit(c, "delete_menu", req.Id, "")
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
@@ -74,7 +122,21 @@ func QueryMenu(c *gin.Context, req *apipb.QueryMenuRequest) (*apipb.QueryMenuRes
 		req.TenantID = tenantID
 	}
 	resp := &apipb.QueryMenuResponse{Code: apipb.Code_Success}
-	permission.QueryMenu(req, resp, false)
+	var hidden *bool
+	switch strings.TrimSpace(c.Query("visibility")) {
+	case "", "all":
+	case "visible":
+		value := false
+		hidden = &value
+	case "hidden":
+		value := true
+		hidden = &value
+	default:
+		resp.Code = apipb.Code_BadRequest
+		resp.Message = "visibility must be all, visible or hidden"
+		return resp, nil
+	}
+	permission.QueryMenus(req, resp, false, c.Query("keyword"), hidden)
 	return resp, nil
 }
 
@@ -93,6 +155,12 @@ func GetMenuDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
+	if !canManageMenu(c, idStr) {
+		resp.Code = apipb.Code_NoPermission
+		resp.Message = "no permission to view this menu"
+		c.JSON(http.StatusOK, resp)
+		return
+	}
 	data, err := permission.GetMenuByID(idStr)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
@@ -101,6 +169,24 @@ func GetMenuDetail(c *gin.Context) {
 		resp.Data = permission.MenuToPB(data)
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+func GetMenuImpact(c *gin.Context) {
+	idStr := strings.TrimSpace(c.Query("id"))
+	if idStr == "" {
+		writeBadRequest(c, errors.New("id required"))
+		return
+	}
+	if !canManageMenu(c, idStr) {
+		c.JSON(http.StatusOK, noMenuPermissionResponse())
+		return
+	}
+	impact, err := permission.GetMenuImpact(idStr)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeOK(c, gin.H{"data": impact})
 }
 
 // GetMenuTree godoc
@@ -190,13 +276,32 @@ func ImportMenu(c *gin.Context) {
 		return
 	}
 	successCount, failCount := 0, 0
+	currentTenantID := ucm.GetTenantID(c)
 	for _, f := range list {
-		if err := permission.UpdateMenu(permission.PBToMenu(f)); err != nil {
-			if err == gorm.ErrRecordNotFound {
-				err = permission.AddMenu(permission.PBToMenu(f))
+		var itemErr error
+		existing, lookupErr := permission.GetMenuByID(f.Id)
+		switch {
+		case lookupErr == nil:
+			if currentTenantID != constants.PlatformTenantID && existing.TenantID != currentTenantID {
+				failCount++
+				continue
 			}
+			f.TenantID = existing.TenantID
+			f.ProjectID = existing.ProjectID
+			f.IsMust = existing.IsMust
+			itemErr = permission.UpdateMenu(permission.PBToMenu(f))
+		case errors.Is(lookupErr, gorm.ErrRecordNotFound):
+			f.IsMust = false
+			if currentTenantID != constants.PlatformTenantID {
+				f.TenantID = currentTenantID
+			} else if strings.TrimSpace(f.TenantID) == "" {
+				f.TenantID = constants.PlatformTenantID
+			}
+			itemErr = permission.AddMenu(permission.PBToMenu(f))
+		default:
+			itemErr = lookupErr
 		}
-		if err != nil {
+		if itemErr != nil {
 			failCount++
 		} else {
 			successCount++
@@ -228,6 +333,7 @@ func RegisterMenuRouter(r *gin.Engine) {
 	menuGroup.GET("query", AutoQueryHandler(QueryMenu))
 	menuGroup.DELETE("delete", AutoHandler(DeleteMenu))
 	menuGroup.GET("detail", GetMenuDetail)
+	menuGroup.GET("impact", GetMenuImpact)
 	menuGroup.GET("tree", GetMenuTree)
 	menuGroup.GET("export", ExportMenu)
 	menuGroup.POST("import", ImportMenu)

@@ -85,6 +85,16 @@ func newAPITestEngine(currentUser *apipb.CurrentUser) *gin.Engine {
 	return r
 }
 
+func newMenuTestEngine(currentUser *apipb.CurrentUser) *gin.Engine {
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("User", currentUser)
+		c.Next()
+	})
+	userhttp.RegisterMenuRouter(r)
+	return r
+}
+
 // mustCreateUser 创建一条启用用户。tenantID 同时作为租户 ID 与租户名，
 // 以满足 CreateUser 内部的租户存在性/有效期校验。
 func mustCreateUser(t *testing.T, userName, tenantID, password string) string {
@@ -1121,6 +1131,288 @@ func TestDeleteMenuRebuildsRoleAuthorizationAndRevokesSessions(t *testing.T) {
 	}
 	if !activeSession.Revoked || activeSession.RevokedReason != "role menu deleted" {
 		t.Fatalf("menu deletion did not revoke affected session: %#v", activeSession)
+	}
+}
+
+func TestMenuManagementEnforcesTenantHierarchyAndProtection(t *testing.T) {
+	const prefix = "menu-management-boundary"
+	tenantAdmin := &apipb.CurrentUser{Id: prefix + "-admin", TenantID: prefix + "-tenant"}
+	engine := newMenuTestEngine(tenantAdmin)
+
+	createRoot := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPost, "/api/core/auth/menu/add", map[string]any{
+		"id":          prefix + "-root",
+		"tenantID":    "foreign-tenant",
+		"projectID":   "workspace",
+		"name":        " root-workspace ",
+		"title":       " Root workspace ",
+		"path":        " /" + prefix + "/root ",
+		"component":   " admin/root ",
+		"icon":        " layout-grid ",
+		"sort":        10,
+		"hidden":      false,
+		"cache":       true,
+		"defaultMenu": false,
+		"closeTab":    true,
+		"isMust":      true,
+	}))
+	if createRoot.Code != commonmodel.Success {
+		t.Fatalf("create root menu failed: %v (%s)", createRoot.Code, createRoot.Message)
+	}
+	root, err := permission.GetMenuByID(prefix + "-root")
+	if err != nil {
+		t.Fatalf("load root menu: %v", err)
+	}
+	if root.TenantID != tenantAdmin.TenantID ||
+		root.Name != "root-workspace" ||
+		root.Title != "Root workspace" ||
+		root.Path != "/"+prefix+"/root" ||
+		root.Component != "admin/root" ||
+		root.Icon != "layout-grid" ||
+		root.Level != 0 ||
+		root.IsMust ||
+		!root.CloseTab {
+		t.Fatalf("menu normalization, tenant scoping or closeTab conversion failed: %#v", root)
+	}
+
+	duplicate := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPost, "/api/core/auth/menu/add", map[string]any{
+		"id":        prefix + "-duplicate",
+		"projectID": root.ProjectID,
+		"name":      root.Name,
+		"title":     "Duplicate",
+		"path":      "/" + prefix + "/duplicate",
+	}))
+	if duplicate.Code != apipb.Code_BadRequest {
+		t.Fatalf("duplicate menu identity should be rejected, got %v (%s)", duplicate.Code, duplicate.Message)
+	}
+
+	createChild := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPost, "/api/core/auth/menu/add", map[string]any{
+		"id":        prefix + "-child",
+		"projectID": root.ProjectID,
+		"parentID":  root.ID,
+		"name":      "child-workspace",
+		"title":     "Child workspace",
+		"path":      "/" + prefix + "/child",
+		"component": "admin/child",
+		"sort":      20,
+	}))
+	createGrandchild := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPost, "/api/core/auth/menu/add", map[string]any{
+		"id":        prefix + "-grandchild",
+		"projectID": root.ProjectID,
+		"parentID":  prefix + "-child",
+		"name":      "grandchild-workspace",
+		"title":     "Grandchild workspace",
+		"path":      "/" + prefix + "/grandchild",
+		"component": "admin/grandchild",
+		"sort":      30,
+	}))
+	if createChild.Code != commonmodel.Success || createGrandchild.Code != commonmodel.Success {
+		t.Fatalf("create hierarchy failed: child=%v grandchild=%v", createChild.Code, createGrandchild.Code)
+	}
+	child, err := permission.GetMenuByID(prefix + "-child")
+	if err != nil {
+		t.Fatalf("load child menu: %v", err)
+	}
+	grandchild, err := permission.GetMenuByID(prefix + "-grandchild")
+	if err != nil {
+		t.Fatalf("load grandchild menu: %v", err)
+	}
+	if child.Level != 1 || grandchild.Level != 2 {
+		t.Fatalf("unexpected initial hierarchy levels: child=%d grandchild=%d", child.Level, grandchild.Level)
+	}
+
+	parameter := &permission.MenuParameter{
+		Model:  commonmodel.Model{ID: prefix + "-parameter"},
+		MenuID: child.ID,
+		Type:   "query",
+		Key:    "from",
+		Value:  "menu-test",
+	}
+	function := &permission.MenuFunc{
+		Model:  commonmodel.Model{ID: prefix + "-function"},
+		MenuID: child.ID,
+		Name:   "view",
+		Title:  "View",
+	}
+	if err := store.DB().Create(parameter).Error; err != nil {
+		t.Fatalf("create menu parameter fixture: %v", err)
+	}
+	if err := store.DB().Create(function).Error; err != nil {
+		t.Fatalf("create menu function fixture: %v", err)
+	}
+
+	updateChild := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPut, "/api/core/auth/menu/update", map[string]any{
+		"id":          child.ID,
+		"name":        child.Name,
+		"title":       "Hidden workspace",
+		"path":        child.Path,
+		"component":   child.Component,
+		"parentID":    "",
+		"icon":        "panel-top",
+		"sort":        5,
+		"hidden":      true,
+		"cache":       true,
+		"defaultMenu": false,
+		"closeTab":    true,
+	}))
+	if updateChild.Code != commonmodel.Success {
+		t.Fatalf("update menu metadata failed: %v (%s)", updateChild.Code, updateChild.Message)
+	}
+	child, err = permission.GetMenuByID(child.ID)
+	if err != nil {
+		t.Fatalf("reload updated child: %v", err)
+	}
+	grandchild, err = permission.GetMenuByID(grandchild.ID)
+	if err != nil {
+		t.Fatalf("reload descendant: %v", err)
+	}
+	if child.ParentID != "" || child.Level != 0 || !child.Hidden || !child.CloseTab ||
+		len(child.Parameters) != 1 || len(child.MenuFuncs) != 1 || grandchild.Level != 1 {
+		t.Fatalf("metadata update did not preserve associations or cascade levels: child=%#v grandchild=%#v", child, grandchild)
+	}
+
+	cycle := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPut, "/api/core/auth/menu/update", map[string]any{
+		"id":        child.ID,
+		"name":      child.Name,
+		"title":     child.Title,
+		"path":      child.Path,
+		"component": child.Component,
+		"parentID":  grandchild.ID,
+		"hidden":    child.Hidden,
+		"sort":      child.Sort,
+		"closeTab":  child.CloseTab,
+	}))
+	if cycle.Code != apipb.Code_BadRequest {
+		t.Fatalf("cyclic hierarchy should be rejected, got %v (%s)", cycle.Code, cycle.Message)
+	}
+
+	foreignParent := &permission.Menu{
+		Model:     commonmodel.Model{ID: prefix + "-foreign-parent"},
+		TenantID:  prefix + "-foreign-tenant",
+		ProjectID: root.ProjectID,
+		Name:      "foreign-parent",
+		Title:     "Foreign parent",
+		Path:      "/" + prefix + "/foreign-parent",
+	}
+	if err := permission.AddMenu(foreignParent); err != nil {
+		t.Fatalf("create foreign parent fixture: %v", err)
+	}
+	crossTenantParent := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPost, "/api/core/auth/menu/add", map[string]any{
+		"id":        prefix + "-cross-tenant-child",
+		"projectID": root.ProjectID,
+		"parentID":  foreignParent.ID,
+		"name":      "cross-tenant-child",
+		"title":     "Cross tenant child",
+		"path":      "/" + prefix + "/cross-tenant-child",
+	}))
+	if crossTenantParent.Code != apipb.Code_BadRequest {
+		t.Fatalf("cross-tenant parent should be rejected, got %v (%s)", crossTenantParent.Code, crossTenantParent.Message)
+	}
+
+	for _, request := range []struct {
+		method string
+		path   string
+		body   any
+	}{
+		{http.MethodGet, "/api/core/auth/menu/detail?id=" + foreignParent.ID, nil},
+		{http.MethodGet, "/api/core/auth/menu/impact?id=" + foreignParent.ID, nil},
+		{http.MethodPut, "/api/core/auth/menu/update", map[string]any{
+			"id": foreignParent.ID, "name": foreignParent.Name, "title": foreignParent.Title, "path": foreignParent.Path,
+		}},
+		{http.MethodDelete, "/api/core/auth/menu/delete", map[string]any{"id": foreignParent.ID}},
+	} {
+		response := decodeCommonResponse(t, doJSONRequest(t, engine, request.method, request.path, request.body))
+		if response.Code != apipb.Code_NoPermission {
+			t.Fatalf("%s %s should be tenant denied, got %v", request.method, request.path, response.Code)
+		}
+	}
+
+	blockerParent := &permission.Menu{
+		Model:     commonmodel.Model{ID: prefix + "-blocker"},
+		TenantID:  tenantAdmin.TenantID,
+		ProjectID: root.ProjectID,
+		Name:      "blocker-parent",
+		Title:     "Blocker parent",
+		Path:      "/" + prefix + "/blocker",
+	}
+	blockerChild := &permission.Menu{
+		Model:     commonmodel.Model{ID: prefix + "-blocker-child"},
+		TenantID:  tenantAdmin.TenantID,
+		ProjectID: root.ProjectID,
+		ParentID:  blockerParent.ID,
+		Name:      "blocker-child",
+		Title:     "Blocker child",
+		Path:      "/" + prefix + "/blocker-child",
+	}
+	if err := permission.AddMenu(blockerParent); err != nil {
+		t.Fatalf("create blocker parent: %v", err)
+	}
+	if err := permission.AddMenu(blockerChild); err != nil {
+		t.Fatalf("create blocker child: %v", err)
+	}
+	impactRecorder := doJSONRequest(t, engine, http.MethodGet, "/api/core/auth/menu/impact?id="+blockerParent.ID, nil)
+	impactEnvelope := struct {
+		Code apipb.Code            `json:"code"`
+		Data permission.MenuImpact `json:"data"`
+	}{}
+	if err := json.Unmarshal(impactRecorder.Body.Bytes(), &impactEnvelope); err != nil {
+		t.Fatalf("decode menu impact: %v (body=%s)", err, impactRecorder.Body.String())
+	}
+	if impactEnvelope.Code != commonmodel.Success ||
+		impactEnvelope.Data.DirectChildCount != 1 ||
+		impactEnvelope.Data.CanDelete {
+		t.Fatalf("unexpected menu impact: %#v", impactEnvelope)
+	}
+	blockedDelete := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodDelete, "/api/core/auth/menu/delete", map[string]any{
+		"id": blockerParent.ID,
+	}))
+	if blockedDelete.Code != apipb.Code_BadRequest {
+		t.Fatalf("parent menu deletion should be blocked, got %v (%s)", blockedDelete.Code, blockedDelete.Message)
+	}
+
+	systemMenu := &permission.Menu{
+		Model:     commonmodel.Model{ID: prefix + "-system"},
+		TenantID:  tenantAdmin.TenantID,
+		ProjectID: root.ProjectID,
+		Name:      "system-menu",
+		Title:     "System menu",
+		Path:      "/" + prefix + "/system",
+		IsMust:    true,
+	}
+	if err := permission.AddMenu(systemMenu); err != nil {
+		t.Fatalf("create system menu fixture: %v", err)
+	}
+	protectedUpdate := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPut, "/api/core/auth/menu/update", map[string]any{
+		"id":     systemMenu.ID,
+		"name":   systemMenu.Name,
+		"title":  systemMenu.Title,
+		"path":   systemMenu.Path,
+		"hidden": true,
+	}))
+	protectedDelete := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodDelete, "/api/core/auth/menu/delete", map[string]any{
+		"id": systemMenu.ID,
+	}))
+	if protectedUpdate.Code != apipb.Code_BadRequest || protectedDelete.Code != apipb.Code_BadRequest {
+		t.Fatalf("system menu protection failed: update=%v delete=%v", protectedUpdate.Code, protectedDelete.Code)
+	}
+
+	queryRecorder := doJSONRequest(
+		t,
+		engine,
+		http.MethodGet,
+		"/api/core/auth/menu/query?pageIndex=1&pageSize=50&keyword=Hidden%20workspace&visibility=hidden",
+		nil,
+	)
+	queryResponse := &apipb.QueryMenuResponse{}
+	if err := json.Unmarshal(queryRecorder.Body.Bytes(), queryResponse); err != nil {
+		t.Fatalf("decode menu query: %v (body=%s)", err, queryRecorder.Body.String())
+	}
+	if queryResponse.Code != commonmodel.Success ||
+		queryResponse.Records != 1 ||
+		len(queryResponse.Data) != 1 ||
+		queryResponse.Data[0].Id != child.ID ||
+		!queryResponse.Data[0].Hidden ||
+		!queryResponse.Data[0].CloseTab {
+		t.Fatalf("keyword/visibility query or closeTab response mismatch: %#v", queryResponse)
 	}
 }
 

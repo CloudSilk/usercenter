@@ -3,6 +3,8 @@ package permission
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils"
@@ -59,37 +61,240 @@ type MenuFuncApi struct {
 	API        *API   `json:"apiInfo"`
 }
 
+var (
+	ErrInvalidMenu   = errors.New("invalid menu")
+	ErrProtectedMenu = errors.New("system menu is protected")
+	ErrMenuHasChild  = errors.New("menu still has child menus")
+)
+
+type MenuImpact struct {
+	MenuID             string `json:"menuID"`
+	DirectChildCount   int64  `json:"directChildCount"`
+	FunctionCount      int64  `json:"functionCount"`
+	APIBindingCount    int64  `json:"apiBindingCount"`
+	ActiveRoleCount    int64  `json:"activeRoleCount"`
+	AffectedUserCount  int64  `json:"affectedUserCount"`
+	CanDelete          bool   `json:"canDelete"`
+	DeleteBlockReason  string `json:"deleteBlockReason,omitempty"`
+	HasStructuralRisk  bool   `json:"hasStructuralRisk"`
+	HasPermissionScope bool   `json:"hasPermissionScope"`
+}
+
+func normalizeMenu(menu *Menu) error {
+	if menu == nil {
+		return fmt.Errorf("%w: request body is required", ErrInvalidMenu)
+	}
+	menu.ID = strings.TrimSpace(menu.ID)
+	menu.TenantID = strings.TrimSpace(menu.TenantID)
+	menu.ProjectID = strings.TrimSpace(menu.ProjectID)
+	menu.ParentID = strings.TrimSpace(menu.ParentID)
+	menu.Path = strings.TrimSpace(menu.Path)
+	menu.Name = strings.TrimSpace(menu.Name)
+	menu.Component = strings.TrimSpace(menu.Component)
+	menu.Title = strings.TrimSpace(menu.Title)
+	menu.Icon = strings.TrimSpace(menu.Icon)
+	if menu.Name == "" {
+		return fmt.Errorf("%w: name is required", ErrInvalidMenu)
+	}
+	if len(menu.Name) > 100 {
+		return fmt.Errorf("%w: name cannot exceed 100 characters", ErrInvalidMenu)
+	}
+	if len(menu.Title) > 100 {
+		return fmt.Errorf("%w: title cannot exceed 100 characters", ErrInvalidMenu)
+	}
+	if len(menu.Icon) > 100 {
+		return fmt.Errorf("%w: icon cannot exceed 100 characters", ErrInvalidMenu)
+	}
+	if len(menu.Component) > 200 {
+		return fmt.Errorf("%w: component cannot exceed 200 characters", ErrInvalidMenu)
+	}
+	if len(menu.Path) > 200 {
+		return fmt.Errorf("%w: path cannot exceed 200 characters", ErrInvalidMenu)
+	}
+	if menu.Path != "" &&
+		(!strings.HasPrefix(menu.Path, "/") || strings.ContainsAny(menu.Path, " \t\r\n?#")) {
+		return fmt.Errorf("%w: path must start with / and cannot contain spaces, query strings or fragments", ErrInvalidMenu)
+	}
+	return nil
+}
+
+func menuIdentityExists(tx *gorm.DB, menu *Menu) (bool, error) {
+	query := tx.Model(&Menu{}).
+		Where("id <> ? AND tenant_id = ? AND project_id = ?", menu.ID, menu.TenantID, menu.ProjectID).
+		Where("name = ?", menu.Name)
+	if menu.Path != "" {
+		query = tx.Model(&Menu{}).
+			Where("id <> ? AND tenant_id = ? AND project_id = ?", menu.ID, menu.TenantID, menu.ProjectID).
+			Where("name = ? OR path = ?", menu.Name, menu.Path)
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func validateMenuParent(tx *gorm.DB, menuID, parentID, tenantID, projectID string) (uint32, error) {
+	parentID = strings.TrimSpace(parentID)
+	if parentID == "" {
+		return 0, nil
+	}
+	if parentID == menuID {
+		return 0, fmt.Errorf("%w: a menu cannot be its own parent", ErrInvalidMenu)
+	}
+	parent := &Menu{}
+	if err := tx.Where("id = ?", parentID).First(parent).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, fmt.Errorf("%w: parent menu does not exist", ErrInvalidMenu)
+		}
+		return 0, err
+	}
+	if parent.TenantID != tenantID || parent.ProjectID != projectID {
+		return 0, fmt.Errorf("%w: parent menu must belong to the same tenant and project", ErrInvalidMenu)
+	}
+	visited := map[string]struct{}{parent.ID: {}}
+	for ancestorID := strings.TrimSpace(parent.ParentID); ancestorID != ""; {
+		if ancestorID == menuID {
+			return 0, fmt.Errorf("%w: parent relationship cannot form a cycle", ErrInvalidMenu)
+		}
+		if _, exists := visited[ancestorID]; exists {
+			return 0, fmt.Errorf("%w: existing parent relationship contains a cycle", ErrInvalidMenu)
+		}
+		visited[ancestorID] = struct{}{}
+		ancestor := &Menu{}
+		if err := tx.Select("id", "parent_id", "tenant_id", "project_id").
+			Where("id = ?", ancestorID).
+			First(ancestor).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return 0, fmt.Errorf("%w: parent hierarchy contains a missing menu", ErrInvalidMenu)
+			}
+			return 0, err
+		}
+		if ancestor.TenantID != tenantID || ancestor.ProjectID != projectID {
+			return 0, fmt.Errorf("%w: parent hierarchy crosses tenant or project boundaries", ErrInvalidMenu)
+		}
+		ancestorID = strings.TrimSpace(ancestor.ParentID)
+	}
+	return parent.Level + 1, nil
+}
+
+func updateMenuDescendantLevels(tx *gorm.DB, parentID string, parentLevel uint32, visited map[string]struct{}) error {
+	var children []*Menu
+	if err := tx.Select("id", "parent_id", "level").
+		Where("parent_id = ?", parentID).
+		Order("sort, title, name").
+		Find(&children).Error; err != nil {
+		return err
+	}
+	for _, child := range children {
+		if _, exists := visited[child.ID]; exists {
+			return fmt.Errorf("%w: menu hierarchy contains a cycle", ErrInvalidMenu)
+		}
+		visited[child.ID] = struct{}{}
+		child.Level = parentLevel + 1
+		if err := tx.Model(&Menu{}).Where("id = ?", child.ID).Update("level", child.Level).Error; err != nil {
+			return err
+		}
+		if err := updateMenuDescendantLevels(tx, child.ID, child.Level, visited); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func menuRoleIDs(tx *gorm.DB, menuID string) ([]string, error) {
+	var roleIDs []string
+	err := tx.Model(&RoleMenu{}).
+		Where("menu_id = ?", menuID).
+		Distinct("role_id").
+		Pluck("role_id", &roleIDs).Error
+	return uniqueStrings(roleIDs), err
+}
+
+func revokeMenuUsers(tx *gorm.DB, roleIDs []string, reason string) ([]string, error) {
+	roleIDs = uniqueStrings(roleIDs)
+	if len(roleIDs) == 0 {
+		return []string{}, nil
+	}
+	var userIDs []string
+	if err := tx.Table("user_roles").
+		Where("role_id IN ?", roleIDs).
+		Distinct("user_id").
+		Pluck("user_id", &userIDs).Error; err != nil {
+		return nil, err
+	}
+	if len(userIDs) == 0 {
+		return userIDs, nil
+	}
+	err := tx.Table("user_session").
+		Where("principal_id IN ? AND revoked = ?", userIDs, false).
+		Updates(map[string]interface{}{
+			"revoked":        true,
+			"revoked_reason": reason,
+		}).Error
+	return userIDs, err
+}
+
+func clearMenuTokenCache(userIDs []string) error {
+	if token.DefaultTokenCache == nil {
+		return nil
+	}
+	for _, userID := range uniqueStrings(userIDs) {
+		if err := token.DefaultTokenCache.DelByUserID(userID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func AddMenu(menu *Menu) error {
-	if menu.ParentID != "" {
-		parent := &Menu{}
-		err := store.DB().Where("id=?", menu.ParentID).First(&parent).Error
+	if err := normalizeMenu(menu); err != nil {
+		return err
+	}
+	return store.DB().Transaction(func(tx *gorm.DB) error {
+		level, err := validateMenuParent(tx, menu.ID, menu.ParentID, menu.TenantID, menu.ProjectID)
 		if err != nil {
 			return err
 		}
-		menu.Level = parent.Level + 1
-	}
-	return store.DB().Create(menu).Error
+		menu.Level = level
+		duplicate, err := menuIdentityExists(tx, menu)
+		if err != nil {
+			return err
+		}
+		if duplicate {
+			return fmt.Errorf("%w: menu name or route path already exists in this tenant and project", ErrInvalidMenu)
+		}
+		return tx.Create(menu).Error
+	})
 }
 
 func DeleteMenu(id string) (err error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("%w: menu ID cannot be empty", ErrInvalidMenu)
+	}
 	var affectedUserIDs []string
 	err = store.DB().Transaction(func(tx *gorm.DB) error {
-		duplication, err := store.Client().CheckDuplication(tx.Model(&Menu{}), "parent_id = ?", id)
-		if err != nil {
+		menu := &Menu{}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Preload("MenuFuncs.MenuFuncApis.API").
+			Preload(clause.Associations).
+			Where("id = ?", id).
+			First(menu).Error; err != nil {
 			return err
 		}
-		if duplication {
-			return errors.New("此菜单存在子菜单不可删除")
+		if menu.IsMust {
+			return ErrProtectedMenu
 		}
-		menu, err := GetMenuByID(id)
-		if err != nil {
+		var childCount int64
+		if err := tx.Model(&Menu{}).Where("parent_id = ?", id).Count(&childCount).Error; err != nil {
 			return err
 		}
-		var affectedRoleIDs []string
-		if err := tx.Model(&RoleMenu{}).
-			Where("menu_id = ?", id).
-			Distinct("role_id").
-			Pluck("role_id", &affectedRoleIDs).Error; err != nil {
+		if childCount > 0 {
+			return fmt.Errorf("%w: move or delete %d child menus first", ErrMenuHasChild, childCount)
+		}
+		affectedRoleIDs, err := menuRoleIDs(tx, id)
+		if err != nil {
 			return err
 		}
 		if err := tx.Unscoped().Delete(&RoleMenu{}, "menu_id = ?", id).Error; err != nil {
@@ -114,44 +319,14 @@ func DeleteMenu(id string) (err error) {
 		if err := tx.Unscoped().Delete(&Menu{}, "id = ?", id).Error; err != nil {
 			return err
 		}
-		for _, roleID := range affectedRoleIDs {
-			role := &Role{}
-			if err := tx.Where("id = ?", roleID).First(role).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					continue
-				}
-				return err
-			}
-			selections, err := loadCurrentAuthorizationSelections(tx, role.ID)
-			if err != nil {
-				return err
-			}
-			preview, _, err := buildRoleAuthorizationPreview(tx, role, selections, false)
-			if err != nil {
-				return err
-			}
-			if err := replaceRoleAuthorizationPolicies(tx, role, preview.Policies); err != nil {
-				return err
-			}
+		if err := rebuildRoleAuthorizationPolicies(tx, affectedRoleIDs); err != nil {
+			return err
 		}
 		if len(affectedRoleIDs) == 0 {
 			return nil
 		}
-		if err := tx.Table("user_roles").
-			Where("role_id IN ?", affectedRoleIDs).
-			Distinct("user_id").
-			Pluck("user_id", &affectedUserIDs).Error; err != nil {
-			return err
-		}
-		if len(affectedUserIDs) == 0 {
-			return nil
-		}
-		return tx.Table("user_session").
-			Where("principal_id IN ? AND revoked = ?", affectedUserIDs, false).
-			Updates(map[string]interface{}{
-				"revoked":        true,
-				"revoked_reason": "role menu deleted",
-			}).Error
+		affectedUserIDs, err = revokeMenuUsers(tx, affectedRoleIDs, "role menu deleted")
+		return err
 	})
 	if err != nil {
 		return err
@@ -159,9 +334,92 @@ func DeleteMenu(id string) (err error) {
 	if err := ReloadCasbinPolicy(); err != nil {
 		return err
 	}
-	if token.DefaultTokenCache != nil {
-		for _, userID := range affectedUserIDs {
-			if err := token.DefaultTokenCache.DelByUserID(userID); err != nil {
+	return clearMenuTokenCache(affectedUserIDs)
+}
+
+func syncMenuAssociations(tx *gorm.DB, current, incoming *Menu) error {
+	if incoming.Parameters != nil {
+		incomingIDs := make(map[string]struct{}, len(incoming.Parameters))
+		for _, parameter := range incoming.Parameters {
+			if parameter.ID != "" {
+				incomingIDs[parameter.ID] = struct{}{}
+			}
+		}
+		var deleteIDs []string
+		for _, parameter := range current.Parameters {
+			if _, keep := incomingIDs[parameter.ID]; !keep {
+				deleteIDs = append(deleteIDs, parameter.ID)
+			}
+		}
+		if len(deleteIDs) > 0 {
+			if err := tx.Unscoped().Delete(&MenuParameter{}, "id IN ?", deleteIDs).Error; err != nil {
+				return err
+			}
+		}
+		for _, parameter := range incoming.Parameters {
+			parameter.MenuID = incoming.ID
+			if err := tx.Omit("created_at").Save(parameter).Error; err != nil {
+				return err
+			}
+		}
+	}
+	if incoming.MenuFuncs == nil {
+		return nil
+	}
+	incomingFunctionIDs := make(map[string]struct{}, len(incoming.MenuFuncs))
+	for _, function := range incoming.MenuFuncs {
+		if function.ID != "" {
+			incomingFunctionIDs[function.ID] = struct{}{}
+		}
+	}
+	var deleteFunctionIDs []string
+	for _, function := range current.MenuFuncs {
+		if _, keep := incomingFunctionIDs[function.ID]; !keep {
+			deleteFunctionIDs = append(deleteFunctionIDs, function.ID)
+		}
+	}
+	if len(deleteFunctionIDs) > 0 {
+		if err := tx.Unscoped().Delete(&MenuFuncApi{}, "menu_func_id IN ?", deleteFunctionIDs).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Delete(&MenuFunc{}, "id IN ?", deleteFunctionIDs).Error; err != nil {
+			return err
+		}
+	}
+	currentByID := make(map[string]*MenuFunc, len(current.MenuFuncs))
+	for _, function := range current.MenuFuncs {
+		currentByID[function.ID] = function
+	}
+	for _, function := range incoming.MenuFuncs {
+		function.MenuID = incoming.ID
+		if err := tx.Omit("created_at", "MenuFuncApis").Save(function).Error; err != nil {
+			return err
+		}
+		if function.MenuFuncApis == nil {
+			continue
+		}
+		incomingLinkIDs := make(map[string]struct{}, len(function.MenuFuncApis))
+		for _, link := range function.MenuFuncApis {
+			if link.ID != "" {
+				incomingLinkIDs[link.ID] = struct{}{}
+			}
+		}
+		var deleteLinkIDs []string
+		if existing := currentByID[function.ID]; existing != nil {
+			for _, link := range existing.MenuFuncApis {
+				if _, keep := incomingLinkIDs[link.ID]; !keep {
+					deleteLinkIDs = append(deleteLinkIDs, link.ID)
+				}
+			}
+		}
+		if len(deleteLinkIDs) > 0 {
+			if err := tx.Unscoped().Delete(&MenuFuncApi{}, "id IN ?", deleteLinkIDs).Error; err != nil {
+				return err
+			}
+		}
+		for i := range function.MenuFuncApis {
+			function.MenuFuncApis[i].MenuFuncID = function.ID
+			if err := tx.Omit("created_at", "API").Save(&function.MenuFuncApis[i]).Error; err != nil {
 				return err
 			}
 		}
@@ -170,91 +428,128 @@ func DeleteMenu(id string) (err error) {
 }
 
 func UpdateMenu(menu *Menu) (err error) {
+	if err := normalizeMenu(menu); err != nil {
+		return err
+	}
+	if menu.ID == "" {
+		return fmt.Errorf("%w: menu ID cannot be empty", ErrInvalidMenu)
+	}
+	var affectedUserIDs []string
+	reloadPolicies := false
 	err = store.DB().Transaction(func(tx *gorm.DB) error {
-		if menu.ParentID != "" {
-			parent := &Menu{}
-			err := tx.Where("id=?", menu.ParentID).First(&parent).Error
-			if err != nil {
-				return err
-			}
-			menu.Level = parent.Level + 1
+		current := &Menu{}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Preload("MenuFuncs.MenuFuncApis.API").
+			Preload(clause.Associations).
+			Where("id = ?", menu.ID).
+			First(current).Error; err != nil {
+			return err
 		}
-		oldMenu := &Menu{}
-		err = tx.Preload("MenuFuncs.MenuFuncApis.API").Preload(clause.Associations).Where("id = ?", menu.ID).First(oldMenu).Error
+		menu.TenantID = current.TenantID
+		menu.ProjectID = current.ProjectID
+		menu.IsMust = current.IsMust
+		level, err := validateMenuParent(tx, menu.ID, menu.ParentID, menu.TenantID, menu.ProjectID)
 		if err != nil {
 			return err
 		}
-		var deleteAPIs []string
-		var deleteMenuFuncs []string
-		var deleteParams []string
-		for _, oldMenuFunc := range oldMenu.MenuFuncs {
-			flag := false
-			for _, newMenuFunc := range menu.MenuFuncs {
-				if newMenuFunc.ID == oldMenuFunc.ID {
-					flag = true
-					for _, oldAPI := range oldMenuFunc.MenuFuncApis {
-						apiFlag := false
-						for _, newAPI := range newMenuFunc.MenuFuncApis {
-							if newAPI.ID == oldAPI.ID {
-								apiFlag = true
-							}
-						}
-						if !apiFlag {
-							deleteAPIs = append(deleteAPIs, oldAPI.ID)
-						}
-					}
-				}
-			}
-			if !flag {
-				deleteMenuFuncs = append(deleteMenuFuncs, oldMenuFunc.ID)
-			}
+		menu.Level = level
+		structuralChanged := current.ParentID != menu.ParentID ||
+			current.Path != menu.Path ||
+			current.Name != menu.Name ||
+			current.Hidden != menu.Hidden ||
+			current.Component != menu.Component ||
+			current.DefaultMenu != menu.DefaultMenu ||
+			menu.Parameters != nil
+		if current.IsMust && (structuralChanged || menu.MenuFuncs != nil) {
+			return ErrProtectedMenu
 		}
-		for _, oldParam := range oldMenu.Parameters {
-			flag := false
-			for _, newParam := range menu.Parameters {
-				if newParam.ID == oldParam.ID {
-					flag = true
-				}
-			}
-			if !flag {
-				deleteParams = append(deleteParams, oldParam.ID)
-			}
+		duplicate, err := menuIdentityExists(tx, menu)
+		if err != nil {
+			return err
 		}
-		if len(deleteParams) > 0 {
-			err = tx.Unscoped().Delete(&MenuParameter{}, "id in ?", deleteParams).Error
-			if err != nil {
+		if duplicate {
+			return fmt.Errorf("%w: menu name or route path already exists in this tenant and project", ErrInvalidMenu)
+		}
+		affectedRoleIDs, err := menuRoleIDs(tx, menu.ID)
+		if err != nil {
+			return err
+		}
+		if err := syncMenuAssociations(tx, current, menu); err != nil {
+			return err
+		}
+		updates := map[string]interface{}{
+			"level":        menu.Level,
+			"parent_id":    menu.ParentID,
+			"path":         menu.Path,
+			"name":         menu.Name,
+			"hidden":       menu.Hidden,
+			"component":    menu.Component,
+			"sort":         menu.Sort,
+			"cache":        menu.Cache,
+			"default_menu": menu.DefaultMenu,
+			"title":        menu.Title,
+			"icon":         menu.Icon,
+			"close_tab":    menu.CloseTab,
+		}
+		if err := tx.Model(&Menu{}).Where("id = ?", menu.ID).Updates(updates).Error; err != nil {
+			return err
+		}
+		if current.Level != menu.Level || current.ParentID != menu.ParentID {
+			if err := updateMenuDescendantLevels(tx, menu.ID, menu.Level, map[string]struct{}{menu.ID: {}}); err != nil {
 				return err
 			}
 		}
-		if len(deleteAPIs) > 0 {
-			err = tx.Unscoped().Delete(&MenuFuncApi{}, "id in ?", deleteAPIs).Error
-			if err != nil {
+		reloadPolicies = menu.MenuFuncs != nil
+		if reloadPolicies {
+			if err := rebuildRoleAuthorizationPolicies(tx, affectedRoleIDs); err != nil {
 				return err
 			}
 		}
-		if len(deleteMenuFuncs) > 0 {
-			err = tx.Unscoped().Delete(&MenuFuncApi{}, "menu_func_id in ?", deleteMenuFuncs).Error
-			if err != nil {
-				return err
-			}
-			err = tx.Unscoped().Delete(&MenuFunc{}, "id in ?", deleteMenuFuncs).Error
-			if err != nil {
-				return err
-			}
+		if structuralChanged || reloadPolicies {
+			affectedUserIDs, err = revokeMenuUsers(tx, affectedRoleIDs, "menu updated")
 		}
-		return tx.Session(&gorm.Session{FullSaveAssociations: true}).Omit("created_at").Save(menu).Error
+		return err
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if reloadPolicies {
+		if err := ReloadCasbinPolicy(); err != nil {
+			return err
+		}
+	}
+	return clearMenuTokenCache(affectedUserIDs)
 }
 
 func GetMenuByID(id string) (*Menu, error) {
 	menu := &Menu{}
-	err := store.DB().Preload("MenuFuncs.MenuFuncApis.API").Preload(clause.Associations).Where("id = ?", id).First(menu).Error
+	err := store.DB().
+		Preload("MenuFuncs.MenuFuncApis.API").
+		Preload(clause.Associations).
+		Where("id = ?", strings.TrimSpace(id)).
+		First(menu).Error
 	return menu, err
 }
 
 func QueryMenu(req *apipb.QueryMenuRequest, resp *apipb.QueryMenuResponse, preload bool) {
+	QueryMenus(req, resp, preload, "", nil)
+}
+
+func QueryMenus(
+	req *apipb.QueryMenuRequest,
+	resp *apipb.QueryMenuResponse,
+	preload bool,
+	keyword string,
+	hidden *bool,
+) {
 	db := store.DB().Model(&Menu{})
+	if keyword = strings.TrimSpace(keyword); keyword != "" {
+		like := "%" + keyword + "%"
+		db = db.Where(
+			"name LIKE ? OR title LIKE ? OR path LIKE ? OR component LIKE ? OR icon LIKE ?",
+			like, like, like, like, like,
+		)
+	}
 	if req.Name != "" {
 		db = db.Where("name LIKE ?", "%"+req.Name+"%")
 	}
@@ -282,6 +577,9 @@ func QueryMenu(req *apipb.QueryMenuRequest, resp *apipb.QueryMenuResponse, prelo
 	if req.IsMust {
 		db = db.Where("is_must = ?", req.IsMust)
 	}
+	if hidden != nil {
+		db = db.Where("hidden = ?", *hidden)
+	}
 	orderStr, err := utils.GenerateOrderString(req.SortConfig, "`sort`")
 	if err != nil {
 		resp.Code = apipb.Code_BadRequest
@@ -301,6 +599,67 @@ func QueryMenu(req *apipb.QueryMenuRequest, resp *apipb.QueryMenuResponse, prelo
 		resp.Data = MenusToPB(list)
 	}
 	resp.Total = resp.Records
+}
+
+func GetMenuImpact(id string) (*MenuImpact, error) {
+	menu, err := GetMenuByID(id)
+	if err != nil {
+		return nil, err
+	}
+	impact := &MenuImpact{MenuID: menu.ID}
+	db := store.DB()
+	if err := db.Model(&Menu{}).
+		Where("parent_id = ?", menu.ID).
+		Count(&impact.DirectChildCount).Error; err != nil {
+		return nil, err
+	}
+	if err := db.Model(&MenuFunc{}).
+		Where("menu_id = ?", menu.ID).
+		Count(&impact.FunctionCount).Error; err != nil {
+		return nil, err
+	}
+	if err := db.Table("menu_func_apis AS link").
+		Joins("JOIN menu_funcs AS function ON function.id = link.menu_func_id AND function.deleted_at IS NULL").
+		Where("function.menu_id = ? AND link.deleted_at IS NULL", menu.ID).
+		Count(&impact.APIBindingCount).Error; err != nil {
+		return nil, err
+	}
+	roleIDs, err := menuRoleIDs(db, menu.ID)
+	if err != nil {
+		return nil, err
+	}
+	var activeRoleIDs []string
+	if len(roleIDs) > 0 {
+		if err := db.Model(&Role{}).
+			Where("id IN ? AND enable = ?", roleIDs, true).
+			Pluck("id", &activeRoleIDs).Error; err != nil {
+			return nil, err
+		}
+	}
+	impact.ActiveRoleCount = int64(len(activeRoleIDs))
+	if len(activeRoleIDs) > 0 {
+		if err := db.Table("user_roles").
+			Where("role_id IN ?", activeRoleIDs).
+			Distinct("user_id").
+			Count(&impact.AffectedUserCount).Error; err != nil {
+			return nil, err
+		}
+	}
+	impact.HasStructuralRisk = impact.DirectChildCount > 0
+	impact.HasPermissionScope = impact.FunctionCount > 0 ||
+		impact.APIBindingCount > 0 ||
+		impact.ActiveRoleCount > 0 ||
+		impact.AffectedUserCount > 0
+	impact.CanDelete = !menu.IsMust && impact.DirectChildCount == 0
+	if menu.IsMust {
+		impact.DeleteBlockReason = "system menus cannot be deleted"
+	} else if impact.DirectChildCount > 0 {
+		impact.DeleteBlockReason = fmt.Sprintf(
+			"move or delete %d child menus before deletion",
+			impact.DirectChildCount,
+		)
+	}
+	return impact, nil
 }
 
 func GetAllMenus(req *apipb.QueryMenuRequest) (menus []*Menu, err error) {
@@ -356,6 +715,7 @@ func PBToMenu(in *apipb.MenuInfo) *Menu {
 		DefaultMenu: in.DefaultMenu,
 		Title:       in.Title,
 		Icon:        in.Icon,
+		CloseTab:    in.CloseTab,
 		Parameters:  PBToMenuParameters(in.Parameters),
 		MenuFuncs:   PBToMenuFuncs(in.MenuFuncs),
 		IsMust:      in.IsMust,
@@ -385,6 +745,7 @@ func MenuToPB(in *Menu) *apipb.MenuInfo {
 		DefaultMenu: in.DefaultMenu,
 		Title:       in.Title,
 		Icon:        in.Icon,
+		CloseTab:    in.CloseTab,
 		Parameters:  MenuParametersToPB(in.Parameters),
 		MenuFuncs:   MenuFuncsToPB(in.MenuFuncs),
 		Children:    children,
