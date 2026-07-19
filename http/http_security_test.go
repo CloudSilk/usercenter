@@ -3,6 +3,7 @@ package http_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -71,6 +72,16 @@ func newRoleTestEngine(currentUser *apipb.CurrentUser) *gin.Engine {
 		c.Next()
 	})
 	userhttp.RegisterRoleRouter(r)
+	return r
+}
+
+func newAPITestEngine(currentUser *apipb.CurrentUser) *gin.Engine {
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("User", currentUser)
+		c.Next()
+	})
+	userhttp.RegisterAPIRouter(r)
 	return r
 }
 
@@ -1110,6 +1121,332 @@ func TestDeleteMenuRebuildsRoleAuthorizationAndRevokesSessions(t *testing.T) {
 	}
 	if !activeSession.Revoked || activeSession.RevokedReason != "role menu deleted" {
 		t.Fatalf("menu deletion did not revoke affected session: %#v", activeSession)
+	}
+}
+
+func TestAPIResourceManagementEnforcesTenantValidationAndAtomicDuplicates(t *testing.T) {
+	const prefix = "api-resource-boundary"
+	tenantAdmin := &apipb.CurrentUser{Id: prefix + "-admin", TenantID: prefix + "-tenant"}
+	engine := newAPITestEngine(tenantAdmin)
+
+	create := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPost, "/api/core/auth/api/add", map[string]any{
+		"id":          prefix + "-api",
+		"tenantID":    "foreign-tenant",
+		"path":        " /api/" + prefix + "/documents ",
+		"group":       " document ",
+		"method":      "get",
+		"description": " tenant-owned endpoint ",
+		"enable":      true,
+		"checkAuth":   true,
+		"checkLogin":  false,
+	}))
+	if create.Code != commonmodel.Success {
+		t.Fatalf("create API resource failed: %v (%s)", create.Code, create.Message)
+	}
+	stored, err := permission.GetAPIById(prefix + "-api")
+	if err != nil {
+		t.Fatalf("load created API: %v", err)
+	}
+	if stored.TenantID != tenantAdmin.TenantID ||
+		stored.Path != "/api/"+prefix+"/documents" ||
+		stored.Method != http.MethodGet ||
+		!stored.CheckAuth ||
+		!stored.CheckLogin {
+		t.Fatalf("API normalization or tenant scoping failed: %#v", stored)
+	}
+
+	duplicate := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPost, "/api/core/auth/api/add", map[string]any{
+		"id":         prefix + "-duplicate",
+		"path":       stored.Path,
+		"method":     "GET",
+		"enable":     true,
+		"checkLogin": true,
+	}))
+	if duplicate.Code != apipb.Code_BadRequest {
+		t.Fatalf("duplicate API should be rejected as bad request, got %v (%s)", duplicate.Code, duplicate.Message)
+	}
+	invalid := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPost, "/api/core/auth/api/add", map[string]any{
+		"id":     prefix + "-invalid",
+		"path":   "api/without-leading-slash",
+		"method": "TRACE",
+	}))
+	if invalid.Code != apipb.Code_BadRequest {
+		t.Fatalf("invalid API should be rejected, got %v (%s)", invalid.Code, invalid.Message)
+	}
+
+	foreign := &permission.API{
+		Model:       commonmodel.Model{ID: prefix + "-foreign"},
+		TenantID:    prefix + "-foreign-tenant",
+		Path:        "/api/" + prefix + "/foreign",
+		Method:      http.MethodGet,
+		Description: "foreign tenant endpoint",
+		Enable:      true,
+		CheckLogin:  true,
+	}
+	if err := permission.CreateAPIResource(foreign); err != nil {
+		t.Fatalf("create foreign API fixture: %v", err)
+	}
+	for _, request := range []struct {
+		method string
+		path   string
+		body   any
+	}{
+		{http.MethodGet, "/api/core/auth/api/detail?id=" + foreign.ID, nil},
+		{http.MethodGet, "/api/core/auth/api/impact?id=" + foreign.ID, nil},
+		{http.MethodPut, "/api/core/auth/api/update", map[string]any{
+			"id": foreign.ID, "path": foreign.Path, "method": foreign.Method, "enable": true, "checkLogin": true,
+		}},
+		{http.MethodPost, "/api/core/auth/api/enable", map[string]any{"id": foreign.ID, "enable": false}},
+		{http.MethodDelete, "/api/core/auth/api/delete", map[string]any{"id": foreign.ID}},
+	} {
+		response := decodeCommonResponse(t, doJSONRequest(t, engine, request.method, request.path, request.body))
+		if response.Code != apipb.Code_NoPermission {
+			t.Fatalf("%s %s should be tenant denied, got %v", request.method, request.path, response.Code)
+		}
+	}
+
+	second := &permission.API{
+		Model:       commonmodel.Model{ID: prefix + "-second"},
+		TenantID:    tenantAdmin.TenantID,
+		Path:        "/api/" + prefix + "/second",
+		Method:      http.MethodPost,
+		Description: "searchable atomic duplicate target",
+		Enable:      true,
+		CheckLogin:  true,
+	}
+	if err := permission.CreateAPIResource(second); err != nil {
+		t.Fatalf("create second API: %v", err)
+	}
+	updateDuplicate := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPut, "/api/core/auth/api/update", map[string]any{
+		"id": second.ID, "path": stored.Path, "method": stored.Method, "enable": true, "checkLogin": true,
+	}))
+	if updateDuplicate.Code != apipb.Code_BadRequest {
+		t.Fatalf("duplicate update should be rejected, got %v (%s)", updateDuplicate.Code, updateDuplicate.Message)
+	}
+	unchanged, err := permission.GetAPIById(second.ID)
+	if err != nil {
+		t.Fatalf("reload duplicate target: %v", err)
+	}
+	if unchanged.Path != second.Path || unchanged.Method != second.Method {
+		t.Fatalf("failed duplicate update changed stored API: %#v", unchanged)
+	}
+
+	queryRecorder := doJSONRequest(
+		t,
+		engine,
+		http.MethodGet,
+		"/api/core/auth/api/query?pageIndex=1&pageSize=20&keyword=searchable&enable=true",
+		nil,
+	)
+	queryResponse := &apipb.QueryAPIResponse{}
+	if err := json.Unmarshal(queryRecorder.Body.Bytes(), queryResponse); err != nil {
+		t.Fatalf("decode API query: %v (body=%s)", err, queryRecorder.Body.String())
+	}
+	if queryResponse.Code != commonmodel.Success || queryResponse.Records != 1 ||
+		len(queryResponse.Data) != 1 || queryResponse.Data[0].Id != second.ID {
+		t.Fatalf("keyword/status query mismatch: %#v", queryResponse)
+	}
+
+	systemAPI := &permission.API{
+		Model:      commonmodel.Model{ID: prefix + "-system"},
+		TenantID:   tenantAdmin.TenantID,
+		Path:       "/api/" + prefix + "/system",
+		Method:     http.MethodGet,
+		Enable:     true,
+		CheckLogin: true,
+		IsMust:     true,
+	}
+	if err := permission.CreateAPIResource(systemAPI); err != nil {
+		t.Fatalf("create system API: %v", err)
+	}
+	disableSystem := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPost, "/api/core/auth/api/enable", map[string]any{
+		"id": systemAPI.ID, "enable": false,
+	}))
+	deleteSystem := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodDelete, "/api/core/auth/api/delete", map[string]any{
+		"id": systemAPI.ID,
+	}))
+	if disableSystem.Code != apipb.Code_BadRequest || deleteSystem.Code != apipb.Code_BadRequest {
+		t.Fatalf("system API protection failed: disable=%v delete=%v", disableSystem.Code, deleteSystem.Code)
+	}
+}
+
+func TestAPIResourceMutationRebuildsPoliciesAndRejectsBoundDelete(t *testing.T) {
+	const prefix = "api-resource-policy"
+	api := &permission.API{
+		Model:       commonmodel.Model{ID: prefix + "-api"},
+		TenantID:    platformTenant,
+		Path:        "/api/" + prefix + "/documents",
+		Group:       "documents",
+		Method:      http.MethodGet,
+		Description: "policy-carrying API",
+		Enable:      true,
+		CheckAuth:   true,
+		CheckLogin:  true,
+	}
+	if err := permission.CreateAPIResource(api); err != nil {
+		t.Fatalf("create API: %v", err)
+	}
+	menu := &permission.Menu{
+		Model:    commonmodel.Model{ID: prefix + "-menu"},
+		TenantID: platformTenant,
+		Name:     prefix,
+		Title:    "Policy workspace",
+		Path:     "/" + prefix,
+	}
+	function := &permission.MenuFunc{
+		Model:  commonmodel.Model{ID: prefix + "-function"},
+		MenuID: menu.ID,
+		Name:   "view",
+		Title:  "View documents",
+	}
+	link := &permission.MenuFuncApi{
+		Model:      commonmodel.Model{ID: prefix + "-link"},
+		MenuFuncID: function.ID,
+		APIID:      api.ID,
+	}
+	role := &permission.Role{
+		Model:    commonmodel.Model{ID: prefix + "-role"},
+		TenantID: platformTenant,
+		Name:     "Policy role",
+		CanDel:   true,
+		Enable:   true,
+	}
+	if err := store.DB().Create(menu).Error; err != nil {
+		t.Fatalf("create menu: %v", err)
+	}
+	if err := store.DB().Create(function).Error; err != nil {
+		t.Fatalf("create menu function: %v", err)
+	}
+	if err := store.DB().Create(link).Error; err != nil {
+		t.Fatalf("create function API link: %v", err)
+	}
+	if err := store.DB().Create(role).Error; err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	detail, err := permission.GetRoleAuthorization(role.ID)
+	if err != nil {
+		t.Fatalf("load role authorization: %v", err)
+	}
+	if _, err := permission.PublishRoleAuthorization(role.ID, detail.Revision, []permission.RoleAuthorizationSelection{
+		{MenuID: menu.ID, Show: true, Funcs: []string{function.Name}},
+	}); err != nil {
+		t.Fatalf("publish role authorization: %v", err)
+	}
+	const userID = prefix + "-user"
+	if err := store.DB().Create(&user.UserRole{
+		Model: commonmodel.Model{ID: prefix + "-user-role"}, UserID: userID, RoleID: role.ID,
+	}).Error; err != nil {
+		t.Fatalf("create user role: %v", err)
+	}
+	activeSession := &session.Session{
+		Model: commonmodel.Model{ID: prefix + "-session-update"}, PrincipalID: userID, TenantID: platformTenant, TokenSig: prefix + "-token-update",
+	}
+	if err := store.DB().Create(activeSession).Error; err != nil {
+		t.Fatalf("create update session: %v", err)
+	}
+
+	impact, err := permission.GetAPIResourceImpact(api.ID)
+	if err != nil {
+		t.Fatalf("load API impact: %v", err)
+	}
+	if impact.MenuFunctionBindingCount != 1 ||
+		impact.ActiveRoleCount != 1 ||
+		impact.ActivePolicyCount != 1 ||
+		impact.AffectedUserCount != 1 ||
+		impact.CanDelete {
+		t.Fatalf("unexpected API impact: %#v", impact)
+	}
+
+	platformAdmin := &apipb.CurrentUser{Id: prefix + "-admin", TenantID: platformTenant}
+	engine := newAPITestEngine(platformAdmin)
+	updatedPath := "/api/" + prefix + "/documents/:id"
+	update := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPut, "/api/core/auth/api/update", map[string]any{
+		"id": api.ID, "path": updatedPath, "group": "documents", "method": "patch",
+		"description": "updated policy endpoint", "enable": true, "checkAuth": true, "checkLogin": true,
+	}))
+	if update.Code != commonmodel.Success {
+		t.Fatalf("update bound API failed: %v (%s)", update.Code, update.Message)
+	}
+	var policies []*permission.CasbinRule
+	if err := store.DB().Where("ptype = ? AND v0 = ?", "p", role.ID).Find(&policies).Error; err != nil {
+		t.Fatalf("load updated policies: %v", err)
+	}
+	if len(policies) != 1 || policies[0].Path != updatedPath || policies[0].Method != http.MethodPatch {
+		t.Fatalf("bound API update did not rebuild policy: %#v", policies)
+	}
+	if err := store.DB().Where("id = ?", activeSession.ID).First(activeSession).Error; err != nil {
+		t.Fatalf("reload update session: %v", err)
+	}
+	if !activeSession.Revoked || activeSession.RevokedReason != "API resource updated" {
+		t.Fatalf("API update did not revoke session: %#v", activeSession)
+	}
+
+	stateSession := &session.Session{
+		Model: commonmodel.Model{ID: prefix + "-session-state"}, PrincipalID: userID, TenantID: platformTenant, TokenSig: prefix + "-token-state",
+	}
+	if err := store.DB().Create(stateSession).Error; err != nil {
+		t.Fatalf("create state session: %v", err)
+	}
+	disable := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPost, "/api/core/auth/api/enable", map[string]any{
+		"id": api.ID, "enable": false,
+	}))
+	if disable.Code != commonmodel.Success {
+		t.Fatalf("disable bound API failed: %v (%s)", disable.Code, disable.Message)
+	}
+	var policyCount int64
+	if err := store.DB().Model(&permission.CasbinRule{}).
+		Where("ptype = ? AND v0 = ?", "p", role.ID).
+		Count(&policyCount).Error; err != nil {
+		t.Fatalf("count disabled API policies: %v", err)
+	}
+	if policyCount != 0 {
+		t.Fatalf("disabled API retained role policy, count=%d", policyCount)
+	}
+	if err := store.DB().Where("id = ?", stateSession.ID).First(stateSession).Error; err != nil {
+		t.Fatalf("reload state session: %v", err)
+	}
+	if !stateSession.Revoked || stateSession.RevokedReason != "API resource state updated" {
+		t.Fatalf("API state change did not revoke session: %#v", stateSession)
+	}
+	enable := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPost, "/api/core/auth/api/enable", map[string]any{
+		"id": api.ID, "enable": true,
+	}))
+	if enable.Code != commonmodel.Success {
+		t.Fatalf("re-enable bound API failed: %v (%s)", enable.Code, enable.Message)
+	}
+	if err := store.DB().Model(&permission.CasbinRule{}).
+		Where("ptype = ? AND v0 = ? AND v1 = ? AND v2 = ?", "p", role.ID, updatedPath, http.MethodPatch).
+		Count(&policyCount).Error; err != nil {
+		t.Fatalf("count re-enabled API policies: %v", err)
+	}
+	if policyCount != 1 {
+		t.Fatalf("re-enabled API policy count=%d, want 1", policyCount)
+	}
+
+	boundDelete := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodDelete, "/api/core/auth/api/delete", map[string]any{
+		"id": api.ID,
+	}))
+	if boundDelete.Code != apipb.Code_BadRequest {
+		t.Fatalf("bound API delete should be rejected, got %v (%s)", boundDelete.Code, boundDelete.Message)
+	}
+	if err := store.DB().Unscoped().Delete(&permission.MenuFuncApi{}, "id = ?", link.ID).Error; err != nil {
+		t.Fatalf("remove API binding: %v", err)
+	}
+	unboundImpact, err := permission.GetAPIResourceImpact(api.ID)
+	if err != nil {
+		t.Fatalf("reload unbound impact: %v", err)
+	}
+	if !unboundImpact.CanDelete || unboundImpact.MenuFunctionBindingCount != 0 {
+		t.Fatalf("unbound API should be deletable: %#v", unboundImpact)
+	}
+	deleted := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodDelete, "/api/core/auth/api/delete", map[string]any{
+		"id": api.ID,
+	}))
+	if deleted.Code != commonmodel.Success {
+		t.Fatalf("delete unbound API failed: %v (%s)", deleted.Code, deleted.Message)
+	}
+	if _, err := permission.GetAPIById(api.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("deleted API should be absent, err=%v", err)
 	}
 }
 
