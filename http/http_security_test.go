@@ -13,8 +13,6 @@ import (
 	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/pkg/db"
 	commonmodel "github.com/CloudSilk/pkg/model"
-	glebsqlite "github.com/glebarez/sqlite"
-	"github.com/gin-gonic/gin"
 	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/bootstrap"
@@ -22,6 +20,8 @@ import (
 	"github.com/CloudSilk/usercenter/internal/tenant"
 	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
+	"github.com/gin-gonic/gin"
+	glebsqlite "github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -104,6 +104,189 @@ func doResetPwd(t *testing.T, r *gin.Engine, targetID string) *apipb.CommonRespo
 		t.Fatalf("decode resetpwd response: %v (body=%s)", err, w.Body.String())
 	}
 	return resp
+}
+
+func doJSONRequest(t *testing.T, r *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var reader *bytes.Reader
+	if body == nil {
+		reader = bytes.NewReader(nil)
+	} else {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("encode request body: %v", err)
+		}
+		reader = bytes.NewReader(payload)
+	}
+	req := httptest.NewRequest(method, path, reader)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func decodeCommonResponse(t *testing.T, w *httptest.ResponseRecorder) apipb.CommonResponse {
+	t.Helper()
+	var resp apipb.CommonResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode common response: %v (body=%s)", err, w.Body.String())
+	}
+	return resp
+}
+
+func TestPlatformUserQueryDefaultsToCurrentTenantAndRedactsPassword(t *testing.T) {
+	ownID := mustCreateUser(t, "platform-query-own", platformTenant, "Abc12345")
+	mustCreateUser(t, "platform-query-other", "tenant-query-other", "Abc12345")
+	if err := store.DB().Model(&user.User{}).Where("id = ?", ownID).Updates(map[string]any{
+		"title":       "综合处负责人",
+		"real_name":   "平台用户",
+		"description": "平台租户测试用户",
+	}).Error; err != nil {
+		t.Fatalf("update management fields: %v", err)
+	}
+
+	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
+	w := doJSONRequest(t, newTestEngine(current), http.MethodGet, "/api/core/auth/user/query?pageIndex=1&pageSize=100&keyword=platform-query", nil)
+	var resp apipb.QueryUserResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode query response: %v (body=%s)", err, w.Body.String())
+	}
+	if resp.Code != commonmodel.Success {
+		t.Fatalf("query failed: %v (%s)", resp.Code, resp.Message)
+	}
+	if len(resp.Data) != 1 || resp.Data[0].Id != ownID {
+		t.Fatalf("platform query without tenantID must stay in platform tenant, got %#v", resp.Data)
+	}
+	if resp.Data[0].Password != "" {
+		t.Fatalf("password hash leaked from query response: %q", resp.Data[0].Password)
+	}
+	if resp.Data[0].Title != "综合处负责人" || resp.Data[0].RealName != "平台用户" || resp.Data[0].CreatedAt == "" {
+		t.Fatalf("management fields missing from query response: %#v", resp.Data[0])
+	}
+}
+
+func TestPlatformUserQueryCanExplicitlySelectAnotherTenant(t *testing.T) {
+	targetID := mustCreateUser(t, "platform-explicit-target", "tenant-query-explicit", "Abc12345")
+	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
+	path := "/api/core/auth/user/query?pageIndex=1&pageSize=100&tenantID=tenant-query-explicit&keyword=platform-explicit"
+	w := doJSONRequest(t, newTestEngine(current), http.MethodGet, path, nil)
+	var resp apipb.QueryUserResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode query response: %v (body=%s)", err, w.Body.String())
+	}
+	if resp.Code != commonmodel.Success || len(resp.Data) != 1 || resp.Data[0].Id != targetID {
+		t.Fatalf("explicit tenant query failed: code=%v data=%#v", resp.Code, resp.Data)
+	}
+}
+
+func TestUserQueryKeywordAndStatusFilters(t *testing.T) {
+	enabledID := mustCreateUser(t, "filter-enabled", platformTenant, "Abc12345")
+	disabledID := mustCreateUser(t, "filter-disabled", platformTenant, "Abc12345")
+	if err := store.DB().Model(&user.User{}).Where("id = ?", enabledID).Update("mobile", "13900001234").Error; err != nil {
+		t.Fatalf("update enabled mobile: %v", err)
+	}
+	if err := store.DB().Model(&user.User{}).Where("id = ?", disabledID).Updates(map[string]any{
+		"email":  "needle-user@example.com",
+		"enable": false,
+	}).Error; err != nil {
+		t.Fatalf("update disabled user: %v", err)
+	}
+
+	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
+	path := "/api/core/auth/user/query?pageIndex=1&pageSize=100&keyword=needle-user&enable=false"
+	w := doJSONRequest(t, newTestEngine(current), http.MethodGet, path, nil)
+	var resp apipb.QueryUserResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode query response: %v (body=%s)", err, w.Body.String())
+	}
+	if resp.Code != commonmodel.Success || len(resp.Data) != 1 || resp.Data[0].Id != disabledID {
+		t.Fatalf("keyword/status filters failed: code=%v data=%#v", resp.Code, resp.Data)
+	}
+
+	invalid := doJSONRequest(t, newTestEngine(current), http.MethodGet, "/api/core/auth/user/query?pageIndex=1&pageSize=10&enable=invalid", nil)
+	if err := json.Unmarshal(invalid.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode invalid-filter response: %v", err)
+	}
+	if resp.Code != apipb.Code_BadRequest {
+		t.Fatalf("invalid enable filter should be rejected, got %v", resp.Code)
+	}
+}
+
+func TestUserManagementRejectsCrossTenantTargets(t *testing.T) {
+	targetID := mustCreateUser(t, "cross-tenant-managed", "tenant-managed-B", "Abc12345")
+	current := &apipb.CurrentUser{Id: "tenant-admin-a", TenantID: "tenant-managed-A", UserName: "tenant-admin-a"}
+	r := newTestEngine(current)
+
+	detail := doJSONRequest(t, r, http.MethodGet, "/api/core/auth/user/detail?id="+targetID, nil)
+	var detailResp apipb.GetUserDetailResponse
+	if err := json.Unmarshal(detail.Body.Bytes(), &detailResp); err != nil {
+		t.Fatalf("decode detail response: %v", err)
+	}
+	if detailResp.Code != apipb.Code_NoPermission {
+		t.Fatalf("cross-tenant detail should be denied, got %v", detailResp.Code)
+	}
+
+	requests := []struct {
+		name   string
+		method string
+		path   string
+		body   any
+	}{
+		{
+			name: "enable", method: http.MethodPost, path: "/api/core/auth/user/enable",
+			body: map[string]any{"id": targetID, "enable": false},
+		},
+		{
+			name: "update", method: http.MethodPut, path: "/api/core/auth/user/update",
+			body: map[string]any{
+				"id": targetID, "tenantID": "tenant-managed-A", "userName": "cross-tenant-managed",
+				"nickname": "越权修改", "mobile": "13800000001", "enable": true,
+			},
+		},
+		{
+			name: "delete", method: http.MethodDelete, path: "/api/core/auth/user/delete",
+			body: map[string]any{"id": targetID},
+		},
+	}
+	for _, tc := range requests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := decodeCommonResponse(t, doJSONRequest(t, r, tc.method, tc.path, tc.body))
+			if resp.Code != apipb.Code_NoPermission {
+				t.Fatalf("cross-tenant %s should be denied, got %v (%s)", tc.name, resp.Code, resp.Message)
+			}
+		})
+	}
+
+	var target user.User
+	if err := store.DB().First(&target, "id = ?", targetID).Error; err != nil {
+		t.Fatalf("target user must still exist: %v", err)
+	}
+	if !target.Enable || target.Nickname == "越权修改" {
+		t.Fatalf("cross-tenant mutations changed target: %#v", target)
+	}
+}
+
+func TestResetPwdAcceptsExplicitStrongPassword(t *testing.T) {
+	targetID := mustCreateUser(t, "explicit-reset", platformTenant, "Abc12345")
+	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
+	r := newTestEngine(current)
+
+	resp := decodeCommonResponse(t, doJSONRequest(t, r, http.MethodPost, "/api/core/auth/user/resetpwd", map[string]any{
+		"id": targetID, "password": "Reset9876A",
+	}))
+	if resp.Code != commonmodel.Success {
+		t.Fatalf("explicit reset failed: %v (%s)", resp.Code, resp.Message)
+	}
+	if !canLogin(t, "explicit-reset", "Reset9876A") {
+		t.Fatal("explicit reset password should be usable")
+	}
+
+	weak := decodeCommonResponse(t, doJSONRequest(t, r, http.MethodPost, "/api/core/auth/user/resetpwd", map[string]any{
+		"id": targetID, "password": "12345678",
+	}))
+	if weak.Code != apipb.Code_BadRequest {
+		t.Fatalf("weak reset password should be rejected, got %v", weak.Code)
+	}
 }
 
 // A2: 非平台租户调用方重置其他租户用户密码 → 应被拒绝，且目标密码不变

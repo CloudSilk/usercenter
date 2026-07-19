@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/CloudSilk/pkg/constants"
 	cmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/audit"
+	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
@@ -20,6 +23,48 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+func scopedUserTenantID(c *gin.Context, requested string) string {
+	current := middleware.GetTenantID(c)
+	if current == constants.PlatformTenantID && strings.TrimSpace(requested) != "" {
+		return strings.TrimSpace(requested)
+	}
+	return current
+}
+
+func requestedUserTenantID(c *gin.Context, bound string) string {
+	if requested := strings.TrimSpace(c.Query("tenantID")); requested != "" {
+		return requested
+	}
+	return bound
+}
+
+func canManageUser(c *gin.Context, userID string) bool {
+	current := middleware.GetTenantID(c)
+	if current == constants.PlatformTenantID {
+		return true
+	}
+	target, err := user.GetUserTenantID(userID)
+	return err == nil && target == current
+}
+
+func noUserPermissionResponse() *apipb.CommonResponse {
+	return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "无权管理该用户"}
+}
+
+func userQueryOptions(c *gin.Context) (user.QueryOptions, error) {
+	options := user.QueryOptions{Keyword: strings.TrimSpace(c.Query("keyword"))}
+	raw, exists := c.GetQuery("enable")
+	if !exists || strings.TrimSpace(raw) == "" {
+		return options, nil
+	}
+	enabled, err := strconv.ParseBool(raw)
+	if err != nil {
+		return options, fmt.Errorf("enable 必须为 true 或 false")
+	}
+	options.Enable = &enabled
+	return options, nil
+}
 
 // Login godoc
 // @Summary 登录
@@ -149,10 +194,7 @@ func UpdateProfile(c *gin.Context) {
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/user/add [post]
 func AddUser(c *gin.Context, req *apipb.UserInfo) (*apipb.CommonResponse, error) {
-	tenantID := middleware.GetTenantID(c)
-	if tenantID != constants.PlatformTenantID {
-		req.TenantID = tenantID
-	}
+	req.TenantID = scopedUserTenantID(c, req.TenantID)
 	if err := user.CreateUser(user.PBToUser(req), false); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -169,8 +211,17 @@ var AddUserHandler = AutoHandler(AddUser)
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/user/update [put]
 func UpdateUser(c *gin.Context, req *apipb.UserInfo) (*apipb.CommonResponse, error) {
+	if !canManageUser(c, req.Id) {
+		return noUserPermissionResponse(), nil
+	}
 	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
 		req.TenantID = tenantID
+	} else if strings.TrimSpace(req.TenantID) == "" {
+		existingTenantID, err := user.GetUserTenantID(req.Id)
+		if err != nil {
+			return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
+		}
+		req.TenantID = existingTenantID
 	}
 	if err := user.UpdateUser(user.PBToUser(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
@@ -185,6 +236,9 @@ func UpdateUser(c *gin.Context, req *apipb.UserInfo) (*apipb.CommonResponse, err
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/user/delete [delete]
 func DeleteUser(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
+	if !canManageUser(c, req.Id) {
+		return noUserPermissionResponse(), nil
+	}
 	if err := user.DeleteUser(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -199,6 +253,9 @@ func DeleteUser(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, e
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/user/enable [post]
 func EnableUser(c *gin.Context, req *apipb.EnableRequest) (*apipb.CommonResponse, error) {
+	if !canManageUser(c, req.Id) {
+		return noUserPermissionResponse(), nil
+	}
 	if err := user.EnableUser(req.Id, req.Enable); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -213,11 +270,13 @@ func EnableUser(c *gin.Context, req *apipb.EnableRequest) (*apipb.CommonResponse
 // @Success 200 {object} apipb.QueryUserResponse
 // @Router /api/core/auth/user/query [get]
 func QueryUser(c *gin.Context, req *apipb.QueryUserRequest) (*apipb.QueryUserResponse, error) {
-	if tenantID := ucm.GetTenantID(c); tenantID != constants.PlatformTenantID {
-		req.TenantID = tenantID
+	req.TenantID = scopedUserTenantID(c, requestedUserTenantID(c, req.TenantID))
+	options, err := userQueryOptions(c)
+	if err != nil {
+		return &apipb.QueryUserResponse{Code: apipb.Code_BadRequest, Message: err.Error()}, nil
 	}
 	resp := &apipb.QueryUserResponse{Code: apipb.Code_Success}
-	user.QueryUser(req, resp, false)
+	user.QueryUserWithOptions(req, resp, false, options)
 	return resp, nil
 }
 
@@ -241,10 +300,7 @@ func GetAllUsers(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	tenantID := middleware.GetTenantID(c)
-	if tenantID != constants.PlatformTenantID {
-		req.TenantID = tenantID
-	}
+	req.TenantID = scopedUserTenantID(c, requestedUserTenantID(c, req.TenantID))
 	users, err := user.GetAllUsers(req)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
@@ -272,6 +328,12 @@ func GetUserDetail(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
+	if !canManageUser(c, idStr) {
+		resp.Code = apipb.Code_NoPermission
+		resp.Message = "无权查看该用户"
+		c.JSON(http.StatusOK, resp)
+		return
+	}
 
 	data, err := user.GetUserById(idStr)
 	if err != nil {
@@ -293,7 +355,10 @@ func ResetPwd(c *gin.Context) {
 	resp := &apipb.CommonResponse{
 		Code: apipb.Code_Success,
 	}
-	req := &apipb.GetDetailRequest{}
+	req := &struct {
+		Id       string `json:"id" binding:"required"`
+		Password string `json:"password"`
+	}{}
 	err := c.BindJSON(req)
 	if err != nil {
 		resp.Code = apipb.Code_BadRequest
@@ -302,17 +367,22 @@ func ResetPwd(c *gin.Context) {
 		return
 	}
 	// 越权校验：非平台租户只能重置本租户用户的密码
-	tenantID := middleware.GetTenantID(c)
-	if tenantID != constants.PlatformTenantID {
-		userTenantID, err := user.GetUserTenantID(req.Id)
-		if err != nil || userTenantID != tenantID {
-			resp.Code = 41003 // NoPermission
-			resp.Message = "无权重置该用户密码"
-			c.JSON(http.StatusOK, resp)
-			return
-		}
+	if !canManageUser(c, req.Id) {
+		resp.Code = apipb.Code_NoPermission
+		resp.Message = "无权重置该用户密码"
+		c.JSON(http.StatusOK, resp)
+		return
 	}
-	err = user.ResetPwd(req.Id, user.DefaultPwd)
+	password := strings.TrimSpace(req.Password)
+	if password == "" {
+		password = user.DefaultPwd
+	} else if !auth.ValidPasswdStrength(password) {
+		resp.Code = apipb.Code_BadRequest
+		resp.Message = "新密码至少 8 位，并包含大写字母、小写字母和数字"
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+	err = user.ResetPwd(req.Id, password)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -389,13 +459,17 @@ func ExportUser(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	tenantID := ucm.GetTenantID(c)
-	if tenantID != constants.PlatformTenantID {
-		req.TenantID = tenantID
+	req.TenantID = scopedUserTenantID(c, requestedUserTenantID(c, req.TenantID))
+	options, optionsErr := userQueryOptions(c)
+	if optionsErr != nil {
+		resp.Code = apipb.Code_BadRequest
+		resp.Message = optionsErr.Error()
+		c.JSON(http.StatusOK, resp)
+		return
 	}
 	req.PageIndex = 1
 	req.PageSize = 1000
-	user.QueryUser(req, resp, true)
+	user.QueryUserWithOptions(req, resp, true, options)
 	if resp.Code != apipb.Code_Success {
 		c.JSON(http.StatusOK, resp)
 		return

@@ -26,9 +26,9 @@ import (
 
 // 全局配置(从 model/init.go 迁入)
 var (
-	DefaultPwd             = ""
-	loginLockMaxErrCount   int32 = 5
-	loginLockLockMinutes   int   = 15
+	DefaultPwd                 = ""
+	loginLockMaxErrCount int32 = 5
+	loginLockLockMinutes int   = 15
 )
 
 func SetDefaultPwd(pwd string) {
@@ -48,49 +48,49 @@ func SetLoginLock(maxErr int, lockMin int) {
 
 type User struct {
 	commonmodel.TenantModel
-	ProjectID      string      `json:"projectID" gorm:"index;size:36"`
-	UserName       string      `json:"userName" validate:"required" gorm:"size:50;index;comment:用户登录名"`
-	Password       string      `json:"password" gorm:"size:200;comment:用户登录密码"`
-	PasswordUpdatedAt int64    `json:"passwordUpdatedAt" gorm:"default:0;comment:密码最后修改时间(unix)"`
-	Nickname       string      `json:"nickname" validate:"required" gorm:"size:100;index;default:未设置;comment:用户昵称"`
-	UserRoles      []*UserRole `json:"userRoles"`
-	RoleIDs        []string    `json:"roleIDs" gorm:"-"`
-	WechatUnionID  string      `json:"wechatUnionID" gorm:"size:36;index;comment:微信UionID"`
-	WechatOpenID   string      `json:"wechatOpenID" gorm:"size:36;index;comment:微信OpenID"`
-	WechatConfigID string      `json:"wechatConfigID" gorm:"size:36;index;comment:微信配置ID"`
-	Type           int32       `json:"type" gorm:"index"`
-	Group          string      `json:"group" gorm:"index;size:50"`
-	Enable         bool        `json:"enable" gorm:"index"`
-	ErrNumber      int32       `json:"errNumber"`
-	LockedExpired  int64       `json:"lockedExpired"`
-	ForceChangePwd bool        `json:"forceChangePwd"`
-	Expired        int64       `json:"expired"`
-	CanDel         bool        `json:"canDel"`
-	Email          string      `json:"email" gorm:"size:100;"`
-	Mobile         string      `json:"mobile" gorm:"size:20;index;comment:手机号"`
-	IDCard         string      `json:"idCard" gorm:"size:18;index;comment:身份证号"`
-	Avatar         string      `json:"avatar" gorm:"size:200;comment:用户头像"`
-	EID            string      `json:"eid" gorm:"size:50;"`
-	Title          string      `json:"title" gorm:"size:100;comment:职位"`
-	Description    string      `json:"description" gorm:"size:200;"`
-	RealName       string      `json:"realName" gorm:"index;size:50;"`
-	Gender         bool        `json:"gender"`
-	Age            int32       `json:"age"`
-	Height         float32     `json:"height"`
-	Weight         float32     `json:"weight"`
-	ChineseName    string      `json:"chineseName" gorm:"size:50"`
-	EnglishName    string      `json:"englishName" gorm:"size:50"`
-	StaffNo        string      `json:"staffNo" gorm:"index;size:50"`
-	Country        string      `json:"country" gorm:"size:100;"`
-	Province       string      `json:"province" gorm:"size:100;"`
-	City           string      `json:"city" gorm:"size:100;"`
-	County         string      `json:"county" gorm:"size:100;"`
-	Birthday       int64       `json:"birthday"`
-	IsVip          bool        `json:"isVip"`
-	VipExpired     *time.Time  `json:"vipExpired"`
-	Tenant         *tenant.Tenant `json:"tenant"`
-	IsMust         bool           `json:"isMust" gorm:"index;comment:系统必须要有的数据"`
-	WechatOpenIDMaps []*UserWechatOpenIDMap `json:"wechatOpenIDMaps"`
+	ProjectID         string                 `json:"projectID" gorm:"index;size:36"`
+	UserName          string                 `json:"userName" validate:"required" gorm:"size:50;index;comment:用户登录名"`
+	Password          string                 `json:"password" gorm:"size:200;comment:用户登录密码"`
+	PasswordUpdatedAt int64                  `json:"passwordUpdatedAt" gorm:"default:0;comment:密码最后修改时间(unix)"`
+	Nickname          string                 `json:"nickname" validate:"required" gorm:"size:100;index;default:未设置;comment:用户昵称"`
+	UserRoles         []*UserRole            `json:"userRoles"`
+	RoleIDs           []string               `json:"roleIDs" gorm:"-"`
+	WechatUnionID     string                 `json:"wechatUnionID" gorm:"size:36;index;comment:微信UionID"`
+	WechatOpenID      string                 `json:"wechatOpenID" gorm:"size:36;index;comment:微信OpenID"`
+	WechatConfigID    string                 `json:"wechatConfigID" gorm:"size:36;index;comment:微信配置ID"`
+	Type              int32                  `json:"type" gorm:"index"`
+	Group             string                 `json:"group" gorm:"index;size:50"`
+	Enable            bool                   `json:"enable" gorm:"index"`
+	ErrNumber         int32                  `json:"errNumber"`
+	LockedExpired     int64                  `json:"lockedExpired"`
+	ForceChangePwd    bool                   `json:"forceChangePwd"`
+	Expired           int64                  `json:"expired"`
+	CanDel            bool                   `json:"canDel"`
+	Email             string                 `json:"email" gorm:"size:100;"`
+	Mobile            string                 `json:"mobile" gorm:"size:20;index;comment:手机号"`
+	IDCard            string                 `json:"idCard" gorm:"size:18;index;comment:身份证号"`
+	Avatar            string                 `json:"avatar" gorm:"size:200;comment:用户头像"`
+	EID               string                 `json:"eid" gorm:"size:50;"`
+	Title             string                 `json:"title" gorm:"size:100;comment:职位"`
+	Description       string                 `json:"description" gorm:"size:200;"`
+	RealName          string                 `json:"realName" gorm:"index;size:50;"`
+	Gender            bool                   `json:"gender"`
+	Age               int32                  `json:"age"`
+	Height            float32                `json:"height"`
+	Weight            float32                `json:"weight"`
+	ChineseName       string                 `json:"chineseName" gorm:"size:50"`
+	EnglishName       string                 `json:"englishName" gorm:"size:50"`
+	StaffNo           string                 `json:"staffNo" gorm:"index;size:50"`
+	Country           string                 `json:"country" gorm:"size:100;"`
+	Province          string                 `json:"province" gorm:"size:100;"`
+	City              string                 `json:"city" gorm:"size:100;"`
+	County            string                 `json:"county" gorm:"size:100;"`
+	Birthday          int64                  `json:"birthday"`
+	IsVip             bool                   `json:"isVip"`
+	VipExpired        *time.Time             `json:"vipExpired"`
+	Tenant            *tenant.Tenant         `json:"tenant"`
+	IsMust            bool                   `json:"isMust" gorm:"index;comment:系统必须要有的数据"`
+	WechatOpenIDMaps  []*UserWechatOpenIDMap `json:"wechatOpenIDMaps"`
 }
 
 type UserWechatOpenIDMap struct {
@@ -195,8 +195,32 @@ func DeleteUser(id string) (err error) {
 	return txErr
 }
 
+// QueryOptions contains HTTP-oriented filters that are not part of the legacy
+// Triple QueryUserRequest contract.
+type QueryOptions struct {
+	Keyword string
+	Enable  *bool
+}
+
 func QueryUser(req *apipb.QueryUserRequest, resp *apipb.QueryUserResponse, preload bool) {
+	QueryUserWithOptions(req, resp, preload, QueryOptions{})
+}
+
+// QueryUserWithOptions keeps the existing QueryUser contract while allowing
+// the native HTTP API to offer a single keyword search and an explicit status
+// filter.
+func QueryUserWithOptions(req *apipb.QueryUserRequest, resp *apipb.QueryUserResponse, preload bool, options QueryOptions) {
 	db := store.DB().Model(&User{})
+	if keyword := strings.TrimSpace(options.Keyword); keyword != "" {
+		like := "%" + keyword + "%"
+		db = db.Where(
+			"(user_name LIKE ? OR nickname LIKE ? OR mobile LIKE ? OR email LIKE ? OR real_name LIKE ?)",
+			like, like, like, like, like,
+		)
+	}
+	if options.Enable != nil {
+		db = db.Where("enable = ?", *options.Enable)
+	}
 	if req.UserName != "" {
 		db = db.Where("`user_name` LIKE ?", "%"+req.UserName+"%")
 	} else if len(req.UserNames) > 0 {
@@ -327,11 +351,11 @@ func ResetPwd(id string, pwd string) error {
 		return err
 	}
 	return store.DB().Model(&User{}).Where("id=?", id).UpdateColumns(map[string]interface{}{
-		"password":          password,
-		"force_change_pwd":  true,
+		"password":            password,
+		"force_change_pwd":    true,
 		"password_updated_at": time.Now().Unix(),
-		"err_number":        0,
-		"locked_expired":    0,
+		"err_number":          0,
+		"locked_expired":      0,
 	}).Error
 }
 
@@ -686,7 +710,6 @@ func ExportAllUsers(req *apipb.CommonExportRequest, resp *apipb.CommonExportResp
 	}
 }
 
-
 func PBToUser(in *apipb.UserInfo) *User {
 	if in == nil {
 		return nil
@@ -744,12 +767,14 @@ func UserToPB(in *User) *apipb.UserInfo {
 		UserRoles: UserRolesToPB(in.UserRoles), RoleIDs: in.RoleIDs,
 		Enable: in.Enable, Email: in.Email, Mobile: in.Mobile,
 		IdCard: in.IDCard, Avatar: in.Avatar, Eid: in.EID,
-		Gender: in.Gender, Password: in.Password, Type: in.Type,
-		Group: in.Group, WechatUnionID: in.WechatUnionID, WechatOpenID: in.WechatOpenID,
+		Title: in.Title, Description: in.Description, RealName: in.RealName,
+		Gender: in.Gender, Type: in.Type, Group: in.Group,
 		City: in.City, Country: in.Country, Province: in.Province,
+		CreatedAt:      utils.FormatTime(in.CreatedAt),
 		WechatConfigID: in.WechatConfigID, IsMust: in.IsMust,
 		WechatOpenIDMaps: UserWechatOpenIDMapsToPB(in.WechatOpenIDMaps),
-		Age: in.Age, Height: in.Height, Weight: in.Weight,
+		Age:              in.Age, Height: in.Height, Weight: in.Weight,
+		IsVip: in.IsVip,
 	}
 }
 

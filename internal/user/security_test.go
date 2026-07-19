@@ -8,7 +8,6 @@ import (
 
 	"github.com/CloudSilk/pkg/db"
 	commonmodel "github.com/CloudSilk/pkg/model"
-	glebsqlite "github.com/glebarez/sqlite"
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/bootstrap"
@@ -16,6 +15,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
+	glebsqlite "github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -211,6 +211,34 @@ func TestGetUserTenantID(t *testing.T) {
 	// 不存在的用户应返回错误，避免越权校验被绕过
 	if _, err := user.GetUserTenantID("nonexistent-id"); err == nil {
 		t.Fatal("expected error for nonexistent user")
+	}
+}
+
+func TestUserToPBRedactsPasswordAndKeepsManagementFields(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	u := &user.User{
+		TenantModel: commonmodel.TenantModel{
+			Model:    commonmodel.Model{ID: "user-redaction", CreatedAt: now},
+			TenantID: "tenant-redaction",
+		},
+		UserName:    "redaction",
+		Password:    "sensitive-password-hash",
+		Nickname:    "脱敏用户",
+		Title:       "办公室主任",
+		Description: "负责公文审核",
+		RealName:    "测试姓名",
+		Enable:      true,
+	}
+
+	got := user.UserToPB(u)
+	if got.Password != "" {
+		t.Fatalf("password hash must never be serialized, got %q", got.Password)
+	}
+	if got.Title != u.Title || got.Description != u.Description || got.RealName != u.RealName {
+		t.Fatalf("management fields were lost: %#v", got)
+	}
+	if got.CreatedAt == "" {
+		t.Fatal("createdAt must be available to the management list")
 	}
 }
 
