@@ -1416,6 +1416,102 @@ func TestMenuManagementEnforcesTenantHierarchyAndProtection(t *testing.T) {
 	}
 }
 
+func TestMenuReorderSwapsOnlyTenantScopedSiblings(t *testing.T) {
+	const prefix = "menu-reorder"
+	tenantID := prefix + "-tenant"
+	parent := &permission.Menu{
+		Model:     commonmodel.Model{ID: prefix + "-parent"},
+		TenantID:  tenantID,
+		ProjectID: "workspace",
+		Name:      "reorder-parent",
+		Title:     "Reorder parent",
+		Path:      "/" + prefix,
+	}
+	if err := permission.AddMenu(parent); err != nil {
+		t.Fatalf("create reorder parent: %v", err)
+	}
+	for _, child := range []*permission.Menu{
+		{
+			Model: commonmodel.Model{ID: prefix + "-a"}, TenantID: tenantID, ProjectID: parent.ProjectID,
+			ParentID: parent.ID, Name: "reorder-a", Title: "A", Path: "/" + prefix + "/a", Sort: 10,
+		},
+		{
+			Model: commonmodel.Model{ID: prefix + "-b"}, TenantID: tenantID, ProjectID: parent.ProjectID,
+			ParentID: parent.ID, Name: "reorder-b", Title: "B", Path: "/" + prefix + "/b", Sort: 10,
+		},
+		{
+			Model: commonmodel.Model{ID: prefix + "-c"}, TenantID: tenantID, ProjectID: parent.ProjectID,
+			ParentID: parent.ID, Name: "reorder-c", Title: "C", Path: "/" + prefix + "/c", Sort: 20,
+		},
+	} {
+		if err := permission.AddMenu(child); err != nil {
+			t.Fatalf("create reorder child %s: %v", child.ID, err)
+		}
+	}
+	engine := newMenuTestEngine(&apipb.CurrentUser{Id: prefix + "-admin", TenantID: tenantID})
+	moveUp := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPut, "/api/core/auth/menu/reorder", map[string]any{
+		"id": prefix + "-b", "direction": "up",
+	}))
+	if moveUp.Code != commonmodel.Success {
+		t.Fatalf("move menu up failed: %v (%s)", moveUp.Code, moveUp.Message)
+	}
+	var siblings []*permission.Menu
+	if err := store.DB().
+		Where("parent_id = ?", parent.ID).
+		Order("sort, title, name, id").
+		Find(&siblings).Error; err != nil {
+		t.Fatalf("load reordered siblings: %v", err)
+	}
+	if len(siblings) != 3 ||
+		siblings[0].ID != prefix+"-b" ||
+		siblings[1].ID != prefix+"-a" ||
+		siblings[2].ID != prefix+"-c" {
+		t.Fatalf("unexpected sibling order after move up: %#v", siblings)
+	}
+
+	moveDown := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPut, "/api/core/auth/menu/reorder", map[string]any{
+		"id": prefix + "-a", "direction": "down",
+	}))
+	if moveDown.Code != commonmodel.Success {
+		t.Fatalf("move menu down failed: %v (%s)", moveDown.Code, moveDown.Message)
+	}
+	siblings = nil
+	if err := store.DB().
+		Where("parent_id = ?", parent.ID).
+		Order("sort, title, name, id").
+		Find(&siblings).Error; err != nil {
+		t.Fatalf("reload reordered siblings: %v", err)
+	}
+	if siblings[0].ID != prefix+"-b" ||
+		siblings[1].ID != prefix+"-c" ||
+		siblings[2].ID != prefix+"-a" {
+		t.Fatalf("unexpected sibling order after move down: %#v", siblings)
+	}
+
+	foreign := &permission.Menu{
+		Model:    commonmodel.Model{ID: prefix + "-foreign"},
+		TenantID: prefix + "-foreign-tenant",
+		Name:     "foreign-reorder",
+		Title:    "Foreign reorder",
+		Path:     "/" + prefix + "/foreign",
+	}
+	if err := permission.AddMenu(foreign); err != nil {
+		t.Fatalf("create foreign reorder fixture: %v", err)
+	}
+	denied := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPut, "/api/core/auth/menu/reorder", map[string]any{
+		"id": foreign.ID, "direction": "up",
+	}))
+	if denied.Code != apipb.Code_NoPermission {
+		t.Fatalf("foreign menu reorder should be denied, got %v", denied.Code)
+	}
+	invalid := decodeCommonResponse(t, doJSONRequest(t, engine, http.MethodPut, "/api/core/auth/menu/reorder", map[string]any{
+		"id": prefix + "-a", "direction": "sideways",
+	}))
+	if invalid.Code != apipb.Code_BadRequest {
+		t.Fatalf("invalid reorder direction should be bad request, got %v", invalid.Code)
+	}
+}
+
 func TestAPIResourceManagementEnforcesTenantValidationAndAtomicDuplicates(t *testing.T) {
 	const prefix = "api-resource-boundary"
 	tenantAdmin := &apipb.CurrentUser{Id: prefix + "-admin", TenantID: prefix + "-tenant"}

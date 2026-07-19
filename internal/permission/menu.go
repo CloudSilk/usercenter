@@ -521,6 +521,77 @@ func UpdateMenu(menu *Menu) (err error) {
 	return clearMenuTokenCache(affectedUserIDs)
 }
 
+func ReorderMenu(id, direction string) error {
+	id = strings.TrimSpace(id)
+	direction = strings.ToLower(strings.TrimSpace(direction))
+	if id == "" {
+		return fmt.Errorf("%w: menu ID cannot be empty", ErrInvalidMenu)
+	}
+	if direction != "up" && direction != "down" {
+		return fmt.Errorf("%w: direction must be up or down", ErrInvalidMenu)
+	}
+	return store.DB().Transaction(func(tx *gorm.DB) error {
+		target := &Menu{}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", id).
+			First(target).Error; err != nil {
+			return err
+		}
+		var siblings []*Menu
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where(
+				"tenant_id = ? AND project_id = ? AND parent_id = ?",
+				target.TenantID,
+				target.ProjectID,
+				target.ParentID,
+			).
+			Order("sort, title, name, id").
+			Find(&siblings).Error; err != nil {
+			return err
+		}
+		targetIndex := -1
+		for index, sibling := range siblings {
+			if sibling.ID == target.ID {
+				targetIndex = index
+				break
+			}
+		}
+		if targetIndex < 0 {
+			return gorm.ErrRecordNotFound
+		}
+		neighborIndex := targetIndex - 1
+		if direction == "down" {
+			neighborIndex = targetIndex + 1
+		}
+		if neighborIndex < 0 || neighborIndex >= len(siblings) {
+			return nil
+		}
+		targetSort := siblings[targetIndex].Sort
+		neighborSort := siblings[neighborIndex].Sort
+		if targetSort == neighborSort {
+			for index, sibling := range siblings {
+				normalizedSort := int32((index + 1) * 10)
+				if err := tx.Model(&Menu{}).
+					Where("id = ?", sibling.ID).
+					Update("sort", normalizedSort).Error; err != nil {
+					return err
+				}
+				sibling.Sort = normalizedSort
+			}
+			targetSort = siblings[targetIndex].Sort
+			neighborSort = siblings[neighborIndex].Sort
+		}
+		if err := tx.Model(&Menu{}).
+			Where("id = ?", siblings[targetIndex].ID).
+			Update("sort", neighborSort).Error; err != nil {
+			return err
+		}
+		return tx.Model(&Menu{}).
+			Where("id = ?", siblings[neighborIndex].ID).
+			Update("sort", targetSort).Error
+	})
+}
+
 func GetMenuByID(id string) (*Menu, error) {
 	menu := &Menu{}
 	err := store.DB().

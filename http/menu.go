@@ -44,6 +44,11 @@ func noMenuPermissionResponse() *apipb.CommonResponse {
 	return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "no permission to manage this menu"}
 }
 
+type menuReorderRequest struct {
+	ID        string `json:"id" validate:"required"`
+	Direction string `json:"direction" validate:"required"`
+}
+
 // AddMenu godoc
 // @Summary 新增菜单
 // @Tags 菜单管理
@@ -106,6 +111,17 @@ func DeleteMenu(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, e
 		return menuMutationResponse(err), nil
 	}
 	recordAudit(c, "delete_menu", req.Id, "")
+	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
+}
+
+func ReorderMenu(c *gin.Context, req *menuReorderRequest) (*apipb.CommonResponse, error) {
+	if !canManageMenu(c, req.ID) {
+		return noMenuPermissionResponse(), nil
+	}
+	if err := permission.ReorderMenu(req.ID, req.Direction); err != nil {
+		return menuMutationResponse(err), nil
+	}
+	recordAudit(c, "reorder_menu", req.ID, req.Direction)
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
@@ -330,6 +346,7 @@ func RegisterMenuRouter(r *gin.Engine) {
 	menuGroup := r.Group("/api/core/auth/menu")
 	menuGroup.POST("add", AutoHandler(AddMenu))
 	menuGroup.PUT("update", AutoHandler(UpdateMenu))
+	menuGroup.PUT("reorder", AutoHandler(ReorderMenu))
 	menuGroup.GET("query", AutoQueryHandler(QueryMenu))
 	menuGroup.DELETE("delete", AutoHandler(DeleteMenu))
 	menuGroup.GET("detail", GetMenuDetail)
