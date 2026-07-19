@@ -12,6 +12,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/bootstrap"
 	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/session"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
@@ -197,6 +198,101 @@ func TestUpdatePwdRejectsWeakPassword(t *testing.T) {
 	// 旧密码未变更（弱密码被拒），强密码应成功
 	if err := user.UpdatePwd(u.ID, "Abc12345", "Xyz98765"); err != nil {
 		t.Fatalf("strong password should succeed, got %v", err)
+	}
+}
+
+func TestUpdateUserRolesReplacesLinksAndInvalidatesActiveContext(t *testing.T) {
+	u := mustCreateUser(t, "role-assignment-user", "Abc12345")
+	if err := store.DB().Model(&user.User{}).Where("id = ?", u.ID).Update("tenant_id", "tenant-role-a").Error; err != nil {
+		t.Fatalf("set user tenant: %v", err)
+	}
+	roles := []*permission.Role{
+		{Model: commonmodel.Model{ID: "role-assignment-1"}, TenantID: "tenant-role-a", Name: "材料起草"},
+		{Model: commonmodel.Model{ID: "role-assignment-2"}, TenantID: "tenant-role-a", Name: "材料审校"},
+	}
+	if err := store.DB().Create(&roles).Error; err != nil {
+		t.Fatalf("create roles: %v", err)
+	}
+	if err := store.DB().Create(&user.UserRole{UserID: u.ID, RoleID: "role-assignment-1"}).Error; err != nil {
+		t.Fatalf("create old role link: %v", err)
+	}
+
+	accessToken, err := token.EncodeToken(&apipb.CurrentUser{
+		Id: u.ID, UserName: u.UserName, TenantID: "tenant-role-a", RoleIDs: []string{"role-assignment-1"},
+	})
+	if err != nil {
+		t.Fatalf("encode token: %v", err)
+	}
+	if exists, err := token.DefaultTokenCache.Exists(u.ID, accessToken); err != nil || !exists {
+		t.Fatalf("token must exist before role update: exists=%v err=%v", exists, err)
+	}
+	activeSession := &session.Session{
+		Model:       commonmodel.Model{ID: "role-assignment-session"},
+		PrincipalID: u.ID,
+		TenantID:    "tenant-role-a",
+	}
+	if err := store.DB().Create(activeSession).Error; err != nil {
+		t.Fatalf("create active session: %v", err)
+	}
+
+	result, err := user.UpdateUserRoles(u.ID, []string{"role-assignment-2", "role-assignment-2"})
+	if err != nil {
+		t.Fatalf("update roles: %v", err)
+	}
+	if len(result.RoleIDs) != 1 || result.RoleIDs[0] != "role-assignment-2" {
+		t.Fatalf("unexpected normalized roles: %#v", result.RoleIDs)
+	}
+	if len(result.PreviousRoleIDs) != 1 || result.PreviousRoleIDs[0] != "role-assignment-1" {
+		t.Fatalf("unexpected previous roles: %#v", result.PreviousRoleIDs)
+	}
+	if result.SessionsRevoked != 1 {
+		t.Fatalf("sessions revoked = %d, want 1", result.SessionsRevoked)
+	}
+
+	var links []*user.UserRole
+	if err := store.DB().Where("user_id = ?", u.ID).Find(&links).Error; err != nil {
+		t.Fatalf("query new role links: %v", err)
+	}
+	if len(links) != 1 || links[0].RoleID != "role-assignment-2" {
+		t.Fatalf("role links were not replaced: %#v", links)
+	}
+	if exists, err := token.DefaultTokenCache.Exists(u.ID, accessToken); err != nil || exists {
+		t.Fatalf("stale token must be invalidated: exists=%v err=%v", exists, err)
+	}
+	var storedSession session.Session
+	if err := store.DB().First(&storedSession, "id = ?", activeSession.ID).Error; err != nil {
+		t.Fatalf("reload session: %v", err)
+	}
+	if !storedSession.Revoked || storedSession.RevokedReason != "user roles updated" {
+		t.Fatalf("active session was not revoked: %#v", storedSession)
+	}
+}
+
+func TestUpdateUserRolesRejectsForeignTenantRoleWithoutChangingLinks(t *testing.T) {
+	u := mustCreateUser(t, "role-assignment-tenant-user", "Abc12345")
+	if err := store.DB().Model(&user.User{}).Where("id = ?", u.ID).Update("tenant_id", "tenant-role-owner").Error; err != nil {
+		t.Fatalf("set user tenant: %v", err)
+	}
+	roles := []*permission.Role{
+		{Model: commonmodel.Model{ID: "role-assignment-owned"}, TenantID: "tenant-role-owner", Name: "本租户角色"},
+		{Model: commonmodel.Model{ID: "role-assignment-foreign"}, TenantID: "tenant-role-foreign", Name: "其他租户角色"},
+	}
+	if err := store.DB().Create(&roles).Error; err != nil {
+		t.Fatalf("create roles: %v", err)
+	}
+	if err := store.DB().Create(&user.UserRole{UserID: u.ID, RoleID: "role-assignment-owned"}).Error; err != nil {
+		t.Fatalf("create old role link: %v", err)
+	}
+
+	if _, err := user.UpdateUserRoles(u.ID, []string{"role-assignment-foreign"}); err == nil {
+		t.Fatal("foreign-tenant role assignment must be rejected")
+	}
+	var links []*user.UserRole
+	if err := store.DB().Where("user_id = ?", u.ID).Find(&links).Error; err != nil {
+		t.Fatalf("query preserved role links: %v", err)
+	}
+	if len(links) != 1 || links[0].RoleID != "role-assignment-owned" {
+		t.Fatalf("failed assignment changed existing links: %#v", links)
 	}
 }
 

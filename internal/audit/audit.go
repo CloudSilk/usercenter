@@ -21,13 +21,14 @@ type AuditLog struct {
 }
 
 const (
-	AuditActionResetPwd   = "reset_password"
-	AuditActionChangePwd  = "change_password"
-	AuditActionDeleteUser = "delete_user"
-	AuditActionEnableUser = "enable_user"
-	AuditActionUpdateRole = "update_role"
-	AuditActionPhoneCode  = "phone_code_request"
-	AuditActionPhoneLogin = "phone_login"
+	AuditActionResetPwd        = "reset_password"
+	AuditActionChangePwd       = "change_password"
+	AuditActionDeleteUser      = "delete_user"
+	AuditActionEnableUser      = "enable_user"
+	AuditActionUpdateRole      = "update_role"
+	AuditActionUpdateUserRoles = "update_user_roles"
+	AuditActionPhoneCode       = "phone_code_request"
+	AuditActionPhoneLogin      = "phone_login"
 )
 
 // RecordAudit 记录审计日志(principalKind=0 表示人类,向后兼容)。

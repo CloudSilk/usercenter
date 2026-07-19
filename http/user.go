@@ -229,6 +229,63 @@ func UpdateUser(c *gin.Context, req *apipb.UserInfo) (*apipb.CommonResponse, err
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
+type updateUserRolesRequest struct {
+	ID      string   `json:"id" binding:"required"`
+	RoleIDs []string `json:"roleIDs"`
+}
+
+// UpdateUserRoles replaces the target user's native usercenter roles. The
+// dedicated endpoint keeps profile editing and authorization changes separate,
+// applies tenant-scoped validation in the user domain, and invalidates the
+// user's active login contexts after a successful change.
+func UpdateUserRoles(c *gin.Context) {
+	req := &updateUserRolesRequest{}
+	if err := c.ShouldBindJSON(req); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    apipb.Code_BadRequest,
+			"message": err.Error(),
+		})
+		return
+	}
+	if !canManageUser(c, req.ID) {
+		c.JSON(http.StatusOK, noUserPermissionResponse())
+		return
+	}
+
+	result, err := user.UpdateUserRoles(req.ID, req.RoleIDs)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    apipb.Code_BadRequest,
+			"message": err.Error(),
+		})
+		return
+	}
+	detail, _ := json.Marshal(map[string]interface{}{
+		"previousRoleIDs": result.PreviousRoleIDs,
+		"roleIDs":         result.RoleIDs,
+		"sessionsRevoked": result.SessionsRevoked,
+	})
+	audit.RecordAuditWithKind(
+		store.DB(),
+		middleware.GetUserID(c),
+		middleware.GetUserName(c),
+		int32(middleware.GetPrincipalKind(c)),
+		audit.AuditActionUpdateUserRoles,
+		req.ID,
+		c.ClientIP(),
+		string(detail),
+	)
+	c.JSON(http.StatusOK, gin.H{
+		"code": apipb.Code_Success,
+		"data": gin.H{
+			"userID":                req.ID,
+			"roleIDs":               result.RoleIDs,
+			"sessionsRevoked":       result.SessionsRevoked,
+			"currentSessionRevoked": req.ID == middleware.GetUserID(c),
+		},
+	})
+}
+
 // DeleteUser godoc
 // @Summary 删除用户
 // @Tags 用户管理
@@ -606,6 +663,7 @@ func RegisterUserRouter(r *gin.Engine) {
 	userGroup.PUT("profile", UpdateProfile)
 	userGroup.POST("add", AddUserHandler)
 	userGroup.PUT("update", AutoHandler(UpdateUser))
+	userGroup.PUT("roles", UpdateUserRoles)
 	userGroup.GET("query", AutoQueryHandler(QueryUser))
 	userGroup.DELETE("delete", AutoHandler(DeleteUser))
 	userGroup.POST("enable", AutoHandler(EnableUser))

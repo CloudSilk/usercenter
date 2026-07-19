@@ -14,8 +14,10 @@ import (
 	"github.com/CloudSilk/pkg/db"
 	commonmodel "github.com/CloudSilk/pkg/model"
 	userhttp "github.com/CloudSilk/usercenter/http"
+	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/bootstrap"
+	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/tenant"
 	"github.com/CloudSilk/usercenter/internal/user"
@@ -312,6 +314,97 @@ func TestUpdateUserWithoutRoleFieldsPreservesExistingRoles(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("profile-only update removed roles, count=%d", count)
+	}
+}
+
+func TestUpdateUserRolesUsesDedicatedTenantScopedEndpointAndAudit(t *testing.T) {
+	targetID := mustCreateUser(t, "dedicated-role-target", platformTenant, "Abc12345")
+	roles := []*permission.Role{
+		{Model: commonmodel.Model{ID: "dedicated-role-1"}, TenantID: platformTenant, Name: "起草人员"},
+		{Model: commonmodel.Model{ID: "dedicated-role-2"}, TenantID: platformTenant, Name: "审校人员"},
+	}
+	if err := store.DB().Create(&roles).Error; err != nil {
+		t.Fatalf("create roles: %v", err)
+	}
+	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
+	w := doJSONRequest(t, newTestEngine(current), http.MethodPut, "/api/core/auth/user/roles", map[string]any{
+		"id": targetID, "roleIDs": []string{"dedicated-role-2", "dedicated-role-1"},
+	})
+	var resp struct {
+		Code apipb.Code `json:"code"`
+		Data struct {
+			UserID                string   `json:"userID"`
+			RoleIDs               []string `json:"roleIDs"`
+			SessionsRevoked       int64    `json:"sessionsRevoked"`
+			CurrentSessionRevoked bool     `json:"currentSessionRevoked"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode roles response: %v (body=%s)", err, w.Body.String())
+	}
+	if resp.Code != apipb.Code_Success || resp.Data.UserID != targetID {
+		t.Fatalf("role assignment failed: %#v", resp)
+	}
+	if len(resp.Data.RoleIDs) != 2 || resp.Data.RoleIDs[0] != "dedicated-role-1" || resp.Data.RoleIDs[1] != "dedicated-role-2" {
+		t.Fatalf("unexpected assigned roles: %#v", resp.Data.RoleIDs)
+	}
+	if resp.Data.CurrentSessionRevoked {
+		t.Fatal("assigning another user's roles must not report the administrator session revoked")
+	}
+
+	detail := doJSONRequest(t, newTestEngine(current), http.MethodGet, "/api/core/auth/user/detail?id="+targetID, nil)
+	var detailResp apipb.GetUserDetailResponse
+	if err := json.Unmarshal(detail.Body.Bytes(), &detailResp); err != nil {
+		t.Fatalf("decode detail: %v", err)
+	}
+	if detailResp.Code != apipb.Code_Success || len(detailResp.Data.RoleIDs) != 2 {
+		t.Fatalf("assigned roles missing from user detail: %#v", detailResp.Data)
+	}
+
+	var auditCount int64
+	if err := store.DB().Model(&audit.AuditLog{}).
+		Where("action = ? AND target_id = ?", audit.AuditActionUpdateUserRoles, targetID).
+		Count(&auditCount).Error; err != nil {
+		t.Fatalf("count role assignment audit: %v", err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("role assignment audit count = %d, want 1", auditCount)
+	}
+}
+
+func TestUpdateUserRolesRejectsCrossTenantManagerAndForeignRole(t *testing.T) {
+	targetID := mustCreateUser(t, "role-boundary-target", "role-boundary-a", "Abc12345")
+	foreignRole := &permission.Role{
+		Model:    commonmodel.Model{ID: "role-boundary-foreign"},
+		TenantID: "role-boundary-b",
+		Name:     "其他租户角色",
+	}
+	if err := store.DB().Create(foreignRole).Error; err != nil {
+		t.Fatalf("create foreign role: %v", err)
+	}
+
+	crossTenantManager := &apipb.CurrentUser{Id: "role-manager-b", TenantID: "role-boundary-b", UserName: "role-manager-b"}
+	crossTenant := decodeCommonResponse(t, doJSONRequest(
+		t,
+		newTestEngine(crossTenantManager),
+		http.MethodPut,
+		"/api/core/auth/user/roles",
+		map[string]any{"id": targetID, "roleIDs": []string{foreignRole.ID}},
+	))
+	if crossTenant.Code != apipb.Code_NoPermission {
+		t.Fatalf("cross-tenant manager should be denied, got %v", crossTenant.Code)
+	}
+
+	platformManager := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
+	foreignAssignment := decodeCommonResponse(t, doJSONRequest(
+		t,
+		newTestEngine(platformManager),
+		http.MethodPut,
+		"/api/core/auth/user/roles",
+		map[string]any{"id": targetID, "roleIDs": []string{foreignRole.ID}},
+	))
+	if foreignAssignment.Code != apipb.Code_BadRequest {
+		t.Fatalf("foreign role should be rejected even for platform manager, got %v", foreignAssignment.Code)
 	}
 }
 

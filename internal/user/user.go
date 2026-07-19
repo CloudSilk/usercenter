@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/session"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/tenant"
 	apipb "github.com/CloudSilk/usercenter/proto"
@@ -338,6 +340,99 @@ func UpdateUser(user *User) error {
 		}
 		return nil
 	})
+}
+
+type RoleAssignmentResult struct {
+	RoleIDs         []string
+	PreviousRoleIDs []string
+	SessionsRevoked int64
+}
+
+// UpdateUserRoles replaces a user's native usercenter role links and revokes
+// every active access context for that user. Role assignment is deliberately
+// separate from profile updates so ordinary account edits cannot change
+// authorization as a side effect.
+func UpdateUserRoles(userID string, roleIDs []string) (RoleAssignmentResult, error) {
+	result := RoleAssignmentResult{
+		RoleIDs: make([]string, 0, len(roleIDs)),
+	}
+	seen := make(map[string]struct{}, len(roleIDs))
+	for _, roleID := range roleIDs {
+		roleID = strings.TrimSpace(roleID)
+		if roleID == "" {
+			continue
+		}
+		if _, exists := seen[roleID]; exists {
+			continue
+		}
+		seen[roleID] = struct{}{}
+		result.RoleIDs = append(result.RoleIDs, roleID)
+	}
+	sort.Strings(result.RoleIDs)
+
+	err := store.DB().Transaction(func(tx *gorm.DB) error {
+		target := &User{}
+		if err := tx.Preload("UserRoles").Where("id = ?", userID).First(target).Error; err != nil {
+			return err
+		}
+		result.PreviousRoleIDs = target.GetRoleIDs()
+		sort.Strings(result.PreviousRoleIDs)
+
+		if len(result.RoleIDs) > 0 {
+			var roles []*permission.Role
+			allowedScope := tx.
+				Where("tenant_id = ?", target.TenantID).
+				Or(map[string]interface{}{"public": true})
+			if err := tx.
+				Where("id IN ?", result.RoleIDs).
+				Where(allowedScope).
+				Find(&roles).Error; err != nil {
+				return err
+			}
+			if len(roles) != len(result.RoleIDs) {
+				return errors.New("角色不存在或不属于该用户的租户范围")
+			}
+		}
+
+		if err := tx.Unscoped().Delete(&UserRole{}, "user_id = ?", userID).Error; err != nil {
+			return err
+		}
+		if len(result.RoleIDs) > 0 {
+			links := make([]*UserRole, 0, len(result.RoleIDs))
+			for _, roleID := range result.RoleIDs {
+				links = append(links, &UserRole{UserID: userID, RoleID: roleID})
+			}
+			if err := tx.Create(&links).Error; err != nil {
+				return err
+			}
+		}
+
+		revokeResult := tx.Model(&session.Session{}).
+			Where("principal_id = ? AND revoked = ?", userID, false).
+			Updates(map[string]interface{}{
+				"revoked":        true,
+				"revoked_reason": "user roles updated",
+			})
+		if revokeResult.Error != nil {
+			return revokeResult.Error
+		}
+		result.SessionsRevoked = revokeResult.RowsAffected
+
+		// JWTs carry a role snapshot. Invalidate all cached tokens before the
+		// transaction commits so stale privileges can never survive a
+		// successful assignment. A later transaction failure may require the
+		// user to sign in again, which is safer than retaining stale access.
+		if token.DefaultTokenCache != nil {
+			if err := token.DefaultTokenCache.DelByUserID(userID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return RoleAssignmentResult{}, err
+	}
+	return result, nil
 }
 
 func EnableUser(id string, enable bool) error {
