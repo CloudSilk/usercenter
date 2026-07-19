@@ -289,6 +289,32 @@ func TestResetPwdAcceptsExplicitStrongPassword(t *testing.T) {
 	}
 }
 
+func TestUpdateUserWithoutRoleFieldsPreservesExistingRoles(t *testing.T) {
+	targetID := mustCreateUser(t, "role-preserving-update", platformTenant, "Abc12345")
+	roleLink := &user.UserRole{UserID: targetID, RoleID: "role-preserved"}
+	if err := store.DB().Create(roleLink).Error; err != nil {
+		t.Fatalf("create user role: %v", err)
+	}
+	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
+
+	resp := decodeCommonResponse(t, doJSONRequest(t, newTestEngine(current), http.MethodPut, "/api/core/auth/user/update", map[string]any{
+		"id": targetID, "tenantID": platformTenant, "userName": "role-preserving-update",
+		"nickname": "资料已更新", "mobile": "13800000009", "enable": true,
+	}))
+	if resp.Code != commonmodel.Success {
+		t.Fatalf("update failed: %v (%s)", resp.Code, resp.Message)
+	}
+	var count int64
+	if err := store.DB().Model(&user.UserRole{}).
+		Where("user_id = ? AND role_id = ?", targetID, "role-preserved").
+		Count(&count).Error; err != nil {
+		t.Fatalf("count user roles: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("profile-only update removed roles, count=%d", count)
+	}
+}
+
 // A2: 非平台租户调用方重置其他租户用户密码 → 应被拒绝，且目标密码不变
 func TestResetPwdRejectsCrossTenant(t *testing.T) {
 	target := mustCreateUser(t, "crosstenant", "tenant-B", "Abc12345")

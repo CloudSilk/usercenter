@@ -303,22 +303,24 @@ func UpdateUser(user *User) error {
 		if err != nil {
 			return err
 		}
-		var deleteUserRole []string
-		for _, oldUserRole := range oldUser.UserRoles {
-			flag := false
-			for _, newUserRole := range user.UserRoles {
-				if newUserRole.ID == oldUserRole.ID {
-					flag = true
+		if user.UserRoles != nil {
+			var deleteUserRole []string
+			for _, oldUserRole := range oldUser.UserRoles {
+				flag := false
+				for _, newUserRole := range user.UserRoles {
+					if newUserRole.ID == oldUserRole.ID {
+						flag = true
+					}
+				}
+				if !flag {
+					deleteUserRole = append(deleteUserRole, oldUserRole.ID)
 				}
 			}
-			if !flag {
-				deleteUserRole = append(deleteUserRole, oldUserRole.ID)
-			}
-		}
-		if len(deleteUserRole) > 0 {
-			err = tx.Unscoped().Delete(&UserRole{}, "id in ?", deleteUserRole).Error
-			if err != nil {
-				return err
+			if len(deleteUserRole) > 0 {
+				err = tx.Unscoped().Delete(&UserRole{}, "id in ?", deleteUserRole).Error
+				if err != nil {
+					return err
+				}
 			}
 		}
 		query := "id <> ? and user_name = ?"
