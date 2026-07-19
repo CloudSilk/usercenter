@@ -555,6 +555,30 @@ func PreviewRoleAuthorization(roleID string, selections []RoleAuthorizationSelec
 	return preview, err
 }
 
+func replaceRoleAuthorizationPolicies(tx *gorm.DB, role *Role, policies []RoleAuthorizationPolicy) error {
+	if err := tx.Where("ptype = ? AND v0 = ?", "p", role.ID).Delete(&CasbinRule{}).Error; err != nil {
+		return err
+	}
+	if !role.Enable || len(policies) == 0 {
+		return nil
+	}
+	rules := make([]*CasbinRule, 0, len(policies))
+	for _, policy := range policies {
+		checkAuth := "false"
+		if policy.CheckAuth {
+			checkAuth = "true"
+		}
+		rules = append(rules, &CasbinRule{
+			Ptype:     "p",
+			RoleID:    role.ID,
+			Path:      policy.Path,
+			Method:    policy.Method,
+			CheckAuth: checkAuth,
+		})
+	}
+	return tx.Create(&rules).Error
+}
+
 func PublishRoleAuthorization(roleID, baseRevision string, selections []RoleAuthorizationSelection) (*RoleAuthorizationPublishResult, error) {
 	roleID = strings.TrimSpace(roleID)
 	baseRevision = strings.TrimSpace(baseRevision)
@@ -599,27 +623,8 @@ func PublishRoleAuthorization(roleID, baseRevision string, selections []RoleAuth
 			}
 		}
 
-		if err := tx.Where("ptype = ? AND v0 = ?", "p", role.ID).Delete(&CasbinRule{}).Error; err != nil {
+		if err := replaceRoleAuthorizationPolicies(tx, role, preview.Policies); err != nil {
 			return err
-		}
-		if role.Enable && len(preview.Policies) > 0 {
-			rules := make([]*CasbinRule, 0, len(preview.Policies))
-			for _, policy := range preview.Policies {
-				checkAuth := "false"
-				if policy.CheckAuth {
-					checkAuth = "true"
-				}
-				rules = append(rules, &CasbinRule{
-					Ptype:     "p",
-					RoleID:    role.ID,
-					Path:      policy.Path,
-					Method:    policy.Method,
-					CheckAuth: checkAuth,
-				})
-			}
-			if err := tx.Create(&rules).Error; err != nil {
-				return err
-			}
 		}
 
 		if err := tx.Table("user_roles").

@@ -6,6 +6,7 @@ import (
 
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils"
+	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/store"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"gorm.io/gorm"
@@ -53,8 +54,8 @@ type MenuFunc struct {
 
 type MenuFuncApi struct {
 	commonmodel.Model
-	MenuFuncID string            `json:"menuFuncID" gorm:"index"`
-	APIID      string            `json:"apiID" gorm:"column:api_id"`
+	MenuFuncID string `json:"menuFuncID" gorm:"index"`
+	APIID      string `json:"apiID" gorm:"column:api_id"`
 	API        *API   `json:"apiInfo"`
 }
 
@@ -71,7 +72,8 @@ func AddMenu(menu *Menu) error {
 }
 
 func DeleteMenu(id string) (err error) {
-	return store.DB().Transaction(func(tx *gorm.DB) error {
+	var affectedUserIDs []string
+	err = store.DB().Transaction(func(tx *gorm.DB) error {
 		duplication, err := store.Client().CheckDuplication(tx.Model(&Menu{}), "parent_id = ?", id)
 		if err != nil {
 			return err
@@ -83,12 +85,17 @@ func DeleteMenu(id string) (err error) {
 		if err != nil {
 			return err
 		}
-		err = tx.Unscoped().Delete(&CasbinRule{}, "menu_id=?", id).Error
-		if err != nil {
+		var affectedRoleIDs []string
+		if err := tx.Model(&RoleMenu{}).
+			Where("menu_id = ?", id).
+			Distinct("role_id").
+			Pluck("role_id", &affectedRoleIDs).Error; err != nil {
 			return err
 		}
-		err = tx.Unscoped().Delete(&MenuParameter{}, "menu_id = ?", id).Error
-		if err != nil {
+		if err := tx.Unscoped().Delete(&RoleMenu{}, "menu_id = ?", id).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Delete(&MenuParameter{}, "menu_id = ?", id).Error; err != nil {
 			return err
 		}
 		var menuFuncIDs []string
@@ -101,16 +108,65 @@ func DeleteMenu(id string) (err error) {
 				return err
 			}
 		}
-		err = tx.Unscoped().Delete(&MenuFunc{}, "menu_id = ?", id).Error
-		if err != nil {
+		if err := tx.Unscoped().Delete(&MenuFunc{}, "menu_id = ?", id).Error; err != nil {
 			return err
 		}
-		err = tx.Unscoped().Delete(&Menu{}, "id = ?", id).Error
-		if err != nil {
+		if err := tx.Unscoped().Delete(&Menu{}, "id = ?", id).Error; err != nil {
 			return err
 		}
-		return err
+		for _, roleID := range affectedRoleIDs {
+			role := &Role{}
+			if err := tx.Where("id = ?", roleID).First(role).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					continue
+				}
+				return err
+			}
+			selections, err := loadCurrentAuthorizationSelections(tx, role.ID)
+			if err != nil {
+				return err
+			}
+			preview, _, err := buildRoleAuthorizationPreview(tx, role, selections, false)
+			if err != nil {
+				return err
+			}
+			if err := replaceRoleAuthorizationPolicies(tx, role, preview.Policies); err != nil {
+				return err
+			}
+		}
+		if len(affectedRoleIDs) == 0 {
+			return nil
+		}
+		if err := tx.Table("user_roles").
+			Where("role_id IN ?", affectedRoleIDs).
+			Distinct("user_id").
+			Pluck("user_id", &affectedUserIDs).Error; err != nil {
+			return err
+		}
+		if len(affectedUserIDs) == 0 {
+			return nil
+		}
+		return tx.Table("user_session").
+			Where("principal_id IN ? AND revoked = ?", affectedUserIDs, false).
+			Updates(map[string]interface{}{
+				"revoked":        true,
+				"revoked_reason": "role menu deleted",
+			}).Error
 	})
+	if err != nil {
+		return err
+	}
+	if err := ReloadCasbinPolicy(); err != nil {
+		return err
+	}
+	if token.DefaultTokenCache != nil {
+		for _, userID := range affectedUserIDs {
+			if err := token.DefaultTokenCache.DelByUserID(userID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func UpdateMenu(menu *Menu) (err error) {

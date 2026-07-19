@@ -1017,6 +1017,102 @@ func TestRoleAuthorizationEnforcesTenantAndHierarchyBoundaries(t *testing.T) {
 	}
 }
 
+func TestDeleteMenuRebuildsRoleAuthorizationAndRevokesSessions(t *testing.T) {
+	const prefix = "role-auth-menu-delete"
+	fixture := createRoleAuthorizationFixture(t, prefix)
+	role := &permission.Role{
+		Model:    commonmodel.Model{ID: prefix + "-role"},
+		TenantID: platformTenant,
+		Name:     "Menu deletion role",
+		CanDel:   true,
+		Enable:   true,
+	}
+	if err := store.DB().Create(role).Error; err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	detail, err := permission.GetRoleAuthorization(role.ID)
+	if err != nil {
+		t.Fatalf("load initial authorization: %v", err)
+	}
+	selections := []permission.RoleAuthorizationSelection{
+		{MenuID: fixture.ParentMenuID, Show: true, Funcs: []string{fixture.ParentViewFunc}},
+		{MenuID: fixture.ChildMenuID, Show: true, Funcs: []string{fixture.ChildEditFunc}},
+	}
+	if _, err := permission.PublishRoleAuthorization(role.ID, detail.Revision, selections); err != nil {
+		t.Fatalf("publish initial authorization: %v", err)
+	}
+	const userID = prefix + "-user"
+	userRole := &user.UserRole{
+		Model:  commonmodel.Model{ID: prefix + "-user-role"},
+		UserID: userID,
+		RoleID: role.ID,
+	}
+	activeSession := &session.Session{
+		Model:       commonmodel.Model{ID: prefix + "-session"},
+		PrincipalID: userID,
+		TenantID:    platformTenant,
+		TokenSig:    prefix + "-token",
+	}
+	if err := store.DB().Create(userRole).Error; err != nil {
+		t.Fatalf("create user role: %v", err)
+	}
+	if err := store.DB().Create(activeSession).Error; err != nil {
+		t.Fatalf("create active session: %v", err)
+	}
+
+	if err := permission.DeleteMenu(fixture.ChildMenuID); err != nil {
+		t.Fatalf("delete authorized child menu: %v", err)
+	}
+
+	var childMenuCount, childFunctionCount, childLinkCount int64
+	if err := store.DB().Model(&permission.Menu{}).
+		Where("id = ?", fixture.ChildMenuID).
+		Count(&childMenuCount).Error; err != nil {
+		t.Fatalf("count deleted menu: %v", err)
+	}
+	if err := store.DB().Model(&permission.MenuFunc{}).
+		Where("menu_id = ?", fixture.ChildMenuID).
+		Count(&childFunctionCount).Error; err != nil {
+		t.Fatalf("count deleted menu functions: %v", err)
+	}
+	if err := store.DB().Model(&permission.MenuFuncApi{}).
+		Where("menu_func_id = ?", prefix+"-func-child-edit").
+		Count(&childLinkCount).Error; err != nil {
+		t.Fatalf("count deleted function API links: %v", err)
+	}
+	if childMenuCount != 0 || childFunctionCount != 0 || childLinkCount != 0 {
+		t.Fatalf(
+			"deleted menu associations remain: menus=%d functions=%d links=%d",
+			childMenuCount,
+			childFunctionCount,
+			childLinkCount,
+		)
+	}
+
+	var storedRoleMenus []*permission.RoleMenu
+	if err := store.DB().Where("role_id = ?", role.ID).Find(&storedRoleMenus).Error; err != nil {
+		t.Fatalf("load remaining role menus: %v", err)
+	}
+	if len(storedRoleMenus) != 1 || storedRoleMenus[0].MenuID != fixture.ParentMenuID {
+		t.Fatalf("unexpected remaining role menus: %#v", storedRoleMenus)
+	}
+	var policies []*permission.CasbinRule
+	if err := store.DB().Where("ptype = ? AND v0 = ?", "p", role.ID).Find(&policies).Error; err != nil {
+		t.Fatalf("load rebuilt policies: %v", err)
+	}
+	if len(policies) != 1 ||
+		policies[0].Path != "/"+prefix+"/documents" ||
+		policies[0].Method != http.MethodGet {
+		t.Fatalf("unexpected rebuilt policies: %#v", policies)
+	}
+	if err := store.DB().Where("id = ?", activeSession.ID).First(activeSession).Error; err != nil {
+		t.Fatalf("reload affected session: %v", err)
+	}
+	if !activeSession.Revoked || activeSession.RevokedReason != "role menu deleted" {
+		t.Fatalf("menu deletion did not revoke affected session: %#v", activeSession)
+	}
+}
+
 func TestResetPwdAcceptsExplicitStrongPassword(t *testing.T) {
 	targetID := mustCreateUser(t, "explicit-reset", platformTenant, "Abc12345")
 	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
