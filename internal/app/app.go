@@ -33,7 +33,7 @@ type APP struct {
 
 type APPProp struct {
 	gorm.Model
-	APPID uint   `json:"appID"`
+	APPID string `json:"appID" gorm:"size:36"`
 	Key   string `json:"key" gorm:"size:50;"`
 	Value string `json:"value" gorm:"size:200;"`
 }

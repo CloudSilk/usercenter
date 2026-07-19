@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/permission"
@@ -17,6 +16,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/usage"
 	"github.com/CloudSilk/usercenter/internal/user"
+	apipb "github.com/CloudSilk/usercenter/proto"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -627,7 +627,7 @@ func registerDashboardRoutes(g *gin.RouterGroup) {
 		_ = store.DB().Model(&permission.Role{}).Count(&roleCount).Error
 		_ = store.DB().Model(&session.Session{}).Where("revoked = ?", false).Count(&sessionCount).Error
 		_ = store.DB().Model(&usage.UsageRecord{}).
-			Where("created_at >= ?", time.Now().Truncate(24*time.Hour).Unix()).
+			Where("created_at >= ?", localDayStart(time.Now())).
 			Select("COALESCE(SUM(total_tokens), 0)").Scan(&todayTokens).Error
 
 		writeOK(c, gin.H{"data": gin.H{

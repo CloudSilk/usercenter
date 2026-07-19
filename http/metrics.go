@@ -103,11 +103,24 @@ func refreshDomainMetrics(interval time.Duration) {
 			gaugeSessions.Set(float64(n))
 		}
 		if err := d.Model(&usage.UsageRecord{}).
-			Where("created_at >= ?", time.Now().Truncate(24*time.Hour).Unix()).
+			Where("created_at >= ?", localDayStart(time.Now())).
 			Select("COALESCE(SUM(total_tokens),0)").Scan(&n).Error; err == nil {
 			gaugeTodayTokens.Set(float64(n))
 		}
 	}
+}
+
+func localDayStart(now time.Time) time.Time {
+	return time.Date(
+		now.Year(),
+		now.Month(),
+		now.Day(),
+		0,
+		0,
+		0,
+		0,
+		now.Location(),
+	)
 }
 
 // MetricsMiddleware 记录每条 HTTP 请求的量与延迟。
