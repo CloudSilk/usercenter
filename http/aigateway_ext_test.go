@@ -14,7 +14,8 @@ func TestExtractChatEnhancements(t *testing.T) {
 		"prompt_template_id": "tpl-1",
 		"prompt_vars": {"name": "Alice", "topic": "weather"},
 		"moderate": true,
-		"moderate_output": false
+		"moderate_output": false,
+		"cache_bypass": true
 	}`)
 
 	cleanBody, enh, model, stream, err := extractChatEnhancements(body)
@@ -42,6 +43,9 @@ func TestExtractChatEnhancements(t *testing.T) {
 	if enh.ModerateOutput {
 		t.Fatal("expected moderate_output false")
 	}
+	if !enh.CacheBypass {
+		t.Fatal("expected cache_bypass true")
+	}
 
 	// 增强字段应从 cleanBody 中移除
 	var check map[string]any
@@ -51,6 +55,9 @@ func TestExtractChatEnhancements(t *testing.T) {
 	}
 	if _, ok := check["prompt_template_id"]; ok {
 		t.Fatal("prompt_template_id should be removed from cleanBody")
+	}
+	if _, ok := check["cache_bypass"]; ok {
+		t.Fatal("cache_bypass should be removed from cleanBody")
 	}
 	if _, ok := check["model"]; !ok {
 		t.Fatal("model should remain in cleanBody")

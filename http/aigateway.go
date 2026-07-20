@@ -152,7 +152,7 @@ func ChatCompletions(c *gin.Context) {
 	// userContent 仅取最后一条 user 消息，用于会话持久化。
 	cacheKey := buildCachePrompt(cleanBody)
 	userContent := extractLastUserMessage(cleanBody)
-	if !stream && cacheKey != "" {
+	if !stream && !enh.CacheBypass && cacheKey != "" {
 		if entry, hit := aicache.Get(cacheKey, model); hit {
 			c.Header("X-Cache", "HIT")
 			c.Data(http.StatusOK, "application/json", []byte(entry.ResponseBody))
@@ -219,7 +219,7 @@ func ChatCompletions(c *gin.Context) {
 	}
 
 	// --- 写入缓存（仅非流式 + 有 user 消息）---
-	if !stream && cacheKey != "" && len(responseBuf) > 0 {
+	if !stream && !enh.CacheBypass && cacheKey != "" && len(responseBuf) > 0 {
 		aicache.Set(cacheKey, string(responseBuf), model, pt, ct, cost)
 	}
 

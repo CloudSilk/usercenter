@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
+	userhttp "github.com/CloudSilk/usercenter/http"
+	"github.com/CloudSilk/usercenter/internal/aicache"
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/conversation"
 	"github.com/CloudSilk/usercenter/internal/gatewaylog"
@@ -17,7 +18,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/ratelimit"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/usage"
-	userhttp "github.com/CloudSilk/usercenter/http"
+	"github.com/gin-gonic/gin"
 )
 
 // seedAIProvider 在测试 DB 中播种一个指向 baseURL 的服务商 + Key + 路由，
@@ -118,6 +119,43 @@ func TestChatCompletions_E2E(t *testing.T) {
 // TestChatCompletions_E2E_Streaming 端到端验证流式链路：
 // stream:true → streamProxy 逐行透传 SSE + 累积 delta.content + 从最后一块提取 usage → 用量落库。
 // 这是此前 P0 双写 bug 所在路径，必须有覆盖。
+func TestChatCompletions_E2E_CacheBypassSkipsReadAndWrite(t *testing.T) {
+	aicache.Init(aicache.CacheConfig{Enabled: true})
+	aicache.Clear()
+	defer aicache.Clear()
+
+	upstreamCalls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"cache-bypass","choices":[{"message":{"role":"assistant","content":"fresh"}}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`))
+	}))
+	defer upstream.Close()
+
+	seedAIProvider(t, upstream.URL, "mock-cache-bypass-model")
+	r := newAIGatewayEngine("cache-bypass-user", platformTenant)
+	body := []byte(`{"model":"mock-cache-bypass-model","cache_bypass":true,"messages":[{"role":"user","content":"same prompt"}]}`)
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200, got %d (body=%s)", i+1, w.Code, w.Body.String())
+		}
+		if got := w.Header().Get("X-Cache"); got != "" {
+			t.Fatalf("request %d unexpectedly used cache: X-Cache=%q", i+1, got)
+		}
+	}
+	if upstreamCalls != 2 {
+		t.Fatalf("cache bypass forwarded %d upstream calls, want 2", upstreamCalls)
+	}
+	if stats := aicache.Stats(); stats.Entries != 0 {
+		t.Fatalf("cache bypass persisted %d entries, want 0", stats.Entries)
+	}
+}
+
 func TestChatCompletions_E2E_Streaming(t *testing.T) {
 	sse := []byte("data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n" +
 		"data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n" +

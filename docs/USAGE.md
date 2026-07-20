@@ -490,6 +490,8 @@ curl -X POST /v1/chat/completions \
 
 **语义缓存**：非流式请求命中相同 prompt 时跳过 LLM 调用，响应头返回 `X-Cache: HIT`。默认 TTL 24h，最大 10000 条。
 
+需要验证每次均为真实上游调用时，可传入 `"cache_bypass": true`。网关会在转发上游前移除该扩展字段，并同时跳过本次缓存读取与写入。
+
 **内容审核**：请求体加 `"moderate": true`，输入不安全时拒绝（返回 400）。
 
 **每用户限流**：令牌桶算法，默认 10 req/s burst 20。可通过 `ratelimit.SetBudgetRateLimit(principalID, rate, burst)` 调整。

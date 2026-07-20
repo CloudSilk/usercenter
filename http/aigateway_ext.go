@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/aicache"
+	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/conversation"
 	"github.com/CloudSilk/usercenter/internal/gatewaylog"
@@ -31,11 +31,12 @@ import (
 
 // chatEnhancedFields 从请求体中提取增强字段（不影响原 body 透传）。
 type chatEnhancedFields struct {
-	SessionID         string                 `json:"session_id"`
-	PromptTemplateID  string                 `json:"prompt_template_id"`
-	PromptVars        map[string]string      `json:"prompt_vars"`
-	Moderate          bool                   `json:"moderate"`
-	ModerateOutput    bool                   `json:"moderate_output"`
+	SessionID        string            `json:"session_id"`
+	PromptTemplateID string            `json:"prompt_template_id"`
+	PromptVars       map[string]string `json:"prompt_vars"`
+	Moderate         bool              `json:"moderate"`
+	ModerateOutput   bool              `json:"moderate_output"`
+	CacheBypass      bool              `json:"cache_bypass"`
 }
 
 // extractChatEnhancements 解析增强字段，返回增强后的 body 和元数据。
@@ -69,12 +70,16 @@ func extractChatEnhancements(body []byte) (cleanBody []byte, enh chatEnhancedFie
 	if v, ok := m["moderate_output"].(bool); ok {
 		enh.ModerateOutput = v
 	}
+	if v, ok := m["cache_bypass"].(bool); ok {
+		enh.CacheBypass = v
+	}
 	// 移除增强字段后重新序列化
 	delete(m, "session_id")
 	delete(m, "prompt_template_id")
 	delete(m, "prompt_vars")
 	delete(m, "moderate")
 	delete(m, "moderate_output")
+	delete(m, "cache_bypass")
 	cleanBody, err = json.Marshal(m)
 	if err != nil {
 		return body, enh, "", false, fmt.Errorf("请求体序列化失败: %w", err)
@@ -216,22 +221,22 @@ func recordGatewayLog(c *gin.Context, tenantID, principalID, model, sessionID st
 	promptTokens, compTokens int64, cost float64, latency time.Duration,
 	statusCode int, success bool, errMsg, requestBody string, cached bool) {
 	entry := &gatewaylog.GatewayLog{
-		TenantID:        tenantID,
-		PrincipalID:     principalID,
-		RequestID:       ucm.TraceID(c),
-		Method:          c.Request.URL.Path,
-		ModelAlias:      model,
-		Stream:          false,
-		PromptTokens:    promptTokens,
-		CompTokens:      compTokens,
-		Cost:            cost,
-		LatencyMs:       latency.Milliseconds(),
-		StatusCode:      statusCode,
-		Success:         success,
-		ErrorMessage:    errMsg,
-		Cached:          cached,
-		SessionID:       sessionID,
-		RequestBody:     truncateStr(requestBody, 2000),
+		TenantID:     tenantID,
+		PrincipalID:  principalID,
+		RequestID:    ucm.TraceID(c),
+		Method:       c.Request.URL.Path,
+		ModelAlias:   model,
+		Stream:       false,
+		PromptTokens: promptTokens,
+		CompTokens:   compTokens,
+		Cost:         cost,
+		LatencyMs:    latency.Milliseconds(),
+		StatusCode:   statusCode,
+		Success:      success,
+		ErrorMessage: errMsg,
+		Cached:       cached,
+		SessionID:    sessionID,
+		RequestBody:  truncateStr(requestBody, 2000),
 	}
 	gatewaylog.Record(entry)
 }
