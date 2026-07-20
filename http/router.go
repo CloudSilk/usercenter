@@ -5,6 +5,7 @@ import (
 )
 
 func RegisterAuthRouter(r *gin.Engine) {
+	RegisterLoginOptionsRouter(r)
 	RegisterUserRouter(r)
 	RegisterTenantRouter(r)
 	RegisterWechatRouter(r)

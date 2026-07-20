@@ -100,7 +100,6 @@ func GetAccessToken(c *gin.Context) string {
 	return accessToken
 }
 
-
 type RateLimiter interface {
 	Allow(principalID string) bool
 }
@@ -112,11 +111,7 @@ func AuthRequired(c *gin.Context) {
 	// OIDC/OAuth2 公开端点（spec 要求）：发现文档、JWKS、令牌、吊销须免登录。
 	// authorize/userinfo 仍需用户 Bearer，走正常鉴权。
 	path := c.Request.URL.Path
-	if strings.HasPrefix(path, "/.well-known/") || path == "/oauth/token" || path == "/oauth/revoke" ||
-		path == "/readyz" ||
-		path == "/health" || path == "/metrics" || path == "/admin/api/audit/stream" ||
-		strings.HasPrefix(path, "/api/oauth/") || path == "/api/social/providers" ||
-		path == "/api/core/auth/user/login" || path == "/api/core/auth/user/mfa/verify" {
+	if isPublicAuthPath(path) {
 		return
 	}
 	// API Key authentication (alternative to Bearer JWT)
@@ -156,6 +151,30 @@ func AuthRequired(c *gin.Context) {
 		c.Set("Principal", p)
 	}
 	c.Set("User", currentUser)
+}
+
+func isPublicAuthPath(path string) bool {
+	switch path {
+	case "/readyz", "/health", "/metrics", "/admin/api/audit/stream",
+		"/oauth/token", "/oauth/revoke",
+		"/api/social/providers",
+		"/api/core/auth/login/options",
+		"/api/core/auth/user/login",
+		"/api/core/auth/user/mfa/verify",
+		"/api/core/auth/user/phone/status",
+		"/api/core/auth/user/phone/code",
+		"/api/core/auth/user/phone/login",
+		"/api/wechat/mini/login",
+		"/api/wechat/mini/register/check",
+		"/api/wechat/connect/qrconnect",
+		"/api/wechat/web/login",
+		"/api/wechat/qrcode",
+		"/api/wechat/qrcode/result":
+		return true
+	}
+	return strings.HasPrefix(path, "/.well-known/") ||
+		strings.HasPrefix(path, "/api/oauth/") ||
+		strings.HasPrefix(path, "/api/wechat/notify/")
 }
 
 var IdentityImpl = new(apipb.IdentityClientImpl)
