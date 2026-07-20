@@ -58,13 +58,13 @@ func (t *Tenant) GetAuthorizedMenu() map[string]*TenantMenu {
 
 type TenantMenu struct {
 	commonmodel.Model
-	TenantID string `json:"tenantID" gorm:"index;comment:租户ID"`
-	MenuID   string `json:"menuID" gorm:"index;comment:菜单ID"`
-	Funcs    string `json:"funcs" gorm:"size:500;comment:功能名称,多个以逗号隔开"`
+	TenantID string           `json:"tenantID" gorm:"index;comment:租户ID"`
+	MenuID   string           `json:"menuID" gorm:"index;comment:菜单ID"`
+	Funcs    string           `json:"funcs" gorm:"size:500;comment:功能名称,多个以逗号隔开"`
 	Menu     *permission.Menu `json:"menu"`
 }
 
-func (r *TenantMenu) GetMenuID() string { return r.MenuID }
+func (r *TenantMenu) GetMenuID() string  { return r.MenuID }
 func (r *TenantMenu) GetFuncs() []string { return strings.Split(r.Funcs, ",") }
 func (r *TenantMenu) GetShow() bool      { return true }
 
@@ -76,6 +76,9 @@ type TenantCertificate struct {
 }
 
 func CreateTenant(m *Tenant) error {
+	// Tenant menu authorization is a security boundary and must only be changed
+	// through the dedicated revisioned authorization workflow.
+	m.TenantMenus = nil
 	duplication, err := store.Client().CreateWithCheckDuplication(m, " name =? ", m.Name)
 	if err != nil {
 		return err
@@ -92,29 +95,23 @@ func CreateTenant(m *Tenant) error {
 func UpdateTenant(newTenant *Tenant) error {
 	return store.DB().Transaction(func(tx *gorm.DB) error {
 		oldTenant := &Tenant{}
-		err := tx.Preload("TenantMenus").Preload(clause.Associations).Where("id = ?", newTenant.ID).First(oldTenant).Error
+		err := tx.Preload("Certificate").Where("id = ?", newTenant.ID).First(oldTenant).Error
 		if err != nil {
 			return err
 		}
-		var deleteTenantMenu []string
-		for _, oldTM := range oldTenant.TenantMenus {
-			flag := false
-			for _, newTM := range newTenant.TenantMenus {
-				if newTM.ID == oldTM.ID {
-					flag = true
-				}
-			}
-			if !flag {
-				deleteTenantMenu = append(deleteTenantMenu, oldTM.ID)
-			}
-		}
-		if len(deleteTenantMenu) > 0 {
-			err = tx.Unscoped().Delete(&TenantMenu{}, "id in ?", deleteTenantMenu).Error
-			if err != nil {
-				return err
-			}
-		}
-		duplication, err := store.Client().UpdateWithCheckDuplicationAndOmit(tx, newTenant, true, []string{"created_at"}, "id != ?  and  name =? ", newTenant.ID, newTenant.Name)
+		// Never let the legacy tenant metadata payload replace tenant_menus.
+		// Authorization changes need impact projection, Casbin rebuilds, session
+		// revocation and revision checks that this metadata path cannot provide.
+		newTenant.TenantMenus = nil
+		duplication, err := store.Client().UpdateWithCheckDuplicationAndOmit(
+			tx,
+			newTenant,
+			true,
+			[]string{"created_at", "TenantMenus"},
+			"id != ?  and  name =? ",
+			newTenant.ID,
+			newTenant.Name,
+		)
 		if err != nil {
 			return err
 		}
@@ -321,26 +318,26 @@ func PBToTenant(in *apipb.TenantInfo) *Tenant {
 		in.Expired = in.Expired + " 15:59:59"
 	}
 	return &Tenant{
-		Model:          commonmodel.Model{ID: in.Id},
-		Name:           in.Name,
-		Contact:        in.Contact,
-		CellPhone:      in.CellPhone,
-		Address:        in.Address,
-		BusinessScope:  in.BusinessScope,
-		AreaCovered:    in.AreaCovered,
-		StaffSize:      in.StaffSize,
-		Enable:         in.Enable,
-		Province:       in.Province,
-		City:           in.City,
-		Area:           in.Area,
-		Town:           in.Town,
-		UserCount:      in.UserCount,
-		RoleCount:      in.RoleCount,
-		ProjectCount:   in.ProjectCount,
-		Expired:        utils.ParseTime(in.Expired),
-		TenantMenus:    PBToTenantMenus(in.TenantMenus),
-		Certificate:    PBToTenantCertificate(in.Certificate),
-		IsMust:         in.IsMust,
+		Model:         commonmodel.Model{ID: in.Id},
+		Name:          in.Name,
+		Contact:       in.Contact,
+		CellPhone:     in.CellPhone,
+		Address:       in.Address,
+		BusinessScope: in.BusinessScope,
+		AreaCovered:   in.AreaCovered,
+		StaffSize:     in.StaffSize,
+		Enable:        in.Enable,
+		Province:      in.Province,
+		City:          in.City,
+		Area:          in.Area,
+		Town:          in.Town,
+		UserCount:     in.UserCount,
+		RoleCount:     in.RoleCount,
+		ProjectCount:  in.ProjectCount,
+		Expired:       utils.ParseTime(in.Expired),
+		TenantMenus:   PBToTenantMenus(in.TenantMenus),
+		Certificate:   PBToTenantCertificate(in.Certificate),
+		IsMust:        in.IsMust,
 	}
 }
 

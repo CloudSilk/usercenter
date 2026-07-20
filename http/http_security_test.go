@@ -181,10 +181,10 @@ func doMultipartJSONRequest(t *testing.T, r *gin.Engine, path, fieldName, fileNa
 	return w
 }
 
-func decodeCommonResponse(t *testing.T, w *httptest.ResponseRecorder) apipb.CommonResponse {
+func decodeCommonResponse(t *testing.T, w *httptest.ResponseRecorder) *apipb.CommonResponse {
 	t.Helper()
-	var resp apipb.CommonResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	resp := &apipb.CommonResponse{}
+	if err := json.Unmarshal(w.Body.Bytes(), resp); err != nil {
 		t.Fatalf("decode common response: %v (body=%s)", err, w.Body.String())
 	}
 	return resp
@@ -486,7 +486,7 @@ func TestRoleManagementEnforcesTenantScopeAndPreservesAuthorization(t *testing.T
 		t.Fatalf("decode role import: %v (body=%s)", err, importResp.Body.String())
 	}
 	if imported.Code != apipb.Code_Success || imported.Message != "导入成功数量:1,导入失败数量:1" {
-		t.Fatalf("unexpected tenant-scoped import result: %#v", imported)
+		t.Fatalf("unexpected tenant-scoped import result: %#v", &imported)
 	}
 	if err := store.DB().First(foreignRole, "id = ?", foreignRole.ID).Error; err != nil {
 		t.Fatalf("reload foreign role after import: %v", err)

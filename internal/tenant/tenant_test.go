@@ -23,10 +23,10 @@ func TestMain(m *testing.M) {
 
 func TestCreateAndGetTenant(t *testing.T) {
 	tnt := &Tenant{
-		Name:     "test-org",
-		Enable:   true,
+		Name:      "test-org",
+		Enable:    true,
 		UserCount: 10,
-		Expired:  time.Now().Add(24 * time.Hour),
+		Expired:   time.Now().Add(24 * time.Hour),
 	}
 	if err := CreateTenant(tnt); err != nil {
 		t.Fatalf("CreateTenant: %v", err)
@@ -46,10 +46,10 @@ func TestCreateAndGetTenant(t *testing.T) {
 
 func TestUpdateTenant(t *testing.T) {
 	tnt := &Tenant{
-		Name:     "old",
-		Enable:   true,
+		Name:      "old",
+		Enable:    true,
 		UserCount: 10,
-		Expired:  time.Now().Add(24 * time.Hour),
+		Expired:   time.Now().Add(24 * time.Hour),
 	}
 	if err := CreateTenant(tnt); err != nil {
 		t.Fatalf("CreateTenant: %v", err)
@@ -66,12 +66,64 @@ func TestUpdateTenant(t *testing.T) {
 	}
 }
 
+func TestTenantMetadataMutationsCannotOverwriteMenuAuthorization(t *testing.T) {
+	tnt := &Tenant{
+		Name:      "authorization-boundary",
+		Enable:    true,
+		UserCount: 10,
+		Expired:   time.Now().Add(24 * time.Hour),
+		TenantMenus: []*TenantMenu{{
+			MenuID: "embedded-create-menu",
+			Funcs:  "view",
+		}},
+	}
+	if err := CreateTenant(tnt); err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+	var embeddedCount int64
+	if err := store.DB().Model(&TenantMenu{}).
+		Where("tenant_id = ?", tnt.ID).
+		Count(&embeddedCount).Error; err != nil {
+		t.Fatalf("count embedded tenant menus: %v", err)
+	}
+	if embeddedCount != 0 {
+		t.Fatalf("tenant creation bypassed dedicated menu authorization, count=%d", embeddedCount)
+	}
+
+	grant := &TenantMenu{
+		TenantID: tnt.ID,
+		MenuID:   "authorized-menu",
+		Funcs:    "view,edit",
+	}
+	if err := store.DB().Create(grant).Error; err != nil {
+		t.Fatalf("create dedicated tenant menu grant: %v", err)
+	}
+	tnt.Name = "authorization-boundary-updated"
+	tnt.TenantMenus = []*TenantMenu{{
+		TenantID: tnt.ID,
+		MenuID:   "metadata-bypass-menu",
+		Funcs:    "delete",
+	}}
+	if err := UpdateTenant(tnt); err != nil {
+		t.Fatalf("UpdateTenant: %v", err)
+	}
+	var grants []*TenantMenu
+	if err := store.DB().Where("tenant_id = ?", tnt.ID).Find(&grants).Error; err != nil {
+		t.Fatalf("load tenant menu grants: %v", err)
+	}
+	if len(grants) != 1 ||
+		grants[0].MenuID != grant.MenuID ||
+		grants[0].Funcs != grant.Funcs {
+		t.Fatalf("metadata update changed tenant authorization: %#v", grants)
+	}
+}
+
 func TestDeleteTenant(t *testing.T) {
 	tnt := &Tenant{
-		Name:     "todel",
-		Enable:   true,
+		Name:      "todel",
+		Enable:    true,
 		UserCount: 0,
-		Expired:  time.Now().Add(24 * time.Hour),
+		Expired:   time.Now().Add(24 * time.Hour),
 	}
 	if err := CreateTenant(tnt); err != nil {
 		t.Fatalf("CreateTenant: %v", err)

@@ -2,15 +2,20 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/CloudSilk/pkg/constants"
+	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/permission"
+	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/tenant"
 	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
+	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -240,6 +245,146 @@ func ImportTenant(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+type tenantMenuAuthorizationRequest struct {
+	TenantID   string                                        `json:"tenantID" binding:"required"`
+	Selections []permission.TenantMenuAuthorizationSelection `json:"selections"`
+}
+
+type publishTenantMenuAuthorizationRequest struct {
+	TenantID     string                                        `json:"tenantID" binding:"required"`
+	BaseRevision string                                        `json:"baseRevision" binding:"required"`
+	Selections   []permission.TenantMenuAuthorizationSelection `json:"selections"`
+}
+
+func tenantMenuAuthorizationError(c *gin.Context, err error) {
+	message := err.Error()
+	if errors.Is(err, permission.ErrTenantMenuAuthorizationForbidden) {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    apipb.Code_NoPermission,
+			"message": "无权管理该租户的菜单授权",
+		})
+		return
+	}
+	if errors.Is(err, permission.ErrTenantMenuAuthorizationRevisionConflict) {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    apipb.Code_BadRequest,
+			"message": message,
+			"data": gin.H{
+				"conflict": true,
+			},
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    apipb.Code_BadRequest,
+		"message": message,
+	})
+}
+
+// GetTenantMenuAuthorizationTargets returns only the tenant scopes the current
+// actor may manage. Platform actors can select any tenant; tenant actors only
+// receive their own tenant.
+func GetTenantMenuAuthorizationTargets(c *gin.Context) {
+	data, err := permission.ListTenantMenuAuthorizationTargets(ucm.GetTenantID(c))
+	if err != nil {
+		tenantMenuAuthorizationError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": apipb.Code_Success, "data": data})
+}
+
+// GetTenantMenuAuthorization returns the native tenant_menus boundary, menu
+// catalogue, role impact and semantic revision for one manageable tenant.
+func GetTenantMenuAuthorization(c *gin.Context) {
+	tenantID := strings.TrimSpace(c.Query("tenantID"))
+	if tenantID == "" {
+		tenantMenuAuthorizationError(c, errors.New("tenant ID cannot be empty"))
+		return
+	}
+	data, err := permission.GetTenantMenuAuthorization(
+		ucm.GetTenantID(c),
+		tenantID,
+	)
+	if err != nil {
+		tenantMenuAuthorizationError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": apipb.Code_Success, "data": data})
+}
+
+// PreviewTenantMenuAuthorization validates a proposed tenant boundary and
+// projects role pruning, generated policies and affected login contexts.
+func PreviewTenantMenuAuthorization(c *gin.Context) {
+	req := &tenantMenuAuthorizationRequest{}
+	if err := c.ShouldBindJSON(req); err != nil {
+		tenantMenuAuthorizationError(c, err)
+		return
+	}
+	data, err := permission.PreviewTenantMenuAuthorization(
+		ucm.GetTenantID(c),
+		req.TenantID,
+		req.Selections,
+	)
+	if err != nil {
+		tenantMenuAuthorizationError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": apipb.Code_Success, "data": data})
+}
+
+// PublishTenantMenuAuthorization atomically replaces tenant_menus, narrows
+// role selections that no longer fit, rebuilds Casbin and revokes stale login
+// contexts.
+func PublishTenantMenuAuthorization(c *gin.Context) {
+	req := &publishTenantMenuAuthorizationRequest{}
+	if err := c.ShouldBindJSON(req); err != nil {
+		tenantMenuAuthorizationError(c, err)
+		return
+	}
+	result, err := permission.PublishTenantMenuAuthorization(
+		ucm.GetTenantID(c),
+		req.TenantID,
+		req.BaseRevision,
+		req.Selections,
+	)
+	if err != nil {
+		tenantMenuAuthorizationError(c, err)
+		return
+	}
+	currentSessionRevoked := false
+	currentUserID := ucm.GetUserID(c)
+	for _, userID := range result.AffectedUserIDs {
+		if userID == currentUserID {
+			currentSessionRevoked = true
+			break
+		}
+	}
+	detail, _ := json.Marshal(map[string]interface{}{
+		"revision":        result.Revision,
+		"summary":         result.Summary,
+		"sessionsRevoked": result.SessionsRevoked,
+	})
+	audit.RecordAuditWithKind(
+		store.DB(),
+		ucm.GetUserID(c),
+		ucm.GetUserName(c),
+		int32(ucm.GetPrincipalKind(c)),
+		audit.AuditActionPublishTenantMenuAuth,
+		req.TenantID,
+		c.ClientIP(),
+		string(detail),
+	)
+	c.JSON(http.StatusOK, gin.H{
+		"code": apipb.Code_Success,
+		"data": gin.H{
+			"revision":              result.Revision,
+			"summary":               result.Summary,
+			"sessionsRevoked":       result.SessionsRevoked,
+			"currentSessionRevoked": currentSessionRevoked,
+		},
+	})
+}
+
 func RegisterTenantRouter(r *gin.Engine) {
 	g := r.Group("/api/core/auth/tenant")
 	g.POST("add", AutoHandler(AddTenant))
@@ -252,4 +397,8 @@ func RegisterTenantRouter(r *gin.Engine) {
 	g.POST("enable", AutoHandler(EnableTenant))
 	g.GET("export", ExportTenant)
 	g.POST("import", ImportTenant)
+	g.GET("menu-authorization/targets", GetTenantMenuAuthorizationTargets)
+	g.GET("menu-authorization", GetTenantMenuAuthorization)
+	g.POST("menu-authorization/preview", PreviewTenantMenuAuthorization)
+	g.PUT("menu-authorization", PublishTenantMenuAuthorization)
 }
