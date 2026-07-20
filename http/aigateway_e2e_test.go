@@ -3,6 +3,7 @@ package http_test
 import (
 	"bytes"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -113,6 +114,78 @@ func TestChatCompletions_E2E(t *testing.T) {
 	store.DB().Model(&gatewaylog.GatewayLog{}).Where("model_alias = ?", "mock-model").Count(&logCount)
 	if logCount != 1 {
 		t.Fatalf("expected 1 gateway log for mock-model, got %d", logCount)
+	}
+}
+
+func TestAudioTranscriptions_E2E_ForwardsMultipartBodyAndBoundary(t *testing.T) {
+	const (
+		modelName    = "mock-transcription-model"
+		audioName    = "sample.wav"
+		audioBody    = "RIFF-test-audio"
+		responseText = "transcribed"
+	)
+	var (
+		gotAuth  string
+		gotModel string
+		gotName  string
+		gotAudio string
+	)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			http.Error(w, "parse multipart: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		gotModel = r.FormValue("model")
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, "read file: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+		gotName = header.Filename
+		content, _ := io.ReadAll(file)
+		gotAudio = string(content)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"text":"` + responseText + `"}`))
+	}))
+	defer upstream.Close()
+
+	seedAIProvider(t, upstream.URL, modelName)
+	engine := newAIGatewayEngine("audio-user", platformTenant)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("model", modelName); err != nil {
+		t.Fatal(err)
+	}
+	part, err := writer.CreateFormFile("file", audioName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte(audioBody)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/audio/transcriptions", bytes.NewReader(body.Bytes()))
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", recorder.Code, recorder.Body.String())
+	}
+	if gotAuth != "Bearer sk-mock-plaintext" {
+		t.Fatalf("upstream Authorization = %q", gotAuth)
+	}
+	if gotModel != modelName || gotName != audioName || gotAudio != audioBody {
+		t.Fatalf("forwarded multipart model=%q name=%q body=%q", gotModel, gotName, gotAudio)
+	}
+	if !strings.Contains(recorder.Body.String(), responseText) {
+		t.Fatalf("response body not proxied: %s", recorder.Body.String())
 	}
 }
 

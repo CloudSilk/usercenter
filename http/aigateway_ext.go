@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -250,6 +251,8 @@ func truncateStr(s string, max int) string {
 
 // --- 音频端点 ---
 
+const maxAudioUploadBytes = 32 << 20
+
 // AudioTranscriptions Whisper 兼容语音转写端点。
 // 支持 multipart/form-data 上传音频文件，透传到上游 /audio/transcriptions。
 func AudioTranscriptions(c *gin.Context) {
@@ -269,17 +272,43 @@ func AudioTranscriptions(c *gin.Context) {
 		return
 	}
 
-	// 解析 multipart body 透传
-	contentType := c.ContentType()
-	if contentType != "multipart/form-data" {
+	// 保留原始 multipart body 和带 boundary 的 Content-Type。解析表单会消费
+	// Request.Body，不能在 c.PostForm 后继续直接转发原 body。
+	contentType := c.GetHeader("Content-Type")
+	if c.ContentType() != "multipart/form-data" {
 		c.JSON(http.StatusBadRequest, errResp("需要 multipart/form-data 请求", http.StatusBadRequest))
 		return
 	}
 
-	// 读取 model 字段
-	model := c.PostForm("model")
+	bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, maxAudioUploadBytes+1))
+	_ = c.Request.Body.Close()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errResp("读取音频上传失败", http.StatusBadRequest))
+		return
+	}
+	if len(bodyBytes) > maxAudioUploadBytes {
+		c.JSON(http.StatusRequestEntityTooLarge, errResp("音频上传不能超过 32 MiB", http.StatusRequestEntityTooLarge))
+		return
+	}
+
+	parseRequest := c.Request.Clone(c.Request.Context())
+	parseRequest.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	parseRequest.ContentLength = int64(len(bodyBytes))
+	if err := parseRequest.ParseMultipartForm(maxAudioUploadBytes); err != nil {
+		c.JSON(http.StatusBadRequest, errResp("非法 multipart/form-data 请求", http.StatusBadRequest))
+		return
+	}
+	if parseRequest.MultipartForm != nil {
+		defer parseRequest.MultipartForm.RemoveAll()
+	}
+
+	model := parseRequest.FormValue("model")
 	if model == "" {
 		c.JSON(http.StatusBadRequest, errResp("缺少 model 字段", http.StatusBadRequest))
+		return
+	}
+	if parseRequest.MultipartForm == nil || len(parseRequest.MultipartForm.File["file"]) == 0 {
+		c.JSON(http.StatusBadRequest, errResp("缺少 file 字段", http.StatusBadRequest))
 		return
 	}
 
@@ -291,7 +320,7 @@ func AudioTranscriptions(c *gin.Context) {
 	}
 
 	// 重新构造 multipart 请求体转发
-	resp, sel, upstreamErr := forwardMultipart(c, tenantID, model, "/audio/transcriptions")
+	resp, sel, upstreamErr := forwardMultipart(c, tenantID, model, "/audio/transcriptions", bodyBytes, contentType)
 	if upstreamErr != nil {
 		recordGatewayUsage(nil, tenantID, principalID, principalKind, model, 0, 0, 0, time.Since(start), false, "upstream_error")
 		c.JSON(http.StatusBadGateway, errResp(upstreamErr.Error(), http.StatusBadGateway))
@@ -367,7 +396,12 @@ func AudioSpeech(c *gin.Context) {
 }
 
 // forwardMultipart 转发 multipart/form-data 请求到上游。
-func forwardMultipart(c *gin.Context, tenantID, modelAlias, pathSuffix string) (*http.Response, *apikey.KeySelection, error) {
+func forwardMultipart(
+	c *gin.Context,
+	tenantID, modelAlias, pathSuffix string,
+	body []byte,
+	contentType string,
+) (*http.Response, *apikey.KeySelection, error) {
 	const maxAttempts = 3
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -378,11 +412,11 @@ func forwardMultipart(c *gin.Context, tenantID, modelAlias, pathSuffix string) (
 		// 重建上游 multipart 请求
 		base := trimBaseURL(sel.Provider.BaseURL)
 		target := base + pathSuffix
-		req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, target, c.Request.Body)
+		req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, target, bytes.NewReader(body))
 		if err != nil {
 			return nil, nil, err
 		}
-		req.Header.Set("Content-Type", c.ContentType())
+		req.Header.Set("Content-Type", contentType)
 		injectAuth(req, sel)
 		client := &http.Client{Timeout: gatewayUpstreamTO}
 		resp, err := client.Do(req)
