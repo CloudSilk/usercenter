@@ -243,7 +243,7 @@ func wechatWebLogin(c *gin.Context) {
 	userInfo.Enable = true
 
 	user.LoginByWechat(true, user.PBToUser(userInfo), resp)
-	if wechatOpenPlatformWeb.WechatConfig.AppType == 2 {
+	if wechatOpenPlatformWeb.GetQRConnectResult(state) != nil {
 		if resp.Code == apipb.Code_Success {
 			wechatOpenPlatformWeb.UpdateQRConnectResult(state, true, true, resp.Data)
 		} else {
@@ -320,7 +320,11 @@ func getQRConnect(c *gin.Context) {
 		return
 	}
 	var err error
-	resp.Data, err = wechatOpenPlatformWeb.GetAuthURL()
+	if c.Query("poll") == "true" {
+		resp.Data, err = wechatOpenPlatformWeb.GetPollingAuthURL()
+	} else {
+		resp.Data, err = wechatOpenPlatformWeb.GetAuthURL()
+	}
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()

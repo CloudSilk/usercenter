@@ -89,6 +89,29 @@ func (w *WechatOpenPlatformWeb) GetAuthURL() (string, error) {
 	return fmt.Sprintf(platformQrConnect, w.WechatConfig.AppID, url.QueryEscape(w.WechatConfig.RedirectUrl), scopeLogin, state), nil
 }
 
+// GetPollingAuthURL returns the normal WeChat authorization URL and retains
+// its state so a desktop client can poll the existing qrcode/result endpoint.
+// The legacy GetAuthURL behavior remains unchanged for callers that expect the
+// web callback to return a JSON token directly.
+func (w *WechatOpenPlatformWeb) GetPollingAuthURL() (string, error) {
+	authURL, err := w.GetAuthURL()
+	if err != nil {
+		return "", err
+	}
+	parsed, err := url.Parse(authURL)
+	if err != nil {
+		return "", err
+	}
+	state := parsed.Query().Get("state")
+	if state == "" {
+		return "", errors.New("wechat auth URL does not contain state")
+	}
+	if w.GetQRConnectResult(state) == nil {
+		w.QRConnectResult.Set(state, &QRConnectResult{Finished: false}, cache.DefaultExpiration)
+	}
+	return authURL, nil
+}
+
 // 将AppName+当前时间戳使用Secret进行加密，作为state参数
 func (w *WechatOpenPlatformWeb) EncryptState() (string, error) {
 	plaintext := fmt.Sprintf("%s|%d", w.WechatConfig.AppName, time.Now().Unix())

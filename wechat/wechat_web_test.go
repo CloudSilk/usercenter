@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -90,5 +91,32 @@ func TestAccessTokenHandlesHTTPError(t *testing.T) {
 
 	if _, err := w.GetAccessToken("any-code"); err == nil {
 		t.Fatal("expected error when HTTP call fails, got nil")
+	}
+}
+
+func TestPollingAuthURLTracksOpenPlatformState(t *testing.T) {
+	w := wechat.NewWechatOpenPlatformWeb(&ucmodel.WechatConfig{
+		AppName:     "agentdock-web",
+		Secret:      "0123456789abcdef",
+		AppID:       "wx-agentdock",
+		AppType:     4,
+		RedirectUrl: "https://agentdock.example.test/api/wechat/web/login",
+	})
+
+	authURL, err := w.GetPollingAuthURL()
+	if err != nil {
+		t.Fatalf("GetPollingAuthURL: %v", err)
+	}
+	parsed, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("parse auth URL: %v", err)
+	}
+	state := parsed.Query().Get("state")
+	if state == "" {
+		t.Fatal("polling auth URL must contain state")
+	}
+	result := w.GetQRConnectResult(state)
+	if result == nil || result.Finished {
+		t.Fatalf("polling state was not initialized: %#v", result)
 	}
 }
