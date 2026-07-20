@@ -31,6 +31,19 @@ func AddWechatConfig(c *gin.Context, req *apipb.WechatConfigInfo) (*apipb.Common
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/wechat/config/update [put]
 func UpdateWechatConfig(c *gin.Context, req *apipb.WechatConfigInfo) (*apipb.CommonResponse, error) {
+	current, err := wechatconfig.GetWechatConfigByID(req.Id)
+	if err != nil {
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
+	}
+	if req.Secret == "" {
+		req.Secret = current.Secret
+	}
+	if req.Token == "" {
+		req.Token = current.Token
+	}
+	if req.EncodingAESKey == "" {
+		req.EncodingAESKey = current.EncodingAESKey
+	}
 	if err := wechatconfig.UpdateWechatConfig(wechatconfig.PBToWechatConfig(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -62,6 +75,9 @@ func DeleteWechatConfig(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonRes
 func QueryWechatConfig(c *gin.Context, req *apipb.QueryWechatConfigRequest) (*apipb.QueryWechatConfigResponse, error) {
 	resp := &apipb.QueryWechatConfigResponse{Code: apipb.Code_Success}
 	wechatconfig.QueryWechatConfig(req, resp, false)
+	for _, item := range resp.Data {
+		redactWechatConfig(item)
+	}
 	return resp, nil
 }
 
@@ -86,8 +102,18 @@ func GetWechatConfigDetail(c *gin.Context) {
 		resp.Message = err.Error()
 	} else {
 		resp.Data = wechatconfig.WechatConfigToPB(data)
+		redactWechatConfig(resp.Data)
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+func redactWechatConfig(config *apipb.WechatConfigInfo) {
+	if config == nil {
+		return
+	}
+	config.Secret = ""
+	config.Token = ""
+	config.EncodingAESKey = ""
 }
 
 func RegisterWechatConfigRouter(r *gin.Engine) {
