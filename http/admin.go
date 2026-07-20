@@ -60,23 +60,43 @@ func RegisterAdminRouter(r *gin.Engine) {
 // ---------------------------------------------------------------------------
 
 type providerInfo struct {
-	ID          string `json:"id"`
-	TenantID    string `json:"tenantID"`
-	Name        string `json:"name"`
-	BaseURL     string `json:"baseURL"`
-	AuthType    string `json:"authType"`
-	Healthy     bool   `json:"healthy"`
-	Description string `json:"description"`
+	ID                string `json:"id"`
+	TenantID          string `json:"tenantID"`
+	Name              string `json:"name"`
+	BaseURL           string `json:"baseURL"`
+	AuthType          string `json:"authType"`
+	Healthy           bool   `json:"healthy"`
+	Description       string `json:"description"`
+	IsMust            bool   `json:"isMust"`
+	KeyCount          int64  `json:"keyCount"`
+	RouteCount        int64  `json:"routeCount"`
+	CanDelete         bool   `json:"canDelete"`
+	DeleteBlockReason string `json:"deleteBlockReason"`
 }
 
-func providerToInfo(p *apikey.AIProvider) *providerInfo {
+func providerToInfo(p *apikey.AIProvider, impact aiProviderImpact) *providerInfo {
 	if p == nil {
 		return nil
 	}
-	return &providerInfo{
+	info := &providerInfo{
 		ID: p.ID, TenantID: p.TenantID, Name: p.Name, BaseURL: p.BaseURL,
 		AuthType: p.AuthType, Healthy: p.Healthy, Description: p.Description,
+		IsMust: isSystemAIProvider(p), KeyCount: impact.KeyCount, RouteCount: impact.RouteCount,
+		CanDelete: true,
 	}
+	switch {
+	case info.IsMust:
+		info.CanDelete = false
+		info.DeleteBlockReason = "系统兜底服务商由启动流程维护"
+	case impact.KeyCount > 0 || impact.RouteCount > 0:
+		info.CanDelete = false
+		info.DeleteBlockReason = fmt.Sprintf(
+			"仍关联 %d 个 Key、%d 条模型路由",
+			impact.KeyCount,
+			impact.RouteCount,
+		)
+	}
+	return info
 }
 
 func registerAIProviderRoutes(g *gin.RouterGroup) {
@@ -91,7 +111,12 @@ func registerAIProviderRoutes(g *gin.RouterGroup) {
 		}
 		out := make([]*providerInfo, 0, len(list))
 		for _, it := range list {
-			out = append(out, providerToInfo(it))
+			impact, err := aiProviderImpactForTenant(tenantID, it.ID)
+			if err != nil {
+				writeErr(c, err)
+				return
+			}
+			out = append(out, providerToInfo(it, impact))
 		}
 		writeOK(c, gin.H{"data": out})
 	})
@@ -102,10 +127,7 @@ func registerAIProviderRoutes(g *gin.RouterGroup) {
 			writeBadRequest(c, err)
 			return
 		}
-		if req.TenantID == "" {
-			req.TenantID = ucm.GetTenantID(c)
-		}
-		id, err := apikey.CreateProvider(&req)
+		id, err := createAIProviderForTenant(effectiveTenantID(c), req)
 		if err != nil {
 			writeErr(c, err)
 			return
@@ -120,18 +142,18 @@ func registerAIProviderRoutes(g *gin.RouterGroup) {
 			writeBadRequest(c, err)
 			return
 		}
-		req.ID = c.Param("id")
-		if err := apikey.UpdateProvider(&req); err != nil {
+		id := c.Param("id")
+		if err := updateAIProviderForTenant(effectiveTenantID(c), id, req); err != nil {
 			writeErr(c, err)
 			return
 		}
-		recordAudit(c, "ai_provider_update", req.ID, req.Name)
+		recordAudit(c, "ai_provider_update", id, req.Name)
 		writeOK(c, nil)
 	})
 
 	p.DELETE("/:id", func(c *gin.Context) {
 		id := c.Param("id")
-		if err := apikey.DeleteProvider(id); err != nil {
+		if err := deleteAIProviderForTenant(effectiveTenantID(c), id); err != nil {
 			writeErr(c, err)
 			return
 		}
@@ -154,6 +176,7 @@ type keyInfo struct {
 	Enable      bool   `json:"enable"`
 	CooldownEnd int64  `json:"cooldownEnd"`
 	Last429     int64  `json:"last429"`
+	IsMust      bool   `json:"isMust"`
 }
 
 func keyToInfo(k *apikey.AIKey) *keyInfo {
@@ -163,7 +186,7 @@ func keyToInfo(k *apikey.AIKey) *keyInfo {
 	return &keyInfo{
 		ID: k.ID, TenantID: k.TenantID, ProviderID: k.ProviderID, Name: k.Name,
 		KeyHint: k.KeyHint, Priority: k.Priority, Enable: k.Enable,
-		CooldownEnd: k.CooldownEnd, Last429: k.Last429,
+		CooldownEnd: k.CooldownEnd, Last429: k.Last429, IsMust: k.IsMust,
 	}
 }
 
@@ -196,7 +219,12 @@ func registerAIKeyRoutes(g *gin.RouterGroup) {
 			writeBadRequest(c, errStr("providerID required"))
 			return
 		}
-		list, err := apikey.GetKeysByProvider(providerID, effectiveTenantID(c))
+		tenantID := effectiveTenantID(c)
+		if _, err := findAIProviderForTenant(tenantID, providerID); err != nil {
+			writeErr(c, err)
+			return
+		}
+		list, err := apikey.GetKeysByProvider(providerID, tenantID)
 		if err != nil {
 			writeErr(c, err)
 			return
@@ -214,15 +242,14 @@ func registerAIKeyRoutes(g *gin.RouterGroup) {
 			writeBadRequest(c, err)
 			return
 		}
-		tenantID := req.TenantID
-		if tenantID == "" {
-			tenantID = ucm.GetTenantID(c)
-		}
-		newKey := &apikey.AIKey{
-			TenantID: tenantID, ProviderID: req.ProviderID, Name: req.Name,
-			Priority: req.Priority, Enable: req.Enable,
-		}
-		id, err := apikey.CreateKey(newKey, req.APIKey)
+		id, err := createAIKeyForTenant(
+			effectiveTenantID(c),
+			req.ProviderID,
+			req.Name,
+			req.APIKey,
+			req.Priority,
+			req.Enable,
+		)
 		if err != nil {
 			writeErr(c, err)
 			return
@@ -237,16 +264,19 @@ func registerAIKeyRoutes(g *gin.RouterGroup) {
 			writeBadRequest(c, err)
 			return
 		}
-		upd := &apikey.AIKey{
-			ProviderID: req.ProviderID, Name: req.Name,
-			Priority: req.Priority, Enable: req.Enable,
-		}
-		upd.ID = c.Param("id")
-		if err := apikey.UpdateKey(upd); err != nil {
+		id := c.Param("id")
+		if err := updateAIKeyForTenant(
+			effectiveTenantID(c),
+			id,
+			req.ProviderID,
+			req.Name,
+			req.Priority,
+			req.Enable,
+		); err != nil {
 			writeErr(c, err)
 			return
 		}
-		recordAudit(c, "ai_key_update", upd.ID, req.Name)
+		recordAudit(c, "ai_key_update", id, req.Name)
 		writeOK(c, nil)
 	})
 
@@ -257,7 +287,7 @@ func registerAIKeyRoutes(g *gin.RouterGroup) {
 			return
 		}
 		id := c.Param("id")
-		if err := apikey.RotateKey(id, req.NewAPIKey); err != nil {
+		if err := rotateAIKeyForTenant(effectiveTenantID(c), id, req.NewAPIKey); err != nil {
 			writeErr(c, err)
 			return
 		}
@@ -267,7 +297,7 @@ func registerAIKeyRoutes(g *gin.RouterGroup) {
 
 	k.DELETE("/:id", func(c *gin.Context) {
 		id := c.Param("id")
-		if err := apikey.DeleteKey(id); err != nil {
+		if err := deleteAIKeyForTenant(effectiveTenantID(c), id); err != nil {
 			writeErr(c, err)
 			return
 		}
@@ -282,17 +312,12 @@ func registerAIKeyRoutes(g *gin.RouterGroup) {
 
 func testAIKey(c *gin.Context) {
 	id := c.Param("id")
-	plaintext, err := apikey.GetDecryptedKey(id)
+	key, provider, err := findAIKeyForTenant(effectiveTenantID(c), id)
 	if err != nil {
 		writeErr(c, err)
 		return
 	}
-	var key apikey.AIKey
-	if err := store.DB().First(&key, "id = ?", id).Error; err != nil {
-		writeErr(c, err)
-		return
-	}
-	provider, err := apikey.GetProviderByID(key.ProviderID)
+	plaintext, err := apikey.GetDecryptedKey(id)
 	if err != nil {
 		writeErr(c, err)
 		return
@@ -314,6 +339,10 @@ func testAIKey(c *gin.Context) {
 		req.Header.Set("Authorization", "Bearer "+plaintext)
 	case "header", "apikey":
 		req.Header.Set("Authorization", plaintext)
+	case "query":
+		query := req.URL.Query()
+		query.Set("key", plaintext)
+		req.URL.RawQuery = query.Encode()
 	default:
 		req.Header.Set("Authorization", "Bearer "+plaintext)
 	}
@@ -329,7 +358,7 @@ func testAIKey(c *gin.Context) {
 	success := resp.StatusCode < 400
 	errCode := ""
 	if resp.StatusCode == http.StatusTooManyRequests {
-		apikey.MarkCooldown(id, 5*time.Minute)
+		apikey.MarkCooldown(key.ID, 5*time.Minute)
 		errCode = "429 (Key 已冷却)"
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
@@ -365,7 +394,7 @@ func registerModelRouteRoutes(g *gin.RouterGroup) {
 		if req.TenantID == "" {
 			req.TenantID = ucm.GetTenantID(c)
 		}
-		id, err := apikey.CreateRoute(&req)
+		id, err := createAIRouteForTenant(effectiveTenantID(c), req)
 		if err != nil {
 			writeErr(c, err)
 			return
@@ -380,18 +409,18 @@ func registerModelRouteRoutes(g *gin.RouterGroup) {
 			writeBadRequest(c, err)
 			return
 		}
-		req.ID = c.Param("id")
-		if err := apikey.UpdateRoute(&req); err != nil {
+		id := c.Param("id")
+		if err := updateAIRouteForTenant(effectiveTenantID(c), id, req); err != nil {
 			writeErr(c, err)
 			return
 		}
-		recordAudit(c, "ai_route_update", req.ID, req.ModelAlias)
+		recordAudit(c, "ai_route_update", id, req.ModelAlias)
 		writeOK(c, nil)
 	})
 
 	rt.DELETE("/:id", func(c *gin.Context) {
 		id := c.Param("id")
-		if err := apikey.DeleteRoute(id); err != nil {
+		if err := deleteAIRouteForTenant(effectiveTenantID(c), id); err != nil {
 			writeErr(c, err)
 			return
 		}
