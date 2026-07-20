@@ -44,6 +44,24 @@ func noMenuPermissionResponse() *apipb.CommonResponse {
 	return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "no permission to manage this menu"}
 }
 
+func menuFunctionBindingError(c *gin.Context, err error) {
+	if errors.Is(err, permission.ErrMenuFunctionRevisionConflict) {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    apipb.Code_BadRequest,
+			"message": err.Error(),
+			"data": gin.H{
+				"conflict": true,
+			},
+		})
+		return
+	}
+	if errors.Is(err, permission.ErrInvalidMenu) || errors.Is(err, permission.ErrProtectedMenu) {
+		writeBadRequest(c, err)
+		return
+	}
+	writeErr(c, err)
+}
+
 type menuReorderRequest struct {
 	ID        string `json:"id" validate:"required"`
 	Direction string `json:"direction" validate:"required"`
@@ -211,6 +229,67 @@ func GetMenuImpact(c *gin.Context) {
 // @Param authorization header string true "jwt token"
 // @Success 200 {object} apipb.QueryMenuResponse
 // @Router /api/core/auth/menu/tree [get]
+// GetMenuFunctionBindings returns the native menu action -> API -> role/Casbin
+// projection without copying permission data into an application-specific model.
+func GetMenuFunctionBindings(c *gin.Context) {
+	menuID := strings.TrimSpace(c.Query("id"))
+	if menuID == "" {
+		writeBadRequest(c, errors.New("id required"))
+		return
+	}
+	if !canManageMenu(c, menuID) {
+		c.JSON(http.StatusOK, noMenuPermissionResponse())
+		return
+	}
+	detail, err := permission.GetMenuFunctionBindings(menuID)
+	if err != nil {
+		menuFunctionBindingError(c, err)
+		return
+	}
+	writeOK(c, gin.H{"data": detail})
+}
+
+// UpdateMenuFunctionBindings atomically replaces a menu's functions and API
+// links, rebuilds every affected role policy, and revokes stale login contexts.
+func UpdateMenuFunctionBindings(c *gin.Context) {
+	req := &permission.MenuFunctionBindingUpdate{}
+	if err := c.ShouldBindJSON(req); err != nil {
+		menuFunctionBindingError(c, err)
+		return
+	}
+	if !canManageMenu(c, req.MenuID) {
+		c.JSON(http.StatusOK, noMenuPermissionResponse())
+		return
+	}
+	result, err := permission.ReplaceMenuFunctionBindings(*req)
+	if err != nil {
+		menuFunctionBindingError(c, err)
+		return
+	}
+	currentSessionRevoked := false
+	currentUserID := ucm.GetUserID(c)
+	for _, userID := range result.AffectedUserIDs {
+		if userID == currentUserID {
+			currentSessionRevoked = true
+			break
+		}
+	}
+	auditDetail, _ := json.Marshal(map[string]interface{}{
+		"revision":        result.Revision,
+		"summary":         result.Summary,
+		"sessionsRevoked": result.SessionsRevoked,
+	})
+	recordAudit(c, "update_menu_function_bindings", req.MenuID, string(auditDetail))
+	writeOK(c, gin.H{
+		"data": gin.H{
+			"revision":              result.Revision,
+			"summary":               result.Summary,
+			"sessionsRevoked":       result.SessionsRevoked,
+			"currentSessionRevoked": currentSessionRevoked,
+		},
+	})
+}
+
 func GetMenuTree(c *gin.Context) {
 	resp := &apipb.QueryMenuResponse{Code: apipb.Code_Success}
 	tenantID := ucm.GetTenantID(c)
@@ -351,6 +430,8 @@ func RegisterMenuRouter(r *gin.Engine) {
 	menuGroup.DELETE("delete", AutoHandler(DeleteMenu))
 	menuGroup.GET("detail", GetMenuDetail)
 	menuGroup.GET("impact", GetMenuImpact)
+	menuGroup.GET("functions", GetMenuFunctionBindings)
+	menuGroup.PUT("functions", UpdateMenuFunctionBindings)
 	menuGroup.GET("tree", GetMenuTree)
 	menuGroup.GET("export", ExportMenu)
 	menuGroup.POST("import", ImportMenu)
