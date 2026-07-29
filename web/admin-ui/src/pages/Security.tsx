@@ -67,6 +67,21 @@ export default function Security() {
     queryFn: () => api.get<AlertConfig>("/admin/api/alerts/status"),
   })
 
+  // 告警 Webhook 通道配置（读取/设置全局告警推送 URL）。
+  const { data: webhookCfg } = useQuery<{ url: string }>({
+    queryKey: ["alert-webhook"],
+    queryFn: () => api.get<{ url: string }>("/admin/api/alerts/webhook"),
+  })
+  const [webhookURL, setWebhookURL] = useState("")
+  const saveWebhookMut = useMutation({
+    mutationFn: (url: string) => api.put("/admin/api/alerts/webhook", { url }),
+    onSuccess: () => {
+      toast.success("告警 Webhook 已保存")
+      qc.invalidateQueries({ queryKey: ["alert-webhook"] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const { data: factors } = useQuery<MFAFactor[]>({
     queryKey: ["mfa-factors"],
     queryFn: () => api.get<MFAFactor[]>("/admin/api/mfa/factors"),
@@ -165,6 +180,37 @@ export default function Security() {
             <div className="mt-1 text-2xl font-bold">
               {status?.windowMinutes ?? "-"}
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Alert webhook channel */}
+      <Card>
+        <CardHeader>
+          <CardTitle>告警 Webhook 通道</CardTitle>
+          <CardDescription>
+            关键事件（超额、暴力破解等）以 JSON POST 推送到此 URL（Slack / 钉钉 / 飞书 / 自建平台），留空则禁用推送
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Input
+              value={webhookURL || webhookCfg?.url || ""}
+              placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
+              onChange={(e) => setWebhookURL(e.target.value)}
+            />
+            <Button
+              onClick={() => saveWebhookMut.mutate((webhookURL || webhookCfg?.url || "").trim())}
+              disabled={saveWebhookMut.isPending}
+            >
+              保存
+            </Button>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant={webhookCfg?.url ? "default" : "outline"}>
+              {webhookCfg?.url ? "已启用" : "未配置"}
+            </Badge>
+            {saveWebhookMut.isPending ? "保存中…" : "保存后立即生效"}
           </div>
         </CardContent>
       </Card>

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CloudSilk/usercenter/internal/apikey"
+	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/pricing"
@@ -674,6 +675,24 @@ func registerDashboardRoutes(g *gin.RouterGroup) {
 			"authFailThreshold":  10,
 			"windowMinutes":      1,
 		}})
+	})
+
+	// 告警 Webhook 通道配置：读取/设置全局告警推送 URL（Slack/钉钉/飞书/自建平台）。
+	// 配置在启动时从 alertWebhookURL 注入；此处允许管理端运行时调整，空 URL 即禁用推送。
+	g.GET("/alerts/webhook", func(c *gin.Context) {
+		writeOK(c, gin.H{"data": gin.H{"url": alert.WebhookURL()}})
+	})
+	g.PUT("/alerts/webhook", func(c *gin.Context) {
+		var req struct {
+			URL string `json:"url"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			writeBadRequest(c, err)
+			return
+		}
+		alert.SetWebhookURL(strings.TrimSpace(req.URL))
+		recordAudit(c, "alert_webhook_update", "", req.URL)
+		writeOK(c, gin.H{"data": gin.H{"url": alert.WebhookURL()}})
 	})
 }
 
