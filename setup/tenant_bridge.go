@@ -74,11 +74,29 @@ func GetRoleNames(roleIDs []string) map[string]string {
 		return out
 	}
 	var roles []Role
-	store.DB().Select("id, name").Where("id IN ?", roleIDs).Find(&roles)
+	store.DB().Select("id, name, description").Where("id IN ?", roleIDs).Find(&roles)
 	for _, r := range roles {
 		out[r.ID] = r.Name
+		// 嵌入式宿主的角色模板以编码为 Name（如 FAMILY_OWNER）、中文为 Description，
+		// 展示时优先取中文描述。
+		if isRoleCode(r.Name) && r.Description != "" {
+			out[r.ID] = r.Description
+		}
 	}
 	return out
+}
+
+// isRoleCode 判断角色名是否为编码形式（全大写字母+下划线）。
+func isRoleCode(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, c := range name {
+		if c != '_' && (c < 'A' || c > 'Z') {
+			return false
+		}
+	}
+	return true
 }
 
 // RecordAudit 记录审计日志（嵌入式宿主的业务写操作统一入口）。
