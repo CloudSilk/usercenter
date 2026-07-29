@@ -8,6 +8,7 @@
 package setup
 
 import (
+	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/store"
@@ -84,4 +85,54 @@ func GetRoleNames(roleIDs []string) map[string]string {
 // detail 建议为 JSON 字符串，携带 tenant_id、请求 ID、对象类型、差异摘要与 UA。
 func RecordAudit(userID, userName, action, targetID, ip, detail string) {
 	audit.RecordAudit(store.DB(), userID, userName, action, targetID, ip, detail)
+}
+
+// --- AI 网关配置桥接（平台级 Provider/Key/模型路由管理） ---
+//
+// 模型路由 tenant_id 为空表示全局路由，对所有租户生效（apikey.SelectKey
+// 按 tenant_id IN (当前租户, '') 匹配），宿主平台管理员配置一次即可服务全部家族。
+
+// ListAIProviders 列出 AI 服务商（tenantID 为空时列全部）。
+func ListAIProviders(tenantID string) ([]*AIProvider, error) {
+	return apikey.GetAllProviders(tenantID)
+}
+
+// UpdateAIProvider 更新 AI 服务商。
+func UpdateAIProvider(p *AIProvider) error {
+	return apikey.UpdateProvider(p)
+}
+
+// DeleteAIProvider 删除 AI 服务商。
+func DeleteAIProvider(id string) error {
+	return apikey.DeleteProvider(id)
+}
+
+// ListAIKeys 列出指定服务商下的 Key（密文不出桥，只有 hint）。
+func ListAIKeys(providerID, tenantID string) ([]*AIKey, error) {
+	return apikey.GetKeysByProvider(providerID, tenantID)
+}
+
+// UpdateAIKey 更新 Key 元数据（优先级/启停）。
+func UpdateAIKey(k *AIKey) error {
+	return apikey.UpdateKey(k)
+}
+
+// DeleteAIKey 删除 Key。
+func DeleteAIKey(id string) error {
+	return apikey.DeleteKey(id)
+}
+
+// ListModelRoutes 列出模型路由（含全局路由）。
+func ListModelRoutes(tenantID string) ([]*ModelRoute, error) {
+	return apikey.GetRoutes(tenantID)
+}
+
+// UpdateModelRoute 更新模型路由。
+func UpdateModelRoute(r *ModelRoute) error {
+	return apikey.UpdateRoute(r)
+}
+
+// DeleteModelRoute 删除模型路由。
+func DeleteModelRoute(id string) error {
+	return apikey.DeleteRoute(id)
 }
