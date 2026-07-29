@@ -30,6 +30,7 @@ func DevAuthRequired(c *gin.Context) {
 		return
 	}
 	if path == "/api/core/auth/user/login" || path == "/api/core/auth/user/mfa/verify" ||
+		path == "/api/core/auth/login/options" ||
 		path == "/health" || path == "/readyz" ||
 		path == "/oauth/token" || path == "/oauth/revoke" || path == "/metrics" ||
 		path == "/admin/api/audit/stream" {
