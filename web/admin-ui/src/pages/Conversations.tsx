@@ -1,6 +1,7 @@
 import { useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Trash2, MessageSquare } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Trash2, MessageSquare, Sparkles } from "lucide-react"
+import { toast } from "sonner"
 
 import { api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
@@ -17,6 +18,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -88,10 +90,20 @@ export default function Conversations() {
     try {
       await api.del(`/admin/api/conversations/${id}`)
       queryClient.invalidateQueries({ queryKey: ["conversations"] })
-    } catch (e: any) {
-      alert(e.message || "删除失败")
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "删除失败")
     }
   }
+
+  // 调用后端 /conversations/:id/summarize：用 LLM 基于会话消息生成/重生成简短标题。
+  const summarizeMut = useMutation({
+    mutationFn: (id: string) => api.post(`/admin/api/conversations/${id}/summarize`),
+    onSuccess: () => {
+      toast.success("标题已生成")
+      queryClient.invalidateQueries({ queryKey: ["conversations"] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
 
   return (
     <div className="space-y-4 p-4 md:p-6">
@@ -231,6 +243,18 @@ export default function Conversations() {
               ))
             )}
           </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!selectedSession || summarizeMut.isPending}
+              onClick={() => selectedSession && summarizeMut.mutate(selectedSession)}
+              title="基于会话消息用 AI 生成/重生成简短标题（需已配置可用 AI Key）"
+            >
+              <Sparkles className="h-4 w-4" />
+              {summarizeMut.isPending ? "生成中…" : "生成标题"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
