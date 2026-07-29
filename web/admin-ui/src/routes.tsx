@@ -26,6 +26,7 @@ const Budgets = lazy(() => import("@/pages/Budgets"))
 const Pricing = lazy(() => import("@/pages/Pricing"))
 const UserManagement = lazy(() => import("@/pages/UserManagement"))
 const RoleManagement = lazy(() => import("@/pages/RoleManagement"))
+const Webhooks = lazy(() => import("@/pages/Webhooks"))
 
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -231,6 +232,14 @@ const routes: RouteObject[] = [
         element: (
           <SuspenseWrapper>
             <RoleManagement />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "webhooks",
+        element: (
+          <SuspenseWrapper>
+            <Webhooks />
           </SuspenseWrapper>
         ),
       },
