@@ -42,6 +42,17 @@ interface ModelAgg {
   totalCost: number
 }
 
+// /admin/api/usage/by-principal 行：GORM 扫描到 map，键为 snake_case；数值可能为 number/string。
+interface UsagePrincipalRow {
+  principal_id?: string
+  principal_kind?: number | string
+  tokens?: number | string
+  cost?: number | string
+  count?: number | string
+}
+
+const PRINCIPAL_KIND_LABEL: Record<number, string> = { 0: "人", 1: "Agent", 2: "Service" }
+
 function fmtCost(v: number): string {
   if (!v) return "0.00"
   return v.toFixed(4)
@@ -95,6 +106,17 @@ export default function Usage() {
       }),
   })
 
+  // 按主体维度聚合：直接消费后端 /usage/by-principal（DB 全量聚合，区分人/Agent/Service），
+  // 取代过去仅在客户端用最近 50 条记录近似估算主体用量的做法。
+  const { data: byPrincipalRaw } = useQuery<UsagePrincipalRow[]>({
+    queryKey: ["usage-by-principal", applied],
+    queryFn: () =>
+      api.get<UsagePrincipalRow[]>("/admin/api/usage/by-principal", {
+        startTime: rangeParams.startTime,
+        endTime: rangeParams.endTime,
+      }),
+  })
+
   const { data: recent, isLoading: recentLoading } = useQuery<UsageRecord[]>({
     queryKey: ["usage-recent"],
     queryFn: () => api.get<UsageRecord[]>("/admin/api/usage/recent", { limit: 50 }),
@@ -108,17 +130,25 @@ export default function Usage() {
       .sort((a, b) => b.value - a.value)
   }, [byModelRaw])
 
+  // principal_kind: 0=人, 1=Agent, 2=Service（见后端 UsageRecord 注释）。
   const principalData = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const r of recent ?? []) {
-      const k = r.principalID || "unknown"
-      map.set(k, (map.get(k) ?? 0) + (r.totalTokens ?? 0))
+    const toNum = (v: unknown): number => {
+      if (typeof v === "number") return v
+      if (typeof v === "string") return Number(v) || 0
+      return 0
     }
-    return Array.from(map.entries())
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
+    return (byPrincipalRaw ?? [])
+      .map((r) => ({
+        id: String(r.principal_id ?? "unknown"),
+        kind: Number(toNum(r.principal_kind)),
+        tokens: toNum(r.tokens),
+        cost: toNum(r.cost),
+        count: toNum(r.count),
+      }))
+      .filter((d) => d.tokens > 0 || d.count > 0)
+      .sort((a, b) => b.tokens - a.tokens)
       .slice(0, 12)
-  }, [recent])
+  }, [byPrincipalRaw])
 
   const records = recent ?? []
 
@@ -217,7 +247,7 @@ export default function Usage() {
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(v: any) => Number(v).toLocaleString() + " tokens"}
+                    formatter={(v: unknown) => Number(v).toLocaleString() + " tokens"}
                   />
                   <Legend />
                 </PieChart>
@@ -230,25 +260,55 @@ export default function Usage() {
           <CardHeader>
             <CardTitle className="text-base">按主体 Token 用量 (Top 12)</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             {principalData.length === 0 ? (
               <div className="py-10 text-center text-sm text-muted-foreground">暂无数据</div>
             ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={principalData} margin={{ left: 8, right: 16 }}>
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 11 }}
-                    interval={0}
-                    angle={-20}
-                    textAnchor="end"
-                    height={60}
-                  />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: any) => Number(v).toLocaleString() + " tokens"} />
-                  <Bar dataKey="value" fill="#8884d8" />
-                </BarChart>
-              </ResponsiveContainer>
+              <>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={principalData} margin={{ left: 8, right: 16 }}>
+                    <XAxis
+                      dataKey="id"
+                      tick={{ fontSize: 11 }}
+                      interval={0}
+                      angle={-20}
+                      textAnchor="end"
+                      height={60}
+                    />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v: unknown) => Number(v).toLocaleString() + " tokens"} />
+                    <Bar dataKey="tokens" fill="#8884d8" />
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>主体</TableHead>
+                        <TableHead>类型</TableHead>
+                        <TableHead className="text-right">请求数</TableHead>
+                        <TableHead className="text-right">Tokens</TableHead>
+                        <TableHead className="text-right">成本</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {principalData.map((p) => (
+                        <TableRow key={p.id}>
+                          <TableCell className="max-w-[160px] truncate font-mono text-xs" title={p.id}>
+                            {p.id}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{PRINCIPAL_KIND_LABEL[p.kind] ?? "未知"}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right">{p.count.toLocaleString()}</TableCell>
+                          <TableCell className="text-right">{p.tokens.toLocaleString()}</TableCell>
+                          <TableCell className="text-right">${fmtCost(p.cost)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
