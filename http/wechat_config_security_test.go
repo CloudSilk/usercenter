@@ -47,7 +47,8 @@ func TestWechatConfigReadIsRedactedAndBlankUpdatePreservesSecrets(t *testing.T) 
 	var response apipb.CommonResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil ||
 		response.Code != apipb.Code_Success {
-		t.Fatalf("update response=%#v err=%v body=%s", response, err, recorder.Body.String())
+		// 用指针避免复制 protobuf 消息（内含 sync.Mutex，go vet 会报 locks value）
+		t.Fatalf("update response=%#v err=%v body=%s", &response, err, recorder.Body.String())
 	}
 
 	var stored wechatconfig.WechatConfig
