@@ -2,6 +2,9 @@ package systemconfig
 
 import (
 	"encoding/json"
+	"errors"
+	"strings"
+	"time"
 
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils"
@@ -133,6 +136,47 @@ func UpsertSystemConfigByKey(key, value string) error {
 		Columns:   []clause.Column{{Name: "key"}},
 		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
 	}).Create(&SystemConfig{Key: key, Value: value}).Error
+}
+
+// CompareAndSwapSystemConfigByKey atomically creates or updates one
+// namespaced configuration value. A nil expectedValue means the caller
+// expects the key not to exist. A non-nil expectedValue must match the
+// complete stored value; this lets embedded products implement their own
+// versioned JSON contracts without reading or writing UserCenter tables.
+func CompareAndSwapSystemConfigByKey(
+	key string,
+	expectedValue *string,
+	value string,
+) (bool, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false, errors.New("system config key is required")
+	}
+	now := time.Now().UTC()
+	if expectedValue == nil {
+		result := store.DB().Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "key"}},
+			DoNothing: true,
+		}).Create(&SystemConfig{
+			Key:   key,
+			Value: value,
+		})
+		if result.Error != nil {
+			return false, result.Error
+		}
+		return result.RowsAffected == 1, nil
+	}
+	result := store.DB().
+		Model(&SystemConfig{}).
+		Where("`key` = ? AND value = ?", key, *expectedValue).
+		Updates(map[string]any{
+			"value":      value,
+			"updated_at": now,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected == 1, nil
 }
 
 func PBToSystemConfigs(in []*apipb.SystemConfigInfo) []*SystemConfig {
