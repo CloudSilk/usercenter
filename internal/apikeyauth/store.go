@@ -4,9 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/CloudSilk/usercenter/internal/store"
@@ -60,7 +58,14 @@ func ValidateKey(plaintext string) (*APIKeyAuth, error) {
 
 // DeleteKey removes a key by ID.
 func DeleteKey(id string) error {
-	return store.DB().Delete(&APIKeyAuth{}, "id = ?", id).Error
+	result := store.DB().Delete(&APIKeyAuth{}, "id = ?", id)
+	if result.Error != nil {
+		return fmt.Errorf("delete api key: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("delete api key: key not found")
+	}
+	return nil
 }
 
 // GetKeys returns all API keys.
@@ -86,9 +91,3 @@ func hashKey(plaintext string) string {
 	sum := sha256.Sum256([]byte(plaintext))
 	return hex.EncodeToString(sum[:])
 }
-
-// Suppress unused import warnings in tests
-var (
-	_ = errors.New
-	_ = strings.Builder{}
-)

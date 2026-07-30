@@ -160,6 +160,11 @@ func ValidateAPIKeyAuth(plaintext string) (*APIKeyAuth, error) {
 	return apikeyauth.ValidateKey(plaintext)
 }
 
+// DeleteAPIKeyAuth 撤销长期 API Key。撤销后明文 key 立即失效。
+func DeleteAPIKeyAuth(id string) error {
+	return apikeyauth.DeleteKey(id)
+}
+
 // DecodeToken 解码 JWT access_token,返回 CurrentUser。
 // 供嵌入式 consumer 的鉴权中间件使用(无需 Dubbo/Triple RPC)。
 // token 无效或过期时返回 error。

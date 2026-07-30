@@ -4,8 +4,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/CloudSilk/usercenter/internal/apikeyauth"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/principal"
+	pb "github.com/CloudSilk/usercenter/proto"
 	"github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -36,6 +38,22 @@ func DevAuthRequired(c *gin.Context) {
 		path == "/admin/api/audit/stream" {
 		return
 	}
+	if apiKey := strings.TrimSpace(c.GetHeader("X-API-Key")); apiKey != "" {
+		if keyAuth, err := apikeyauth.ValidateKey(apiKey); err == nil && keyAuth != nil {
+			roles := splitAPIKeyRoles(keyAuth.Roles)
+			c.Set(
+				"Principal",
+				principal.NewService(keyAuth.PrincipalID, keyAuth.TenantID, roles),
+			)
+			c.Set("User", &pb.CurrentUser{
+				Id:       keyAuth.PrincipalID,
+				TenantID: keyAuth.TenantID,
+				UserName: keyAuth.Name,
+				RoleIDs:  roles,
+			})
+			return
+		}
+	}
 	t := middleware.GetAccessToken(c)
 	cu, err := token.DecodeToken(t)
 	if err != nil || cu == nil {
@@ -46,4 +64,15 @@ func DevAuthRequired(c *gin.Context) {
 		c.Set("Principal", p)
 	}
 	c.Set("User", cu)
+}
+
+func splitAPIKeyRoles(value string) []string {
+	items := make([]string, 0)
+	for _, role := range strings.Split(value, ",") {
+		role = strings.TrimSpace(role)
+		if role != "" {
+			items = append(items, role)
+		}
+	}
+	return items
 }
