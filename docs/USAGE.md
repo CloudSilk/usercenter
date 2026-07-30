@@ -197,7 +197,16 @@ POST /api/core/auth/user/mfa/verify
 | 41009 | challenge 令牌无效或已过期（5 分钟 / 单次使用） |
 | 41010 | MFA 验证码不正确 |
 
-绑定管理端点（`/admin/api/mfa`）：`POST /totp/enroll`（生成密钥）、`POST /totp/confirm`（校验码并落库）、`GET /factors`（列出已绑定因子）、`DELETE /:id`（解绑）。
+普通登录用户应使用产品侧自助端点（都只作用于当前登录用户）：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/core/auth/user/mfa/totp/enroll` | 生成临时密钥与 `otpauth://` URI |
+| POST | `/api/core/auth/user/mfa/totp/confirm` | 校验 6 位动态码并绑定因子 |
+| GET | `/api/core/auth/user/mfa/factors` | 列出当前用户已绑定因子，不返回密钥 |
+| DELETE | `/api/core/auth/user/mfa/:id` | 解绑当前用户自己的因子 |
+
+兼容管理站点仍可使用同语义的 `/admin/api/mfa/*` 路径。解绑操作会校验因子归属，不能删除其他用户的 MFA 因子。
 
 敏感操作需要 step-up 认证:
 
@@ -265,11 +274,14 @@ GET  /.well-known/jwks.json             → JWKS 密钥集
 | GET | `/api/core/auth/user/export` | 导出 |
 | POST | `/api/core/auth/user/import` | 导入 |
 
+`profile`（GET/PUT）、`changepwd`、`logout` 和上述 MFA 自助端点会在 `RunMigration()` 时作为 UserCenter 必需 API 幂等登记：它们要求有效登录，但不要求产品管理角色。因此普通客户可维护自己的账号，生产鉴权模式也不需要宿主重复播种这组权限。
+
 ### 4.2 密码安全
 
 - 创建用户:密码强度校验(≥8 位 + 数字 + 大写 + 小写)
 - 重置密码:随机密码(crypto/rand)+ 强制改密(`ForceChangePwd=true`)
-- 修改密码:校验旧密码 + 新密码强度 + 仅允许改自己
+- 修改密码:校验旧密码 + 新密码强度 + 仅允许改自己；成功后清除强制改密标记并失效该用户已有访问令牌
+- 个人资料更新:服务端强制使用当前登录用户 ID 和租户，不接受请求体覆盖，并写入审计日志
 - 存储:scrypt(兼容)或 Argon2id(新标准,透明 rehash)
 
 ```go

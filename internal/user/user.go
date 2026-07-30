@@ -463,13 +463,17 @@ func ResetPwd(id string, pwd string) error {
 	if pwd == "" {
 		pwd = auth.GeneratePasswd(16, auth.PwdStrengthAdvance)
 	}
+	return setPassword(id, pwd, true)
+}
+
+func setPassword(id string, pwd string, forceChange bool) error {
 	password, err := auth.EncryptedPassword(pwd)
 	if err != nil {
 		return err
 	}
 	return store.DB().Model(&User{}).Where("id=?", id).UpdateColumns(map[string]interface{}{
 		"password":            password,
-		"force_change_pwd":    true,
+		"force_change_pwd":    forceChange,
 		"password_updated_at": time.Now().Unix(),
 		"err_number":          0,
 		"locked_expired":      0,
@@ -519,7 +523,15 @@ func UpdatePwd(id string, oldPwd, newPwd string) error {
 	if err != nil {
 		return err
 	}
-	return ResetPwd(id, newPwd)
+	if err := setPassword(id, newPwd, false); err != nil {
+		return err
+	}
+	if token.DefaultTokenCache != nil {
+		if err := token.DefaultTokenCache.DelByUserID(id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func UpdateProfile(m *User, updateUserName bool) error {
@@ -949,9 +961,15 @@ func UserProfileToUser(in *apipb.UserProfile) *User {
 		return nil
 	}
 	return &User{
+		TenantModel: commonmodel.TenantModel{
+			Model:    commonmodel.Model{ID: in.Id},
+			TenantID: in.TenantID,
+		},
 		UserName: in.UserName, Nickname: in.Nickname, Email: in.Email,
 		Mobile: in.Mobile, IDCard: in.IdCard, Avatar: in.Avatar,
 		RealName: in.RealName, Gender: in.Gender, EID: in.Eid,
+		Country: in.Country, Province: in.Province, City: in.City,
+		County: in.County, Description: in.Description, Birthday: in.Birthday,
 		ChineseName: in.ChineseName, EnglishName: in.EnglishName, StaffNo: in.StaffNo,
 	}
 }

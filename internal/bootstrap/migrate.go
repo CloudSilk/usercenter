@@ -90,6 +90,9 @@ func RunMigration() error {
 	if err := AutoMigrate(); err != nil {
 		return fmt.Errorf("AutoMigrate: %w", err)
 	}
+	if err := ensureSelfServiceAuthorization(); err != nil {
+		return fmt.Errorf("self-service authorization: %w", err)
+	}
 	permission.InitCasbin()
 	permission.UpdateNotCheckAuthRule()
 	permission.UpdateNotCheckLoginRule()

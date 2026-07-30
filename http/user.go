@@ -169,6 +169,8 @@ func UpdateProfile(c *gin.Context) {
 		log.Warnf(context.Background(), "TransID:%s,更新个人信息请求参数无效:%v", transID, err)
 		return
 	}
+	req.Id = middleware.GetUserID(c)
+	req.TenantID = middleware.GetTenantID(c)
 	err = middleware.Validate.Struct(req)
 	if err != nil {
 		resp.Code = apipb.Code_BadRequest
@@ -181,6 +183,17 @@ func UpdateProfile(c *gin.Context) {
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
+	} else {
+		audit.RecordAuditWithKind(
+			store.DB(),
+			middleware.GetUserID(c),
+			middleware.GetUserName(c),
+			int32(middleware.GetPrincipalKind(c)),
+			audit.AuditActionUpdateProfile,
+			req.Id,
+			c.ClientIP(),
+			"",
+		)
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -476,8 +489,19 @@ func ChangePwd(c *gin.Context) {
 	req.Id = middleware.GetUserID(c)
 	err = user.UpdatePwd(req.Id, req.OldPwd, req.NewPwd)
 	if err != nil {
-		resp.Code = apipb.Code_InternalServerError
+		resp.Code = apipb.Code_BadRequest
 		resp.Message = err.Error()
+	} else {
+		audit.RecordAuditWithKind(
+			store.DB(),
+			middleware.GetUserID(c),
+			middleware.GetUserName(c),
+			int32(middleware.GetPrincipalKind(c)),
+			audit.AuditActionChangePwd,
+			req.Id,
+			c.ClientIP(),
+			"",
+		)
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -658,6 +682,7 @@ func RegisterUserRouter(r *gin.Engine) {
 	userGroup := r.Group("/api/core/auth/user")
 	userGroup.POST("login", Login)
 	userGroup.POST("mfa/verify", MFALoginVerify)
+	registerUserMFARoutes(userGroup)
 	userGroup.POST("logout", Logout)
 	userGroup.GET("profile", Profile)
 	userGroup.PUT("profile", UpdateProfile)

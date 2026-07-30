@@ -1,6 +1,10 @@
 package http
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/store"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
@@ -17,6 +21,15 @@ import (
 
 func registerMFARoutes(g *gin.RouterGroup) {
 	m := g.Group("/mfa")
+	registerMFAHandlers(m)
+}
+
+func registerUserMFARoutes(g *gin.RouterGroup) {
+	m := g.Group("/mfa")
+	registerMFAHandlers(m)
+}
+
+func registerMFAHandlers(m *gin.RouterGroup) {
 	m.POST("/totp/enroll", mfaTOTPEnroll)
 	m.POST("/totp/confirm", mfaTOTPConfirm)
 	m.GET("/factors", mfaListFactors)
@@ -36,8 +49,8 @@ func mfaTOTPEnroll(c *gin.Context) {
 		return
 	}
 	writeOK(c, gin.H{"data": gin.H{
-		"secret": secret,
-		"uri":    auth.GenerateTOTPURI(secret, account, "UserCenter"),
+		"secret":  secret,
+		"uri":     auth.GenerateTOTPURI(secret, account, "UserCenter"),
 		"account": account,
 	}})
 }
@@ -55,7 +68,7 @@ func mfaTOTPConfirm(c *gin.Context) {
 		return
 	}
 	if !auth.VerifyTOTP(req.Secret, req.Code) {
-		writeOK(c, gin.H{"code": 40000, "message": "验证码不正确"})
+		writeBadRequest(c, fmt.Errorf("验证码不正确"))
 		return
 	}
 	enc, err := auth.EncryptPII(req.Secret)
@@ -68,8 +81,16 @@ func mfaTOTPConfirm(c *gin.Context) {
 		PrincipalID: ucm.GetUserID(c),
 		Type:        "totp",
 		SecretEnc:   enc,
-		Name:        req.Name,
+		Name:        strings.TrimSpace(req.Name),
 		Enable:      true,
+		CreatedAt:   time.Now().Unix(),
+	}
+	if factor.Name == "" {
+		factor.Name = "身份验证器"
+	}
+	if len([]rune(factor.Name)) > 100 {
+		writeBadRequest(c, fmt.Errorf("验证器名称不能超过 100 个字符"))
+		return
 	}
 	if err := store.DB().Create(factor).Error; err != nil {
 		writeErr(c, err)
@@ -91,8 +112,17 @@ func mfaListFactors(c *gin.Context) {
 
 func mfaDeleteFactor(c *gin.Context) {
 	id := c.Param("id")
-	if err := store.DB().Delete(&auth.MFAFactor{}, "id = ?", id).Error; err != nil {
-		writeErr(c, err)
+	result := store.DB().Where(
+		"id = ? AND principal_id = ?",
+		id,
+		ucm.GetUserID(c),
+	).Delete(&auth.MFAFactor{})
+	if result.Error != nil {
+		writeErr(c, result.Error)
+		return
+	}
+	if result.RowsAffected != 1 {
+		writeBadRequest(c, fmt.Errorf("MFA 因子不存在"))
 		return
 	}
 	recordAudit(c, "mfa_unbind", id, "")

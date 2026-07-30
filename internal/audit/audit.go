@@ -23,6 +23,7 @@ type AuditLog struct {
 const (
 	AuditActionResetPwd               = "reset_password"
 	AuditActionChangePwd              = "change_password"
+	AuditActionUpdateProfile          = "update_profile"
 	AuditActionDeleteUser             = "delete_user"
 	AuditActionEnableUser             = "enable_user"
 	AuditActionUpdateRole             = "update_role"
