@@ -30,6 +30,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/bootstrap"
 	"github.com/CloudSilk/usercenter/internal/store"
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
@@ -104,6 +105,13 @@ func SetSocialLogins(cfgs []SocialLoginConfig) {
 // SetAlertWebhook 转发 bootstrap.SetAlertWebhook：配置告警 Webhook（飞书/Slack 等）。
 func SetAlertWebhook(url string) {
 	bootstrap.SetAlertWebhook(url)
+}
+
+// RegisterAdminSPA mounts usercenter's embedded management application under
+// /web/admin. Embedded products should call this on the same Gin engine that
+// serves usercenter's APIs so the SPA and its uc_admin_token remain same-origin.
+func RegisterAdminSPA(router *gin.Engine) {
+	bootstrap.RegisterAdminSPA(router)
 }
 
 // ---------- 密码哈希（供宿主种子播种用户时使用）----------
