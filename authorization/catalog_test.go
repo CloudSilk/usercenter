@@ -1,6 +1,7 @@
 package authorization
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/CloudSilk/pkg/db"
@@ -171,6 +172,92 @@ func TestApplyAuthorizationCatalogRestoresSystemRowsAndPreservesCustomData(t *te
 	var customCount int64
 	require.NoError(t, gdb.Model(&permission.Role{}).Where("id = ?", custom.ID).Count(&customCount).Error)
 	require.Equal(t, int64(1), customCount)
+}
+
+func TestValidateAuthorizationCatalogRejectsOverlongStableIDs(t *testing.T) {
+	overlongID := strings.Repeat("x", authorizationCatalogIDMaxLength+1)
+	tests := []struct {
+		name       string
+		update     func(*AuthorizationCatalog)
+		errorLabel string
+	}{
+		{
+			name: "tenant",
+			update: func(catalog *AuthorizationCatalog) {
+				catalog.TenantID = overlongID
+			},
+			errorLabel: "authorization catalog tenant ID",
+		},
+		{
+			name: "project",
+			update: func(catalog *AuthorizationCatalog) {
+				catalog.ProjectID = overlongID
+			},
+			errorLabel: "authorization catalog project ID",
+		},
+		{
+			name: "role",
+			update: func(catalog *AuthorizationCatalog) {
+				catalog.Roles[0].ID = overlongID
+			},
+			errorLabel: "authorization role ID",
+		},
+		{
+			name: "menu",
+			update: func(catalog *AuthorizationCatalog) {
+				catalog.Menus[0].ID = overlongID
+			},
+			errorLabel: "authorization menu ID",
+		},
+		{
+			name: "function",
+			update: func(catalog *AuthorizationCatalog) {
+				catalog.Menus[0].Functions[0].ID = overlongID
+			},
+			errorLabel: "authorization function ID",
+		},
+		{
+			name: "API",
+			update: func(catalog *AuthorizationCatalog) {
+				catalog.APIs[0].ID = overlongID
+			},
+			errorLabel: "authorization API ID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			catalog := testAuthorizationCatalog()
+			tt.update(&catalog)
+
+			err := validateAuthorizationCatalog(normalizeAuthorizationCatalog(catalog))
+
+			require.Error(t, err)
+			require.ErrorContains(t, err, tt.errorLabel)
+			require.ErrorContains(t, err, "exceeds the 36-character database limit")
+		})
+	}
+}
+
+func TestValidateAuthorizationCatalogAcceptsMaximumStableIDLength(t *testing.T) {
+	catalog := testAuthorizationCatalog()
+	maximumID := strings.Repeat("x", authorizationCatalogIDMaxLength)
+	originalID := catalog.APIs[0].ID
+	catalog.APIs[0].ID = maximumID
+	for menuIndex := range catalog.Menus {
+		for functionIndex := range catalog.Menus[menuIndex].Functions {
+			for apiIndex, apiID := range catalog.Menus[menuIndex].Functions[functionIndex].APIIDs {
+				if apiID == originalID {
+					catalog.Menus[menuIndex].Functions[functionIndex].APIIDs[apiIndex] = maximumID
+				}
+			}
+		}
+	}
+
+	require.NoError(
+		t,
+		validateAuthorizationCatalog(normalizeAuthorizationCatalog(catalog)),
+	)
 }
 
 func TestEnsureUserRoleRejectsCrossTenantRole(t *testing.T) {

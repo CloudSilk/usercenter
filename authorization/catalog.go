@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/permission"
@@ -16,6 +17,8 @@ import (
 	"github.com/CloudSilk/usercenter/internal/user"
 	"gorm.io/gorm"
 )
+
+const authorizationCatalogIDMaxLength = 36
 
 // AuthorizationCatalog is the native usercenter initialization contract used
 // by embedded products. Every definition is reconciled into usercenter's own
@@ -335,10 +338,31 @@ func validateAuthorizationCatalog(catalog AuthorizationCatalog) error {
 	if catalog.TenantID == "" {
 		return errors.New("authorization catalog tenant ID is required")
 	}
+	if err := validateAuthorizationCatalogID("authorization catalog tenant ID", catalog.TenantID); err != nil {
+		return err
+	}
+	if catalog.ProjectID != "" {
+		if err := validateAuthorizationCatalogID("authorization catalog project ID", catalog.ProjectID); err != nil {
+			return err
+		}
+	}
+	if catalog.DefaultRoleID != "" {
+		if err := validateAuthorizationCatalogID("authorization catalog default role ID", catalog.DefaultRoleID); err != nil {
+			return err
+		}
+	}
 	roleIDs := make(map[string]struct{}, len(catalog.Roles))
 	for _, role := range catalog.Roles {
 		if role.ID == "" || role.Name == "" {
 			return errors.New("authorization catalog role ID and name are required")
+		}
+		if err := validateAuthorizationCatalogID("authorization role ID", role.ID); err != nil {
+			return err
+		}
+		if role.ParentID != "" {
+			if err := validateAuthorizationCatalogID("authorization role parent ID", role.ParentID); err != nil {
+				return err
+			}
 		}
 		if _, exists := roleIDs[role.ID]; exists {
 			return fmt.Errorf("duplicate authorization role ID %q", role.ID)
@@ -364,6 +388,9 @@ func validateAuthorizationCatalog(catalog AuthorizationCatalog) error {
 		if api.ID == "" || api.Path == "" || api.Method == "" {
 			return errors.New("authorization API ID, path and method are required")
 		}
+		if err := validateAuthorizationCatalogID("authorization API ID", api.ID); err != nil {
+			return err
+		}
 		if !strings.HasPrefix(api.Path, "/") {
 			return fmt.Errorf("authorization API %q path must start with /", api.ID)
 		}
@@ -388,6 +415,14 @@ func validateAuthorizationCatalog(catalog AuthorizationCatalog) error {
 		if menu.ID == "" || menu.Name == "" || menu.Title == "" {
 			return errors.New("authorization menu ID, name and title are required")
 		}
+		if err := validateAuthorizationCatalogID("authorization menu ID", menu.ID); err != nil {
+			return err
+		}
+		if menu.ParentID != "" {
+			if err := validateAuthorizationCatalogID("authorization menu parent ID", menu.ParentID); err != nil {
+				return err
+			}
+		}
 		if _, exists := menuIDs[menu.ID]; exists {
 			return fmt.Errorf("duplicate authorization menu ID %q", menu.ID)
 		}
@@ -396,6 +431,9 @@ func validateAuthorizationCatalog(catalog AuthorizationCatalog) error {
 		for _, function := range menu.Functions {
 			if function.ID == "" || function.Name == "" || function.Title == "" {
 				return fmt.Errorf("menu %q has a function without ID, name or title", menu.ID)
+			}
+			if err := validateAuthorizationCatalogID("authorization function ID", function.ID); err != nil {
+				return err
 			}
 			if _, exists := functionIDs[function.ID]; exists {
 				return fmt.Errorf("duplicate authorization function ID %q", function.ID)
@@ -454,6 +492,20 @@ func validateAuthorizationCatalog(catalog AuthorizationCatalog) error {
 		}
 	}
 	return nil
+}
+
+func validateAuthorizationCatalogID(label, value string) error {
+	length := utf8.RuneCountInString(value)
+	if length <= authorizationCatalogIDMaxLength {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s %q exceeds the %d-character database limit (got %d)",
+		label,
+		value,
+		authorizationCatalogIDMaxLength,
+		length,
+	)
 }
 
 func upsertCatalogRole(tx *gorm.DB, catalog AuthorizationCatalog, definition AuthorizationRole) (string, error) {
