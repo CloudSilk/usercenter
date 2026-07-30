@@ -1,6 +1,7 @@
 package apikeyauth
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -54,7 +55,7 @@ func TestCreateValidateAndDeleteKey(t *testing.T) {
 	if _, err := ValidateKey(plaintext); err == nil {
 		t.Fatal("deleted key still validates")
 	}
-	if err := DeleteKey(key.ID); err == nil {
-		t.Fatal("deleting an already deleted key should report not found")
+	if err := DeleteKey(key.ID); !errors.Is(err, ErrKeyNotFound) {
+		t.Fatalf("deleting an already deleted key error = %v, want ErrKeyNotFound", err)
 	}
 }

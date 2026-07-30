@@ -150,6 +150,9 @@ func CountModelRoutes(tenantID, modelAlias string) int64 {
 // APIKeyAuth 是对外类型别名。
 type APIKeyAuth = apikeyauth.APIKeyAuth
 
+// ErrAPIKeyAuthNotFound 表示指定的长期 API Key 已不存在。
+var ErrAPIKeyAuthNotFound = apikeyauth.ErrKeyNotFound
+
 // CreateAPIKeyAuth 创建长期 API Key，返回明文 key（仅一次）。
 func CreateAPIKeyAuth(k *APIKeyAuth) (string, error) {
 	return apikeyauth.CreateKey(k)

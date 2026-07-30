@@ -4,11 +4,14 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/CloudSilk/usercenter/internal/store"
 )
+
+var ErrKeyNotFound = errors.New("api key not found")
 
 const (
 	keyPrefix     = "uc_"
@@ -63,7 +66,7 @@ func DeleteKey(id string) error {
 		return fmt.Errorf("delete api key: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("delete api key: key not found")
+		return fmt.Errorf("delete api key: %w", ErrKeyNotFound)
 	}
 	return nil
 }
