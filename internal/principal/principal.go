@@ -1,7 +1,11 @@
 // Package principal 定义统一的鉴权主体(Principal)抽象。
 package principal
 
-import apipb "github.com/CloudSilk/usercenter/proto"
+import (
+	"strings"
+
+	apipb "github.com/CloudSilk/usercenter/proto"
+)
 
 type Kind int32
 
@@ -23,20 +27,29 @@ type Principal interface {
 
 // HumanPrincipal 人类用户主体
 type HumanPrincipal struct {
-	userID   string
-	tenantID string
-	roles    []string
+	userID      string
+	tenantID    string
+	displayName string
+	roles       []string
 }
 
 func NewHuman(userID, tenantID string, roles []string) *HumanPrincipal {
-	return &HumanPrincipal{userID: userID, tenantID: tenantID, roles: roles}
+	return newHuman(userID, tenantID, userID, roles)
 }
 
-func (h *HumanPrincipal) Kind() Kind        { return KindHuman }
-func (h *HumanPrincipal) Subject() string   { return h.userID }
-func (h *HumanPrincipal) TenantID() string  { return h.tenantID }
-func (h *HumanPrincipal) Roles() []string   { return h.roles }
-func (h *HumanPrincipal) DisplayName() string { return h.userID }
+func newHuman(userID, tenantID, displayName string, roles []string) *HumanPrincipal {
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" {
+		displayName = userID
+	}
+	return &HumanPrincipal{userID: userID, tenantID: tenantID, displayName: displayName, roles: roles}
+}
+
+func (h *HumanPrincipal) Kind() Kind          { return KindHuman }
+func (h *HumanPrincipal) Subject() string     { return h.userID }
+func (h *HumanPrincipal) TenantID() string    { return h.tenantID }
+func (h *HumanPrincipal) Roles() []string     { return h.roles }
+func (h *HumanPrincipal) DisplayName() string { return h.displayName }
 
 // AgentPrincipal AI Agent 主体
 type AgentPrincipal struct {
@@ -50,12 +63,12 @@ func NewAgent(agentID, ownerUserID, tenantID string, roles []string) *AgentPrinc
 	return &AgentPrincipal{agentID: agentID, ownerUserID: ownerUserID, tenantID: tenantID, roles: roles}
 }
 
-func (a *AgentPrincipal) OwnerUserID() string  { return a.ownerUserID }
-func (a *AgentPrincipal) Kind() Kind           { return KindAgent }
-func (a *AgentPrincipal) Subject() string      { return a.agentID }
-func (a *AgentPrincipal) TenantID() string     { return a.tenantID }
-func (a *AgentPrincipal) Roles() []string      { return a.roles }
-func (a *AgentPrincipal) DisplayName() string  { return "agent:" + a.agentID }
+func (a *AgentPrincipal) OwnerUserID() string { return a.ownerUserID }
+func (a *AgentPrincipal) Kind() Kind          { return KindAgent }
+func (a *AgentPrincipal) Subject() string     { return a.agentID }
+func (a *AgentPrincipal) TenantID() string    { return a.tenantID }
+func (a *AgentPrincipal) Roles() []string     { return a.roles }
+func (a *AgentPrincipal) DisplayName() string { return "agent:" + a.agentID }
 
 // ServicePrincipal 机器服务账号
 type ServicePrincipal struct {
@@ -88,6 +101,10 @@ func FromTokenAndUser(_ string, u *apipb.CurrentUser) Principal {
 	case 2:
 		return NewService(u.Id, u.TenantID, u.RoleIDs)
 	default:
-		return NewHuman(u.Id, u.TenantID, u.RoleIDs)
+		displayName := strings.TrimSpace(u.UserName)
+		if displayName == "" && strings.TrimSpace(u.Nickname) != "" && strings.TrimSpace(u.Nickname) != "未设置" {
+			displayName = strings.TrimSpace(u.Nickname)
+		}
+		return newHuman(u.Id, u.TenantID, displayName, u.RoleIDs)
 	}
 }

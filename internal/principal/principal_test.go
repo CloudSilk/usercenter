@@ -35,7 +35,7 @@ func TestAgentOwner(t *testing.T) {
 }
 
 func TestFromCurrentUser(t *testing.T) {
-	u := &apipb.CurrentUser{Id: "u1", TenantID: "t1", RoleIDs: []string{"r1", "r2"}}
+	u := &apipb.CurrentUser{Id: "u1", UserName: "alice", TenantID: "t1", RoleIDs: []string{"r1", "r2"}}
 	p := FromTokenAndUser("", u)
 	if p.Kind() != KindHuman {
 		t.Fatalf("expected KindHuman, got %v", p.Kind())
@@ -45,5 +45,22 @@ func TestFromCurrentUser(t *testing.T) {
 	}
 	if len(p.Roles()) != 2 || p.Roles()[0] != "r1" {
 		t.Fatalf("unexpected roles: %v", p.Roles())
+	}
+	if p.DisplayName() != "alice" {
+		t.Fatalf("display name = %q, want alice", p.DisplayName())
+	}
+}
+
+func TestHumanDisplayNameFallbacks(t *testing.T) {
+	if got := NewHuman("u1", "t1", nil).DisplayName(); got != "u1" {
+		t.Fatalf("legacy human display name = %q, want user ID", got)
+	}
+	fromNickname := FromTokenAndUser("", &apipb.CurrentUser{Id: "u2", TenantID: "t1", Nickname: "Alice Chen"})
+	if got := fromNickname.DisplayName(); got != "Alice Chen" {
+		t.Fatalf("nickname display name = %q, want Alice Chen", got)
+	}
+	fromUnsetNickname := FromTokenAndUser("", &apipb.CurrentUser{Id: "u3", TenantID: "t1", Nickname: "未设置"})
+	if got := fromUnsetNickname.DisplayName(); got != "u3" {
+		t.Fatalf("unset nickname display name = %q, want user ID", got)
 	}
 }
