@@ -18,6 +18,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/principal"
+	"github.com/CloudSilk/usercenter/internal/session"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -51,6 +52,12 @@ func AuthenticatePrincipal(t, method, url string, checkAuth bool) (principal.Pri
 		return nil, nil, model.InternalServerError, err
 	} else if !ok {
 		return nil, nil, model.TokenInvalid, errors.New("token invalid")
+	}
+	if tokenSig := token.GetTokenSignature(t); tokenSig != "" {
+		if session.IsRevoked(tokenSig) {
+			return nil, nil, model.TokenInvalid, errors.New("session revoked")
+		}
+		session.UpdateActivity(tokenSig)
 	}
 
 	p := principal.FromTokenAndUser(t, currentUser)

@@ -15,14 +15,33 @@ import (
 	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/auth"
+	authtoken "github.com/CloudSilk/usercenter/internal/auth/token"
+	"github.com/CloudSilk/usercenter/internal/session"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/CloudSilk/usercenter/utils/middleware"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+type passwordLoginPayload struct {
+	UserName      string `json:"userName"`
+	Password      string `json:"password"`
+	WechatUnionID string `json:"wechatUnionID"`
+	WechatOpenID  string `json:"wechatOpenID"`
+	DeviceType    *int32 `json:"deviceType"`
+	DeviceName    string `json:"deviceName"`
+}
+
+type mfaLoginPayload struct {
+	MFAToken   string `json:"mfaToken" binding:"required"`
+	Code       string `json:"code" binding:"required"`
+	DeviceType *int32 `json:"deviceType"`
+	DeviceName string `json:"deviceName"`
+}
 
 func scopedUserTenantID(c *gin.Context, requested string) string {
 	current := middleware.GetTenantID(c)
@@ -76,17 +95,21 @@ func userQueryOptions(c *gin.Context) (user.QueryOptions, error) {
 // @Router /api/core/auth/user/login [post]
 func Login(c *gin.Context) {
 	transID := middleware.GetTransID(c)
-	req := &apipb.LoginRequest{}
+	payload := &passwordLoginPayload{}
 	resp := &apipb.LoginResponse{
 		Code: apipb.Code_Success,
 	}
-	err := c.BindJSON(req)
+	err := c.BindJSON(payload)
 	if err != nil {
 		resp.Code = apipb.Code_BadRequest
 		resp.Message = err.Error()
 		c.JSON(http.StatusOK, resp)
 		log.Warnf(context.Background(), "TransID:%s,新建User请求参数无效:%v", transID, err)
 		return
+	}
+	req := &apipb.LoginRequest{
+		UserName: payload.UserName, Password: payload.Password,
+		WechatUnionID: payload.WechatUnionID, WechatOpenID: payload.WechatOpenID,
 	}
 	err = middleware.Validate.Struct(req)
 	if err != nil {
@@ -95,7 +118,15 @@ func Login(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	user.Login(req, resp)
+	loginSession, deviceName := loginSessionContext(c, payload.DeviceType, payload.DeviceName)
+	user.LoginWithSession(req, resp, loginSession)
+	if resp.Code == apipb.Code_Success {
+		if err := persistLoginSession(c, resp.Data, deviceName); err != nil {
+			resp.Code = apipb.Code_InternalServerError
+			resp.Message = err.Error()
+			resp.Data = ""
+		}
+	}
 	// 登录失败时触发安全告警（基于 IP 的暴力破解检测）
 	if resp.Code == 41001 {
 		alert.AlertLoginFailure(req.UserName, c.ClientIP())
@@ -107,19 +138,115 @@ func Login(c *gin.Context) {
 // MFALoginVerify 完成 MFA 二阶段登录。
 // body: {"mfaToken": "...", "code": "123456"}。成功返回 access_token（resp.Data）。
 func MFALoginVerify(c *gin.Context) {
-	var req struct {
-		MFAToken string `json:"mfaToken" binding:"required"`
-		Code     string `json:"code" binding:"required"`
-	}
+	req := &mfaLoginPayload{}
 	resp := &apipb.LoginResponse{Code: apipb.Code_Success}
-	if err := c.BindJSON(&req); err != nil {
+	if err := c.BindJSON(req); err != nil {
 		resp.Code = apipb.Code_BadRequest
 		resp.Message = err.Error()
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	user.CompleteMFALogin(req.MFAToken, req.Code, resp)
+	loginSession, deviceName := loginSessionContext(c, req.DeviceType, req.DeviceName)
+	user.CompleteMFALoginWithSession(req.MFAToken, req.Code, resp, loginSession)
+	if resp.Code == apipb.Code_Success {
+		if err := persistLoginSession(c, resp.Data, deviceName); err != nil {
+			resp.Code = apipb.Code_InternalServerError
+			resp.Message = err.Error()
+			resp.Data = ""
+		}
+	}
 	c.JSON(http.StatusOK, resp)
+}
+
+func loginSessionContext(c *gin.Context, requestedType *int32, requestedName string) (user.LoginSessionContext, string) {
+	deviceType := inferDeviceType(c.Request.UserAgent())
+	if requestedType != nil && *requestedType >= 0 && *requestedType <= 3 {
+		deviceType = *requestedType
+	}
+	deviceName := strings.TrimSpace(requestedName)
+	if deviceName == "" {
+		deviceName = inferDeviceName(c.Request.UserAgent(), deviceType)
+	}
+	return user.LoginSessionContext{
+		ID: uuid.NewString(), DeviceType: deviceType, ClientIP: c.ClientIP(),
+	}, truncateRunes(deviceName, 200)
+}
+
+func persistLoginSession(c *gin.Context, bearerToken, deviceName string) error {
+	current, err := authtoken.DecodeToken(bearerToken)
+	if err != nil || current == nil {
+		return fmt.Errorf("decode issued login token: %w", err)
+	}
+	tokenSig := authtoken.GetTokenSignature(bearerToken)
+	if current.SessionID == "" || tokenSig == "" {
+		_ = authtoken.DefaultTokenCache.Del(current.Id, bearerToken)
+		return fmt.Errorf("issued login token has no manageable session")
+	}
+	record := &session.Session{
+		Model: cmodel.Model{ID: current.SessionID}, PrincipalID: current.Id, TenantID: current.TenantID,
+		TokenSig: tokenSig, DeviceType: current.DeviceType, DeviceName: deviceName,
+		IP: c.ClientIP(), UserAgent: truncateRunes(c.Request.UserAgent(), 500),
+	}
+	if err := session.CreateSession(record); err != nil {
+		_ = authtoken.DefaultTokenCache.Del(current.Id, bearerToken)
+		return fmt.Errorf("record login session: %w", err)
+	}
+	return nil
+}
+
+func inferDeviceType(userAgent string) int32 {
+	lower := strings.ToLower(userAgent)
+	switch {
+	case strings.Contains(lower, "ipad"):
+		return 3
+	case strings.Contains(lower, "iphone"):
+		return 2
+	case strings.Contains(lower, "android"):
+		return 1
+	default:
+		return 0
+	}
+}
+
+func inferDeviceName(userAgent string, deviceType int32) string {
+	lower := strings.ToLower(userAgent)
+	if deviceType == 1 {
+		return "Android"
+	}
+	if deviceType == 2 {
+		return "iPhone"
+	}
+	if deviceType == 3 {
+		return "iPad"
+	}
+	browser, platform := "Web", "未知系统"
+	switch {
+	case strings.Contains(lower, "edg/"):
+		browser = "Edge"
+	case strings.Contains(lower, "chrome/"):
+		browser = "Chrome"
+	case strings.Contains(lower, "firefox/"):
+		browser = "Firefox"
+	case strings.Contains(lower, "safari/"):
+		browser = "Safari"
+	}
+	switch {
+	case strings.Contains(lower, "windows"):
+		platform = "Windows"
+	case strings.Contains(lower, "mac os") || strings.Contains(lower, "macintosh"):
+		platform = "macOS"
+	case strings.Contains(lower, "linux"):
+		platform = "Linux"
+	}
+	return browser + " · " + platform
+}
+
+func truncateRunes(value string, limit int) string {
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) > limit {
+		runes = runes[:limit]
+	}
+	return string(runes)
 }
 
 // Profile godoc
@@ -686,6 +813,8 @@ func RegisterUserRouter(r *gin.Engine) {
 	userGroup.POST("logout", Logout)
 	userGroup.GET("profile", Profile)
 	userGroup.PUT("profile", UpdateProfile)
+	userGroup.GET("security/summary", AccountSecuritySummary)
+	userGroup.DELETE("security/sessions/:id", RevokeOwnSession)
 	userGroup.POST("add", AddUserHandler)
 	userGroup.PUT("update", AutoHandler(UpdateUser))
 	userGroup.PUT("roles", UpdateUserRoles)

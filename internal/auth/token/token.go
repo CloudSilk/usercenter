@@ -9,8 +9,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 
-	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/CloudSilk/usercenter/internal/principal"
+	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -163,6 +163,16 @@ func GetSessionID(t string) (string, error) {
 		return "", nil
 	}
 	return getSessionID(array[1])
+}
+
+// GetTokenSignature returns the JWT signature segment used as the persisted
+// session revocation key. It never returns the full bearer token.
+func GetTokenSignature(t string) string {
+	array := strings.Split(t, ".")
+	if len(array) != 3 {
+		return ""
+	}
+	return array[2]
 }
 
 func getSessionID(sig string) (string, error) {

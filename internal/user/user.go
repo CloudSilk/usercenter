@@ -542,7 +542,17 @@ func UpdateProfile(m *User, updateUserName bool) error {
 	return store.DB().Model(m).Select(fields).Where("id=?", m.ID).Updates(m).Error
 }
 
+type LoginSessionContext struct {
+	ID         string
+	DeviceType int32
+	ClientIP   string
+}
+
 func Login(req *apipb.LoginRequest, resp *apipb.LoginResponse) {
+	LoginWithSession(req, resp, LoginSessionContext{})
+}
+
+func LoginWithSession(req *apipb.LoginRequest, resp *apipb.LoginResponse, loginSession LoginSessionContext) {
 	req.UserName = strings.ToLower(req.UserName)
 	u := &User{}
 	err := store.DB().Model(u).Preload("UserRoles").First(u, "user_name=?", req.UserName).Error
@@ -599,6 +609,7 @@ func Login(req *apipb.LoginRequest, resp *apipb.LoginResponse) {
 	currentUser := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
 		RoleIDs: u.GetEnabledRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
+		SessionID: loginSession.ID, DeviceType: loginSession.DeviceType, ClientIP: loginSession.ClientIP,
 	}
 	t, err := token.EncodeToken(currentUser)
 	if err != nil {
@@ -612,6 +623,10 @@ func Login(req *apipb.LoginRequest, resp *apipb.LoginResponse) {
 // CompleteMFALogin 完成 MFA 第二因素验证并签发 access_token。
 // mfaToken 来自 Login 返回的 challenge（code=41008 时 resp.Data），code 为 6 位 TOTP。
 func CompleteMFALogin(mfaToken, code string, resp *apipb.LoginResponse) {
+	CompleteMFALoginWithSession(mfaToken, code, resp, LoginSessionContext{})
+}
+
+func CompleteMFALoginWithSession(mfaToken, code string, resp *apipb.LoginResponse, loginSession LoginSessionContext) {
 	userID, ok := auth.ConsumeMFAChallenge(mfaToken)
 	if !ok {
 		resp.Code = 41009 // MfaChallengeInvalid
@@ -632,6 +647,7 @@ func CompleteMFALogin(mfaToken, code string, resp *apipb.LoginResponse) {
 	currentUser := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
 		RoleIDs: u.GetEnabledRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
+		SessionID: loginSession.ID, DeviceType: loginSession.DeviceType, ClientIP: loginSession.ClientIP,
 	}
 	t, err := token.EncodeToken(currentUser)
 	if err != nil {
@@ -731,6 +747,11 @@ func Logout(t string) error {
 	}
 	if currentUser == nil {
 		return nil
+	}
+	if tokenSig := token.GetTokenSignature(t); tokenSig != "" {
+		if revokeErr := session.RevokeByTokenSig(tokenSig, "logout"); revokeErr != nil {
+			log.Error(context.Background(), revokeErr)
+		}
 	}
 	err = token.DefaultTokenCache.Del(fmt.Sprint(currentUser.Id), t)
 	if err != nil {

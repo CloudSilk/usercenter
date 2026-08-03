@@ -52,6 +52,16 @@ var selfServiceAPIs = []permission.API{
 		Path:  "/api/core/auth/user/mfa/:id", Method: "DELETE",
 		Group: "个人中心", Description: "解绑当前用户 MFA 因子",
 	},
+	{
+		Model: commonmodel.Model{ID: "uc-self-security-summary"},
+		Path:  "/api/core/auth/user/security/summary", Method: "GET",
+		Group: "个人中心", Description: "读取当前用户安全摘要",
+	},
+	{
+		Model: commonmodel.Model{ID: "uc-self-security-session-delete"},
+		Path:  "/api/core/auth/user/security/sessions/:id", Method: "DELETE",
+		Group: "个人中心", Description: "停用当前用户自己的设备会话",
+	},
 }
 
 // ensureSelfServiceAuthorization reconciles the authentication-only routes that

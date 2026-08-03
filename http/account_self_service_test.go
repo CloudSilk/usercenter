@@ -27,6 +27,8 @@ func TestSelfServiceAuthorizationIsSeededForProductionAuth(t *testing.T) {
 		{http.MethodPost, "/api/core/auth/user/mfa/totp/confirm"},
 		{http.MethodGet, "/api/core/auth/user/mfa/factors"},
 		{http.MethodDelete, "/api/core/auth/user/mfa/:id"},
+		{http.MethodGet, "/api/core/auth/user/security/summary"},
+		{http.MethodDelete, "/api/core/auth/user/security/sessions/:id"},
 	}
 	for _, definition := range definitions {
 		var api permission.API
