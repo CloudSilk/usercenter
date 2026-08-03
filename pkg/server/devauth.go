@@ -7,6 +7,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/apikeyauth"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/principal"
+	"github.com/CloudSilk/usercenter/internal/session"
 	pb "github.com/CloudSilk/usercenter/proto"
 	"github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
@@ -59,6 +60,17 @@ func DevAuthRequired(c *gin.Context) {
 	if err != nil || cu == nil {
 		c.AbortWithStatusJSON(http.StatusOK, gin.H{"code": 41004, "message": "未登录或 token 无效"})
 		return
+	}
+	if cached, cacheErr := token.DefaultTokenCache.Exists("", t); cacheErr != nil || !cached {
+		c.AbortWithStatusJSON(http.StatusOK, gin.H{"code": 41004, "message": "未登录或 token 无效"})
+		return
+	}
+	if tokenSig := token.GetTokenSignature(t); tokenSig != "" {
+		if session.IsRevoked(tokenSig) {
+			c.AbortWithStatusJSON(http.StatusOK, gin.H{"code": 41004, "message": "未登录或 token 无效"})
+			return
+		}
+		session.UpdateActivity(tokenSig)
 	}
 	if p := principal.FromTokenAndUser(t, cu); p != nil {
 		c.Set("Principal", p)

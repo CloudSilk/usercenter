@@ -6,7 +6,11 @@ import (
 	"testing"
 
 	pkgdb "github.com/CloudSilk/pkg/db"
+	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/apikeyauth"
+	"github.com/CloudSilk/usercenter/internal/auth/token"
+	"github.com/CloudSilk/usercenter/internal/session"
+	pb "github.com/CloudSilk/usercenter/proto"
 	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -105,5 +109,59 @@ func TestDevAuthRequiredAcceptsServiceAPIKey(t *testing.T) {
 	}
 	if got := response.Body.String(); got != `{"roles":["ideasprint_runner"],"tenantID":"platform","userID":"runner-1"}` {
 		t.Fatalf("service context = %s", got)
+	}
+}
+
+func TestDevAuthRequiredRejectsRevokedLoginSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	database, err := gorm.Open(
+		sqlite.Open("file:dev-auth-revoked-session?mode=memory&cache=shared"),
+		&gorm.Config{},
+	)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	SetDB(pkgdb.NewDBClient(database, false))
+	if err := database.AutoMigrate(&session.Session{}); err != nil {
+		t.Fatalf("migrate sessions: %v", err)
+	}
+	token.InitTokenCache("dev-auth-revoked-session-secret", "", "", "", 120)
+	bearer, err := token.EncodeToken(&pb.CurrentUser{
+		Id: "dev-auth-user", TenantID: "platform", UserName: "dev-auth-user", SessionID: "dev-auth-session",
+	})
+	if err != nil {
+		t.Fatalf("encode token: %v", err)
+	}
+	loginSession := &session.Session{
+		Model: commonmodel.Model{ID: "dev-auth-session"}, PrincipalID: "dev-auth-user", TenantID: "platform",
+		TokenSig: token.GetTokenSignature(bearer), DeviceName: "Chrome · Windows",
+	}
+	if err := session.CreateSession(loginSession); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	router := gin.New()
+	router.Use(DevAuthRequired)
+	router.GET("/api/protected", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/protected", nil)
+	request.Header.Set("Authorization", "Bearer "+bearer)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("active session status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+	}
+
+	if err := session.RevokeSession(loginSession.ID, "test revoke"); err != nil {
+		t.Fatalf("revoke session: %v", err)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/protected", nil)
+	request.Header.Set("Authorization", "Bearer "+bearer)
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() == "" {
+		t.Fatalf("revoked session status = %d, want token error; body=%s", response.Code, response.Body.String())
 	}
 }
