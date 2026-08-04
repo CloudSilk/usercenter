@@ -113,6 +113,23 @@ func GetSystemConfigsByKeys(keys []string) ([]*SystemConfig, error) {
 	return list, err
 }
 
+// GetSystemConfigsByKeyPrefix returns configs in one exact key namespace.
+// LIKE metacharacters in the namespace are escaped so an embedded product
+// cannot accidentally widen a tenant-scoped lookup.
+func GetSystemConfigsByKeyPrefix(prefix string) ([]*SystemConfig, error) {
+	escaped := strings.NewReplacer(
+		`\`, `\\`,
+		`%`, `\%`,
+		`_`, `\_`,
+	).Replace(prefix)
+	var list []*SystemConfig
+	err := store.DB().
+		Where("`key` LIKE ? ESCAPE '\\'", escaped+"%").
+		Order("`key` ASC").
+		Find(&list).Error
+	return list, err
+}
+
 // GetSystemConfigMapByKeys returns a key→value map for the given keys.
 func GetSystemConfigMapByKeys(keys []string) (map[string]string, error) {
 	list, err := GetSystemConfigsByKeys(keys)

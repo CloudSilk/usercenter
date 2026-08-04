@@ -46,6 +46,29 @@ func GetSystemConfigValue(key string) (
 	}, true, nil
 }
 
+// ListSystemConfigValues reads every value in one namespaced key prefix.
+// Embedded products use this to discover their own tenant-scoped settings
+// without depending on UserCenter's GORM model or unfiltered admin APIs.
+func ListSystemConfigValues(prefix string) ([]SystemConfigValue, error) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return nil, errors.New("system config key prefix is required")
+	}
+	items, err := systemconfig.GetSystemConfigsByKeyPrefix(prefix)
+	if err != nil {
+		return nil, err
+	}
+	values := make([]SystemConfigValue, 0, len(items))
+	for _, item := range items {
+		values = append(values, SystemConfigValue{
+			Key:       item.Key,
+			Value:     item.Value,
+			UpdatedAt: item.UpdatedAt,
+		})
+	}
+	return values, nil
+}
+
 // CompareAndSwapSystemConfigValue atomically writes one namespaced value.
 // expectedValue=nil creates only when the key is absent. A non-nil value
 // updates only when the complete stored value still matches, preventing a

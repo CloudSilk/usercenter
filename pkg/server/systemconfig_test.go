@@ -94,4 +94,51 @@ func TestSystemConfigValueRejectsBlankKey(t *testing.T) {
 	if _, err := CompareAndSwapSystemConfigValue("", nil, "{}"); err == nil {
 		t.Fatal("blank compare-and-swap key was accepted")
 	}
+	if _, err := ListSystemConfigValues("  "); err == nil {
+		t.Fatal("blank list prefix was accepted")
+	}
+}
+
+func TestListSystemConfigValuesScopesAndSortsPrefix(t *testing.T) {
+	db, err := gorm.Open(
+		sqlite.Open("file:server-system-config-prefix?mode=memory&cache=shared"),
+		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)},
+	)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := db.AutoMigrate(&systemconfig.SystemConfig{}); err != nil {
+		t.Fatalf("migrate system config: %v", err)
+	}
+	SetDB(pkgdb.NewDBClient(db, false))
+
+	for key, value := range map[string]string{
+		"labelnexus.connector.tenant-a.erp-b": `{"name":"ERP B"}`,
+		"labelnexus.connector.tenant-a.api-a": `{"name":"API A"}`,
+		"labelnexus.connector.tenant-b.erp-a": `{"name":"Other tenant"}`,
+		"labelnexus.connector.tenant%wild":    `{"name":"Wildcard"}`,
+	} {
+		created, createErr := CompareAndSwapSystemConfigValue(key, nil, value)
+		if createErr != nil || !created {
+			t.Fatalf("create %q: created=%v err=%v", key, created, createErr)
+		}
+	}
+
+	values, err := ListSystemConfigValues("labelnexus.connector.tenant-a.")
+	if err != nil {
+		t.Fatalf("list tenant prefix: %v", err)
+	}
+	if len(values) != 2 ||
+		values[0].Key != "labelnexus.connector.tenant-a.api-a" ||
+		values[1].Key != "labelnexus.connector.tenant-a.erp-b" {
+		t.Fatalf("unexpected tenant values: %#v", values)
+	}
+
+	wildcardValues, err := ListSystemConfigValues("labelnexus.connector.tenant%")
+	if err != nil {
+		t.Fatalf("list escaped prefix: %v", err)
+	}
+	if len(wildcardValues) != 1 || wildcardValues[0].Key != "labelnexus.connector.tenant%wild" {
+		t.Fatalf("prefix wildcard was not escaped: %#v", wildcardValues)
+	}
 }
