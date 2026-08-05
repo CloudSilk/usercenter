@@ -122,13 +122,20 @@ func (u User) GetRoleIDs() []string {
 // embedded in JWTs, so disabled roles must never enter a newly issued login
 // context even when the historical user-role link is intentionally retained.
 func (u User) GetEnabledRoleIDs() []string {
+	return u.GetEnabledRoleIDsForTenant(u.TenantID)
+}
+
+// GetEnabledRoleIDsForTenant returns the enabled roles that are effective in
+// one tenant. Public roles remain available across tenants; tenant-owned roles
+// are never allowed to leak into a token issued for another tenant.
+func (u User) GetEnabledRoleIDsForTenant(tenantID string) []string {
 	roleIDs := u.GetRoleIDs()
 	if len(roleIDs) == 0 {
 		return nil
 	}
 	var enabledRoleIDs []string
 	if err := store.DB().Model(&permission.Role{}).
-		Where("id IN ? AND enable = ?", roleIDs, true).
+		Where("id IN ? AND enable = ? AND (public = ? OR tenant_id = ?)", roleIDs, true, true, tenantID).
 		Pluck("id", &enabledRoleIDs).Error; err != nil {
 		log.Errorf(context.Background(), "load enabled roles for user %s failed: %v", u.ID, err)
 		return nil
@@ -530,6 +537,23 @@ func UpdatePwd(id string, oldPwd, newPwd string) error {
 		if err := token.DefaultTokenCache.DelByUserID(id); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// VerifyPassword verifies the current password without mutating account state.
+// It is used by short-lived step-up challenges for high-risk self-service
+// operations; callers must not expose the stored hash or distinguish failures.
+func VerifyPassword(id, password string) error {
+	if strings.TrimSpace(id) == "" || password == "" {
+		return errors.New("当前密码不能为空")
+	}
+	var u User
+	if err := store.DB().Select("id", "password").Where("id = ?", id).First(&u).Error; err != nil {
+		return err
+	}
+	if err := scrypt.CompareHashAndPassword([]byte(u.Password), []byte(password)); err != nil {
+		return errors.New("当前密码不正确")
 	}
 	return nil
 }

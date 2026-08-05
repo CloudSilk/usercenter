@@ -28,7 +28,10 @@ func TestSelfServiceAuthorizationIsSeededForProductionAuth(t *testing.T) {
 		{http.MethodGet, "/api/core/auth/user/mfa/factors"},
 		{http.MethodDelete, "/api/core/auth/user/mfa/:id"},
 		{http.MethodGet, "/api/core/auth/user/security/summary"},
+		{http.MethodPost, "/api/core/auth/user/security/reverify"},
+		{http.MethodPost, "/api/core/auth/user/security/sessions/revoke-all"},
 		{http.MethodDelete, "/api/core/auth/user/security/sessions/:id"},
+		{http.MethodPost, "/api/core/auth/user/security/tenant/switch"},
 	}
 	for _, definition := range definitions {
 		var api permission.API
@@ -276,12 +279,20 @@ func TestMFAUserRoutesConfirmListAndEnforceOwnerBoundary(t *testing.T) {
 		t.Fatalf("unexpected MFA list: %#v", listResp)
 	}
 
-	deleted := decodeCommonResponse(t, doJSONRequest(
+	proof := requestAccountReauth(
+		t,
+		router,
+		"disable_mfa:"+confirmResp.Data.ID,
+		"Old12345",
+		auth.GenerateTOTPCode(enrollResp.Data.Secret),
+	)
+	deleted := decodeCommonResponse(t, doJSONRequestWithReauth(
 		t,
 		router,
 		http.MethodDelete,
 		"/api/core/auth/user/mfa/"+confirmResp.Data.ID,
 		nil,
+		proof,
 	))
 	if deleted.Code != apipb.Code_Success {
 		t.Fatalf("delete own MFA factor failed: %v (%s)", deleted.Code, deleted.Message)

@@ -58,9 +58,24 @@ var selfServiceAPIs = []permission.API{
 		Group: "个人中心", Description: "读取当前用户安全摘要",
 	},
 	{
+		Model: commonmodel.Model{ID: "uc-self-security-reverify"},
+		Path:  "/api/core/auth/user/security/reverify", Method: "POST",
+		Group: "个人中心", Description: "为高风险账户操作重新验证身份",
+	},
+	{
+		Model: commonmodel.Model{ID: "uc-self-security-session-all"},
+		Path:  "/api/core/auth/user/security/sessions/revoke-all", Method: "POST",
+		Group: "个人中心", Description: "退出当前用户的全部设备",
+	},
+	{
 		Model: commonmodel.Model{ID: "uc-self-security-session-delete"},
 		Path:  "/api/core/auth/user/security/sessions/:id", Method: "DELETE",
 		Group: "个人中心", Description: "停用当前用户自己的设备会话",
+	},
+	{
+		Model: commonmodel.Model{ID: "uc-self-security-tenant-switch"},
+		Path:  "/api/core/auth/user/security/tenant/switch", Method: "POST",
+		Group: "个人中心", Description: "切换当前用户的活动租户",
 	},
 }
 

@@ -26,7 +26,10 @@ func registerMFARoutes(g *gin.RouterGroup) {
 
 func registerUserMFARoutes(g *gin.RouterGroup) {
 	m := g.Group("/mfa")
-	registerMFAHandlers(m)
+	m.POST("/totp/enroll", mfaTOTPEnroll)
+	m.POST("/totp/confirm", mfaTOTPConfirm)
+	m.GET("/factors", mfaListFactors)
+	m.DELETE("/:id", mfaDeleteOwnFactor)
 }
 
 func registerMFAHandlers(m *gin.RouterGroup) {
@@ -127,4 +130,12 @@ func mfaDeleteFactor(c *gin.Context) {
 	}
 	recordAudit(c, "mfa_unbind", id, "")
 	writeOK(c, nil)
+}
+
+func mfaDeleteOwnFactor(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" || !requireAccountReauth(c, "disable_mfa:"+id) {
+		return
+	}
+	mfaDeleteFactor(c)
 }
