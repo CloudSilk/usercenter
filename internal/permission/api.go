@@ -187,8 +187,14 @@ func getAllAPIsByCheck(checkAuth, checkLogin int) []API {
 
 func updateNotCheckAuthRule() {
 	apis := getAllAPIsByCheck(2, 1)
-	var newRules []*CasbinRule
+	newRules := make([]*CasbinRule, 0, len(apis))
+	seen := make(map[string]struct{}, len(apis))
 	for _, api := range apis {
+		key := api.Method + "\x00" + api.Path
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
 		newRules = append(newRules, &CasbinRule{
 			Ptype:     "p",
 			RoleID:    "0",
@@ -215,8 +221,14 @@ func UpdateNotCheckAuthRule() {
 
 func updateNotCheckLoginRule() {
 	apis := getAllAPIsByCheck(0, 2)
-	var newRules []*CasbinRule
+	newRules := make([]*CasbinRule, 0, len(apis))
+	seen := make(map[string]struct{}, len(apis))
 	for _, api := range apis {
+		key := api.Method + "\x00" + api.Path
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
 		newRules = append(newRules, &CasbinRule{
 			Ptype:     "p",
 			RoleID:    "-1",

@@ -129,7 +129,17 @@ func AuthRequired(c *gin.Context) {
 		// Invalid API key — continue to JWT auth (don't abort, let JWT handle it)
 	}
 	t := GetAccessToken(c)
-	p, currentUser, code, err := authn.AuthenticatePrincipal(t, c.Request.Method, c.Request.URL.Path, true)
+	var (
+		p           principal.Principal
+		currentUser *apipb.CurrentUser
+		code        int
+		err         error
+	)
+	if isAuthenticationOnlyPath(path) {
+		p, currentUser, code, err = authn.AuthenticateRequiredPrincipal(t)
+	} else {
+		p, currentUser, code, err = authn.AuthenticatePrincipal(t, c.Request.Method, path, true)
+	}
 
 	if code != model.Success {
 		if code == model.Unauthorized {
@@ -175,6 +185,10 @@ func isPublicAuthPath(path string) bool {
 	return strings.HasPrefix(path, "/.well-known/") ||
 		strings.HasPrefix(path, "/api/oauth/") ||
 		strings.HasPrefix(path, "/api/wechat/notify/")
+}
+
+func isAuthenticationOnlyPath(path string) bool {
+	return path == "/api/core/auth/authorization/check"
 }
 
 var IdentityImpl = new(apipb.IdentityClientImpl)

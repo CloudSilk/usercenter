@@ -29,16 +29,29 @@ import (
 // 这是 REDESIGN §4 阶段3 的核心交付——Authenticate 不再返回 CurrentUser,
 // 而是返回 Principal,彻底消除 FromCurrentUser 适配器。
 func AuthenticatePrincipal(t, method, url string, checkAuth bool) (principal.Principal, *apipb.CurrentUser, int, error) {
+	return authenticatePrincipal(t, method, url, checkAuth, true)
+}
+
+// AuthenticateRequiredPrincipal authenticates an active token without treating
+// a configured public API policy as a login bypass. It is used by endpoints
+// that accept every authenticated role before evaluating another resource.
+func AuthenticateRequiredPrincipal(t string) (principal.Principal, *apipb.CurrentUser, int, error) {
+	return authenticatePrincipal(t, "", "", false, false)
+}
+
+func authenticatePrincipal(t, method, url string, checkAuth, allowPublic bool) (principal.Principal, *apipb.CurrentUser, int, error) {
 	currentUser, decodeTokenErr := token.DecodeToken(t)
 
 	// 白名单(免登录)
-	ok, err := permission.EnforceCached("-1", url, method)
-	if err != nil {
-		return nil, nil, model.InternalServerError, err
-	}
-	if ok {
-		p := principal.FromTokenAndUser(t, currentUser)
-		return p, currentUser, model.Success, nil
+	if allowPublic {
+		ok, err := permission.EnforceCached("-1", url, method)
+		if err != nil {
+			return nil, nil, model.InternalServerError, err
+		}
+		if ok {
+			p := principal.FromTokenAndUser(t, currentUser)
+			return p, currentUser, model.Success, nil
+		}
 	}
 
 	if decodeTokenErr != nil {
@@ -74,7 +87,7 @@ func AuthenticatePrincipal(t, method, url string, checkAuth bool) (principal.Pri
 	}
 
 	// 判断是否不需要校验权限
-	ok, err = permission.EnforceCached("0", url, method)
+	ok, err := permission.EnforceCached("0", url, method)
 	if err != nil {
 		return nil, nil, model.InternalServerError, err
 	}

@@ -25,94 +25,94 @@ const authorizationCatalogIDMaxLength = 36
 // role, menu, API, tenant and Casbin tables; custom rows outside the catalog
 // are preserved.
 type AuthorizationCatalog struct {
-	TenantID      string
-	ProjectID     string
-	DefaultRoleID string
-	Roles         []AuthorizationRole
-	Menus         []AuthorizationMenu
-	APIs          []AuthorizationAPI
-	RoleGrants    []AuthorizationRoleGrant
-	TenantGrants  []AuthorizationTenantGrant
-	ABACPolicies  []AuthorizationABACPolicy
+	TenantID      string                     `json:"tenantID"`
+	ProjectID     string                     `json:"projectID,omitempty"`
+	DefaultRoleID string                     `json:"defaultRoleID,omitempty"`
+	Roles         []AuthorizationRole        `json:"roles"`
+	Menus         []AuthorizationMenu        `json:"menus"`
+	APIs          []AuthorizationAPI         `json:"apis"`
+	RoleGrants    []AuthorizationRoleGrant   `json:"roleGrants"`
+	TenantGrants  []AuthorizationTenantGrant `json:"tenantGrants"`
+	ABACPolicies  []AuthorizationABACPolicy  `json:"abacPolicies"`
 }
 
 type AuthorizationRole struct {
-	ID            string
-	Name          string
-	ParentID      string
-	DefaultRouter string
-	Description   string
-	Public        bool
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	ParentID      string `json:"parentID,omitempty"`
+	DefaultRouter string `json:"defaultRouter,omitempty"`
+	Description   string `json:"description,omitempty"`
+	Public        bool   `json:"public"`
 }
 
 type AuthorizationMenu struct {
-	ID          string
-	ParentID    string
-	Path        string
-	Name        string
-	Title       string
-	Icon        string
-	Component   string
-	Level       uint32
-	Sort        int32
-	Hidden      bool
-	Cache       bool
-	DefaultMenu bool
-	CloseTab    bool
-	Functions   []AuthorizationFunction
+	ID          string                  `json:"id"`
+	ParentID    string                  `json:"parentID,omitempty"`
+	Path        string                  `json:"path"`
+	Name        string                  `json:"name"`
+	Title       string                  `json:"title"`
+	Icon        string                  `json:"icon,omitempty"`
+	Component   string                  `json:"component,omitempty"`
+	Level       uint32                  `json:"level"`
+	Sort        int32                   `json:"sort"`
+	Hidden      bool                    `json:"hidden"`
+	Cache       bool                    `json:"cache"`
+	DefaultMenu bool                    `json:"defaultMenu"`
+	CloseTab    bool                    `json:"closeTab"`
+	Functions   []AuthorizationFunction `json:"functions"`
 }
 
 type AuthorizationFunction struct {
-	ID     string
-	Name   string
-	Title  string
-	Hidden bool
-	APIIDs []string
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Title  string   `json:"title"`
+	Hidden bool     `json:"hidden"`
+	APIIDs []string `json:"apiIDs"`
 }
 
 type AuthorizationAPI struct {
-	ID          string
-	Path        string
-	Method      string
-	Group       string
-	Description string
-	CheckAuth   bool
-	CheckLogin  bool
+	ID          string `json:"id"`
+	Path        string `json:"path"`
+	Method      string `json:"method"`
+	Group       string `json:"group,omitempty"`
+	Description string `json:"description,omitempty"`
+	CheckAuth   bool   `json:"checkAuth"`
+	CheckLogin  bool   `json:"checkLogin"`
 }
 
 type AuthorizationRoleGrant struct {
-	RoleID    string
-	MenuID    string
-	Functions []string
-	Show      bool
+	RoleID    string   `json:"roleID"`
+	MenuID    string   `json:"menuID"`
+	Functions []string `json:"functions"`
+	Show      bool     `json:"show"`
 }
 
 type AuthorizationTenantGrant struct {
-	TenantID  string
-	MenuID    string
-	Functions []string
+	TenantID  string   `json:"tenantID"`
+	MenuID    string   `json:"menuID"`
+	Functions []string `json:"functions"`
 }
 
 type AuthorizationABACPolicy struct {
-	TenantID  string
-	RoleID    string
-	Resource  string
-	Action    string
-	DataScope int32
-	Condition string
-	Priority  int32
+	TenantID  string `json:"tenantID"`
+	RoleID    string `json:"roleID"`
+	Resource  string `json:"resource"`
+	Action    string `json:"action"`
+	DataScope int32  `json:"dataScope"`
+	Condition string `json:"condition,omitempty"`
+	Priority  int32  `json:"priority"`
 }
 
 type AuthorizationCatalogSummary struct {
-	RoleCount             int
-	MenuCount             int
-	FunctionCount         int
-	APICount              int
-	RoleGrantCount        int
-	TenantGrantCount      int
-	ABACPolicyCount       int
-	DefaultRoleUsersAdded int
-	CasbinRuleCount       int
+	RoleCount             int `json:"roleCount"`
+	MenuCount             int `json:"menuCount"`
+	FunctionCount         int `json:"functionCount"`
+	APICount              int `json:"apiCount"`
+	RoleGrantCount        int `json:"roleGrantCount"`
+	TenantGrantCount      int `json:"tenantGrantCount"`
+	ABACPolicyCount       int `json:"abacPolicyCount"`
+	DefaultRoleUsersAdded int `json:"defaultRoleUsersAdded"`
+	CasbinRuleCount       int `json:"casbinRuleCount"`
 }
 
 // Concise public aliases keep embedded-product catalog declarations readable

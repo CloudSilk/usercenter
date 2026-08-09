@@ -29,6 +29,7 @@ func TestPublicAuthenticationPaths(t *testing.T) {
 
 	protected := []string{
 		"/api/core/auth/user/profile",
+		"/api/core/auth/authorization/check",
 		"/api/core/wechat/config/query",
 		"/api/wechat/mini/phone/bind",
 		"/api/core/auth/role/authorization",
@@ -37,5 +38,11 @@ func TestPublicAuthenticationPaths(t *testing.T) {
 		if isPublicAuthPath(path) {
 			t.Errorf("expected protected path: %s", path)
 		}
+	}
+	if !isAuthenticationOnlyPath("/api/core/auth/authorization/check") {
+		t.Error("runtime authorization check must require authentication without a role gate")
+	}
+	if isAuthenticationOnlyPath("/api/core/auth/authorization/catalog/apply") {
+		t.Error("catalog apply must remain role protected")
 	}
 }

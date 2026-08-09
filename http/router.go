@@ -21,5 +21,6 @@ func RegisterAuthRouter(r *gin.Engine) {
 	RegisterWebSiteRouter(r)
 	RegisterWechatConfigRouter(r)
 	RegisterPermissionEffectivenessRouter(r)
+	RegisterAuthorizationRouter(r)
 	registerAPIKeyAuthRoutes(r.Group("/admin/api"))
 }
