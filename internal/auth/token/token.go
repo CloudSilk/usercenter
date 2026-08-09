@@ -12,6 +12,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/principal"
 	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 const defaultExpired = 30 * 24 * time.Hour // 回退默认值，当配置值转换失败时使用
@@ -25,12 +26,38 @@ func SetSecretKey(key string) {
 
 // EncodeToken 生产Token
 func EncodeToken(user *apipb.CurrentUser) (string, error) {
+	tokenString, err := signToken(user)
+	if err != nil {
+		return "", err
+	}
+	if err := DefaultTokenCache.StoreToken(fmt.Sprint(user.Id), tokenString); err != nil {
+		return "", err
+	}
+	return tokenString, nil
+}
+
+// RotateToken replaces one active access token without deleting the session's
+// asymmetric key material. Callers must update the persisted session token
+// signature and roll this cache change back if that database update fails.
+func RotateToken(user *apipb.CurrentUser, oldToken string) (string, error) {
+	tokenString, err := signToken(user)
+	if err != nil {
+		return "", err
+	}
+	if err := DefaultTokenCache.ReplaceToken(fmt.Sprint(user.Id), oldToken, tokenString); err != nil {
+		return "", err
+	}
+	return tokenString, nil
+}
+
+func signToken(user *apipb.CurrentUser) (string, error) {
 	expired := DefaultTokenCache.TokenExpired()
 
 	token := jwt.New(jwt.SigningMethodHS256)
 	claims := make(jwt.MapClaims)
 	claims["exp"] = time.Now().Add(time.Minute * time.Duration(expired)).Unix()
 	claims["iat"] = time.Now().Unix()
+	claims["jti"] = uuid.NewString()
 	claims["id"] = user.Id
 	claims["userName"] = user.UserName
 	claims["domain"] = user.Domain
@@ -49,15 +76,7 @@ func EncodeToken(user *apipb.CurrentUser) (string, error) {
 	claims["vipExpired"] = user.VipExpired
 
 	token.Claims = claims
-	tokenString, err := token.SignedString([]byte(secretKey))
-	if err != nil {
-		return "", err
-	}
-	err = DefaultTokenCache.StoreToken(fmt.Sprint(user.Id), tokenString)
-	if err != nil {
-		return "", err
-	}
-	return tokenString, err
+	return token.SignedString([]byte(secretKey))
 }
 
 // DecodeToken  解析token

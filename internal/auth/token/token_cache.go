@@ -42,6 +42,8 @@ type TokenCache interface {
 	Exists(userID, token string) (bool, error)
 	//StoreToken 存储Token
 	StoreToken(userID, token string) error
+	//ReplaceToken 在保留会话密钥的前提下用新 Token 原子替换旧 Token
+	ReplaceToken(userID, oldToken, newToken string) error
 	//TokenExpired Token过期时间，单位分钟
 	TokenExpired() int
 	StorePrivateKey(sessionID string, privateKey string) error
@@ -144,6 +146,35 @@ func (r *Redis) StoreToken(userID, token string) error {
 	}
 	_, err := r.client.Set(context.Background(), r.getKey(userID, field), token, r.tokenExpiry()).Result()
 	return err
+}
+
+func (r *Redis) ReplaceToken(userID, oldToken, newToken string) error {
+	oldField := r.getField(oldToken)
+	newField := r.getField(newToken)
+	if oldField == "" || newField == "" || oldField == newField {
+		return errors.New("invalid token rotation")
+	}
+	const replaceScript = `
+if redis.call("EXISTS", KEYS[1]) == 0 then
+  return 0
+end
+redis.call("SET", KEYS[2], ARGV[1], "PX", ARGV[2])
+redis.call("DEL", KEYS[1])
+return 1`
+	result, err := r.client.Eval(
+		context.Background(),
+		replaceScript,
+		[]string{r.getKey(userID, oldField), r.getKey(userID, newField)},
+		newToken,
+		r.tokenExpiry().Milliseconds(),
+	).Int()
+	if err != nil {
+		return err
+	}
+	if result != 1 {
+		return errors.New("old token is not active")
+	}
+	return nil
 }
 
 func (r *Redis) GetPrivateKey(sessionID string) (string, bool) {
@@ -301,6 +332,35 @@ func (m *Memory) StoreToken(userID, token string) error {
 	}
 
 	m.tokenLock.Unlock()
+	return nil
+}
+
+func (m *Memory) ReplaceToken(userID, oldToken, newToken string) error {
+	oldParts := strings.Split(oldToken, ".")
+	newParts := strings.Split(newToken, ".")
+	if len(oldParts) != 3 || len(newParts) != 3 || oldParts[2] == newParts[2] {
+		return errors.New("invalid token rotation")
+	}
+	if _, active := m.tokenCache.Get(oldParts[2]); !active {
+		return errors.New("old token is not active")
+	}
+
+	m.tokenLock.Lock()
+	tokens, ok := m.userCache[userID]
+	if !ok {
+		m.tokenLock.Unlock()
+		return errors.New("old token is not active")
+	}
+	if _, ok := tokens[oldParts[2]]; !ok {
+		m.tokenLock.Unlock()
+		return errors.New("old token is not active")
+	}
+	delete(tokens, oldParts[2])
+	tokens[newParts[2]] = struct{}{}
+	m.tokenLock.Unlock()
+
+	m.tokenCache.SetDefault(newParts[2], newToken)
+	m.tokenCache.Delete(oldParts[2])
 	return nil
 }
 

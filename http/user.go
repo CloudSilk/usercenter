@@ -650,6 +650,20 @@ func Logout(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// RefreshToken rotates the current human access token without creating a new
+// device session. The previous token becomes invalid as soon as this succeeds.
+func RefreshToken(c *gin.Context) {
+	resp := &apipb.LoginResponse{Code: apipb.Code_Success}
+	newToken, code, err := user.RefreshToken(middleware.GetAccessToken(c))
+	resp.Code = apipb.Code(code)
+	if err != nil {
+		resp.Message = err.Error()
+	} else {
+		resp.Data = newToken
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // ExportUser godoc
 // @Summary 导出
 // @Tags 用户管理
@@ -811,6 +825,7 @@ func RegisterUserRouter(r *gin.Engine) {
 	userGroup.POST("mfa/verify", MFALoginVerify)
 	registerUserMFARoutes(userGroup)
 	userGroup.POST("logout", Logout)
+	userGroup.POST("token/refresh", RefreshToken)
 	userGroup.GET("profile", Profile)
 	userGroup.PUT("profile", UpdateProfile)
 	userGroup.GET("security/summary", AccountSecuritySummary)

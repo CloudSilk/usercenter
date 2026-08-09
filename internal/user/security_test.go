@@ -97,6 +97,51 @@ func TestLoginSuccessClearsFailures(t *testing.T) {
 	}
 }
 
+func TestRefreshTokenRotatesCacheAndManageableSession(t *testing.T) {
+	u := mustCreateUser(t, "refreshuser", "Abc12345")
+	const sessionID = "refresh-session"
+	oldToken, err := token.EncodeToken(&apipb.CurrentUser{
+		Id: u.ID, UserName: u.UserName, TenantID: u.TenantID, SessionID: sessionID,
+	})
+	if err != nil {
+		t.Fatalf("encode old token: %v", err)
+	}
+	if err := store.DB().Create(&session.Session{
+		Model: commonmodel.Model{ID: sessionID}, PrincipalID: u.ID, TenantID: u.TenantID,
+		TokenSig: token.GetTokenSignature(oldToken),
+	}).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	newToken, code, err := user.RefreshToken(oldToken)
+	if err != nil || code != commonmodel.Success || newToken == "" || newToken == oldToken {
+		t.Fatalf("refresh failed: code=%d token=%q err=%v", code, newToken, err)
+	}
+	if active, err := token.DefaultTokenCache.Exists(u.ID, oldToken); err != nil || active {
+		t.Fatalf("old token remained active: active=%v err=%v", active, err)
+	}
+	if active, err := token.DefaultTokenCache.Exists(u.ID, newToken); err != nil || !active {
+		t.Fatalf("new token is not active: active=%v err=%v", active, err)
+	}
+	var storedSession session.Session
+	if err := store.DB().First(&storedSession, "id = ?", sessionID).Error; err != nil {
+		t.Fatalf("reload session: %v", err)
+	}
+	if storedSession.TokenSig != token.GetTokenSignature(newToken) || storedSession.Revoked {
+		t.Fatalf("session was not rotated: %#v", storedSession)
+	}
+
+	if _, code, err := user.RefreshToken(oldToken); err == nil || code != commonmodel.TokenInvalid {
+		t.Fatalf("old token refresh must fail: code=%d err=%v", code, err)
+	}
+	if err := session.RevokeSession(sessionID, "test revoke"); err != nil {
+		t.Fatalf("revoke session: %v", err)
+	}
+	if _, code, err := user.RefreshToken(newToken); err == nil || code != commonmodel.TokenInvalid {
+		t.Fatalf("revoked session refresh must fail: code=%d err=%v", code, err)
+	}
+}
+
 func TestLoginLockoutAfterMaxFailures(t *testing.T) {
 	u := mustCreateUser(t, "lockuser", "Abc12345")
 	wrong := &apipb.LoginRequest{UserName: "lockuser", Password: "wrong"}

@@ -260,6 +260,7 @@ GET  /.well-known/jwks.json             → JWKS 密钥集
 |------|------|------|
 | POST | `/api/core/auth/user/login` | 用户名密码登录 |
 | POST | `/api/core/auth/user/logout` | 登出 |
+| POST | `/api/core/auth/user/token/refresh` | 轮换当前会话 Token，旧 Token 立即失效 |
 | GET | `/api/core/auth/user/profile` | 获取个人信息 |
 | PUT | `/api/core/auth/user/profile` | 更新个人信息 |
 | POST | `/api/core/auth/user/add` | 创建用户 |
@@ -274,7 +275,7 @@ GET  /.well-known/jwks.json             → JWKS 密钥集
 | GET | `/api/core/auth/user/export` | 导出 |
 | POST | `/api/core/auth/user/import` | 导入 |
 
-`profile`（GET/PUT）、`changepwd`、`logout` 和上述 MFA 自助端点会在 `RunMigration()` 时作为 UserCenter 必需 API 幂等登记：它们要求有效登录，但不要求产品管理角色。因此普通客户可维护自己的账号，生产鉴权模式也不需要宿主重复播种这组权限。
+`profile`（GET/PUT）、`changepwd`、`logout`、`token/refresh` 和上述 MFA 自助端点会在 `RunMigration()` 时作为 UserCenter 必需 API 幂等登记：它们要求有效登录，但不要求产品管理角色。因此普通客户可维护自己的账号，生产鉴权模式也不需要宿主重复播种这组权限。`token/refresh` 只轮换当前人类用户的同一设备会话，不创建第二条会话；成功后旧 Token 立即失效。
 
 ### 4.2 密码安全
 

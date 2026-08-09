@@ -23,6 +23,7 @@ func TestSelfServiceAuthorizationIsSeededForProductionAuth(t *testing.T) {
 		{http.MethodPut, "/api/core/auth/user/profile"},
 		{http.MethodPost, "/api/core/auth/user/changepwd"},
 		{http.MethodPost, "/api/core/auth/user/logout"},
+		{http.MethodPost, "/api/core/auth/user/token/refresh"},
 		{http.MethodPost, "/api/core/auth/user/mfa/totp/enroll"},
 		{http.MethodPost, "/api/core/auth/user/mfa/totp/confirm"},
 		{http.MethodGet, "/api/core/auth/user/mfa/factors"},

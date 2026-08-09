@@ -33,6 +33,11 @@ var selfServiceAPIs = []permission.API{
 		Group: "个人中心", Description: "退出当前登录",
 	},
 	{
+		Model: commonmodel.Model{ID: "uc-self-token-refresh-post"},
+		Path:  "/api/core/auth/user/token/refresh", Method: "POST",
+		Group: "个人中心", Description: "续期当前登录",
+	},
+	{
 		Model: commonmodel.Model{ID: "uc-self-mfa-enroll"},
 		Path:  "/api/core/auth/user/mfa/totp/enroll", Method: "POST",
 		Group: "个人中心", Description: "开始绑定 TOTP 验证器",

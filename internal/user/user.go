@@ -784,6 +784,61 @@ func Logout(t string) error {
 	return nil
 }
 
+// RefreshToken rotates an active human access token while preserving its
+// manageable device session. The old token is restored if the session row
+// cannot be updated, so refresh never leaves two active access tokens.
+func RefreshToken(t string) (string, int, error) {
+	currentUser, err := token.DecodeToken(t)
+	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return "", commonmodel.TokenExpired, errors.New("token is expired")
+		}
+		return "", commonmodel.TokenInvalid, errors.New("token is invalid")
+	}
+	if currentUser == nil || token.IsAgentToken(currentUser) || token.IsServiceToken(currentUser) {
+		return "", commonmodel.TokenInvalid, errors.New("human login token is required")
+	}
+	if token.DefaultTokenCache == nil {
+		return "", commonmodel.InternalServerError, errors.New("token cache is not initialized")
+	}
+	active, err := token.DefaultTokenCache.Exists(currentUser.Id, t)
+	if err != nil {
+		return "", commonmodel.InternalServerError, fmt.Errorf("check active token: %w", err)
+	}
+	oldSignature := token.GetTokenSignature(t)
+	if !active || currentUser.SessionID == "" || oldSignature == "" {
+		return "", commonmodel.TokenInvalid, errors.New("session is not active")
+	}
+
+	newToken, err := token.RotateToken(currentUser, t)
+	if err != nil {
+		return "", commonmodel.TokenInvalid, fmt.Errorf("rotate token cache: %w", err)
+	}
+	newSignature := token.GetTokenSignature(newToken)
+	rotated, rotateErr := session.RotateTokenSignature(
+		currentUser.SessionID,
+		currentUser.Id,
+		oldSignature,
+		newSignature,
+	)
+	if rotateErr == nil && rotated {
+		return newToken, commonmodel.Success, nil
+	}
+
+	rollbackErr := token.DefaultTokenCache.ReplaceToken(currentUser.Id, newToken, t)
+	if rollbackErr != nil {
+		_ = token.DefaultTokenCache.Del(currentUser.Id, newToken)
+		if rotateErr != nil {
+			return "", commonmodel.InternalServerError, errors.Join(rotateErr, rollbackErr)
+		}
+		return "", commonmodel.InternalServerError, rollbackErr
+	}
+	if rotateErr != nil {
+		return "", commonmodel.InternalServerError, fmt.Errorf("rotate session token: %w", rotateErr)
+	}
+	return "", commonmodel.TokenInvalid, errors.New("session is not active")
+}
+
 func GetUserProfile(id string, needMenu bool) (*apipb.UserProfile, error) {
 	var u = &User{}
 	err := store.DB().Preload("UserRoles.Role.RoleMenus").Preload(clause.Associations).Where("id = ?", id).First(&u).Error

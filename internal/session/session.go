@@ -92,6 +92,19 @@ func RevokeByTokenSig(tokenSig, reason string) error {
 		}).Error
 }
 
+// RotateTokenSignature keeps one manageable device session while replacing
+// its access token. Matching the principal and previous signature prevents a
+// stale or concurrent refresh from taking over another session.
+func RotateTokenSignature(sessionID, principalID, oldSignature, newSignature string) (bool, error) {
+	result := store.DB().Model(&Session{}).
+		Where("id = ? AND principal_id = ? AND token_sig = ? AND revoked = ?", sessionID, principalID, oldSignature, false).
+		Updates(map[string]interface{}{
+			"token_sig":      newSignature,
+			"last_active_at": time.Now().Unix(),
+		})
+	return result.RowsAffected == 1, result.Error
+}
+
 // RevokeAllByPrincipal 吊销主体全部会话("all devices" 登出)
 func RevokeAllByPrincipal(principalID, exceptSessionID, reason string) (count int64, err error) {
 	db := store.DB().Model(&Session{}).Where("principal_id = ? AND revoked = ?", principalID, false)
