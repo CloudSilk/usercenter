@@ -648,6 +648,8 @@ func registerLoginRecordRoutes(g *gin.RouterGroup) {
 func registerAuditRoutes(g *gin.RouterGroup) {
 	g.GET("/audit-logs", func(c *gin.Context) {
 		q := &audit.AuditQuery{
+			TenantID:  c.Query("tenantID"),
+			RequestID: c.Query("requestID"),
 			UserID:    c.Query("userID"),
 			Action:    c.Query("action"),
 			TargetID:  c.Query("targetID"),
@@ -766,7 +768,18 @@ func (e *simpleError) Error() string { return e.msg }
 
 // recordAudit 记录一条管理端审计日志。失败只记日志,不影响业务响应。
 func recordAudit(c *gin.Context, action, targetID, detail string) {
-	audit.RecordAudit(store.DB(), ucm.GetUserID(c), currentUserName(c), action, targetID, c.ClientIP(), detail)
+	audit.RecordAuditWithContext(
+		store.DB(),
+		ucm.GetTenantID(c),
+		ucm.TraceID(c),
+		ucm.GetUserID(c),
+		currentUserName(c),
+		int32(ucm.GetPrincipalKind(c)),
+		action,
+		targetID,
+		c.ClientIP(),
+		detail,
+	)
 }
 
 // currentUserName 取当前登录用户名(优先 nickname),用于审计。

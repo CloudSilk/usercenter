@@ -405,8 +405,10 @@ func UpdateProfile(c *gin.Context) {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		audit.RecordAuditWithKind(
+		audit.RecordAuditWithContext(
 			store.DB(),
+			middleware.GetTenantID(c),
+			middleware.TraceID(c),
 			middleware.GetUserID(c),
 			middleware.GetUserName(c),
 			int32(middleware.GetPrincipalKind(c)),
@@ -499,8 +501,10 @@ func UpdateUserRoles(c *gin.Context) {
 		"roleIDs":         result.RoleIDs,
 		"sessionsRevoked": result.SessionsRevoked,
 	})
-	audit.RecordAuditWithKind(
+	audit.RecordAuditWithContext(
 		store.DB(),
+		middleware.GetTenantID(c),
+		middleware.TraceID(c),
 		middleware.GetUserID(c),
 		middleware.GetUserName(c),
 		int32(middleware.GetPrincipalKind(c)),
@@ -533,7 +537,7 @@ func DeleteUser(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, e
 	if err := user.DeleteUser(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
-	audit.RecordAuditWithKind(store.DB(), middleware.GetUserID(c), middleware.GetUserName(c), int32(middleware.GetPrincipalKind(c)), audit.AuditActionDeleteUser, req.Id, c.ClientIP(), "")
+	audit.RecordAuditWithContext(store.DB(), middleware.GetTenantID(c), middleware.TraceID(c), middleware.GetUserID(c), middleware.GetUserName(c), int32(middleware.GetPrincipalKind(c)), audit.AuditActionDeleteUser, req.Id, c.ClientIP(), "")
 	return &apipb.CommonResponse{Code: apipb.Code_Success}, nil
 }
 
@@ -678,7 +682,7 @@ func ResetPwd(c *gin.Context) {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
 	} else {
-		audit.RecordAuditWithKind(store.DB(), middleware.GetUserID(c), middleware.GetUserName(c), int32(middleware.GetPrincipalKind(c)), audit.AuditActionResetPwd, req.Id, c.ClientIP(), "")
+		audit.RecordAuditWithContext(store.DB(), middleware.GetTenantID(c), middleware.TraceID(c), middleware.GetUserID(c), middleware.GetUserName(c), int32(middleware.GetPrincipalKind(c)), audit.AuditActionResetPwd, req.Id, c.ClientIP(), "")
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -713,8 +717,10 @@ func ChangePwd(c *gin.Context) {
 		resp.Code = apipb.Code_BadRequest
 		resp.Message = err.Error()
 	} else {
-		audit.RecordAuditWithKind(
+		audit.RecordAuditWithContext(
 			store.DB(),
+			middleware.GetTenantID(c),
+			middleware.TraceID(c),
 			middleware.GetUserID(c),
 			middleware.GetUserName(c),
 			int32(middleware.GetPrincipalKind(c)),

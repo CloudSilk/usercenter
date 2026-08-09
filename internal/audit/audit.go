@@ -11,6 +11,8 @@ import (
 
 type AuditLog struct {
 	commonmodel.Model
+	TenantID      string `json:"tenantID" gorm:"index;size:36;comment:租户ID"`
+	RequestID     string `json:"requestID" gorm:"index;size:100;comment:请求链路ID"`
 	UserID        string `json:"userID" gorm:"index;size:36;comment:操作人ID"`
 	UserName      string `json:"userName" gorm:"size:50;comment:操作人名"`
 	PrincipalKind int32  `json:"principalKind" gorm:"index;comment:主体类型0人1Agent2Service"`
@@ -42,10 +44,16 @@ func RecordAudit(db *gorm.DB, userID, userName, action, targetID, ip, detail str
 
 // RecordAuditWithKind 记录带主体类型的审计日志。
 func RecordAuditWithKind(db *gorm.DB, userID, userName string, principalKind int32, action, targetID, ip, detail string) {
+	RecordAuditWithContext(db, "", "", userID, userName, principalKind, action, targetID, ip, detail)
+}
+
+func RecordAuditWithContext(db *gorm.DB, tenantID, requestID, userID, userName string, principalKind int32, action, targetID, ip, detail string) {
 	if db == nil {
 		return
 	}
 	al := &AuditLog{
+		TenantID:      tenantID,
+		RequestID:     requestID,
 		UserID:        userID,
 		UserName:      userName,
 		PrincipalKind: principalKind,
@@ -64,6 +72,7 @@ func RecordAuditWithKind(db *gorm.DB, userID, userName string, principalKind int
 // AuditQuery 审计日志查询条件。各过滤字段为零值时表示不限定。
 type AuditQuery struct {
 	TenantID      string // 可选:租户隔离过滤
+	RequestID     string // 可选:按请求链路过滤
 	UserID        string // 可选:按操作人过滤
 	Action        string // 可选:按操作类型过滤
 	TargetID      string // 可选:按目标对象过滤
@@ -79,8 +88,10 @@ type AuditQuery struct {
 func QueryAuditLogs(q *AuditQuery) (list []*AuditLog, total int64, err error) {
 	db := store.DB().Model(&AuditLog{})
 	if q.TenantID != "" {
-		// 审计日志本身不存 tenant_id,按 user 隔离的意义不大;
-		// 这里保留参数以便未来扩展(如加 tenant_id 列)。
+		db = db.Where("tenant_id = ?", q.TenantID)
+	}
+	if q.RequestID != "" {
+		db = db.Where("request_id = ?", q.RequestID)
 	}
 	if q.UserID != "" {
 		db = db.Where("user_id = ?", q.UserID)

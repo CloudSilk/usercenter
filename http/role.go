@@ -384,8 +384,10 @@ func PublishRoleAuthorization(c *gin.Context) {
 		"summary":         result.Summary,
 		"sessionsRevoked": result.SessionsRevoked,
 	})
-	audit.RecordAuditWithKind(
+	audit.RecordAuditWithContext(
 		store.DB(),
+		ucm.GetTenantID(c),
+		ucm.TraceID(c),
 		ucm.GetUserID(c),
 		ucm.GetUserName(c),
 		int32(ucm.GetPrincipalKind(c)),

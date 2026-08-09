@@ -68,8 +68,10 @@ func CheckPermissionEffectiveness(c *gin.Context) {
 		strings.TrimSpace(currentUser.UserName) != "" {
 		operatorName = currentUser.UserName
 	}
-	audit.RecordAuditWithKind(
+	audit.RecordAuditWithContext(
 		store.DB(),
+		ucm.GetTenantID(c),
+		ucm.TraceID(c),
 		ucm.GetUserID(c),
 		operatorName,
 		int32(ucm.GetPrincipalKind(c)),
