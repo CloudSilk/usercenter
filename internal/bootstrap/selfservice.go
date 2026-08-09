@@ -82,6 +82,11 @@ var selfServiceAPIs = []permission.API{
 		Path:  "/api/core/auth/user/security/tenant/switch", Method: "POST",
 		Group: "个人中心", Description: "切换当前用户的活动租户",
 	},
+	{
+		Model: commonmodel.Model{ID: "uc-self-security-account-delete"},
+		Path:  "/api/core/auth/user/security/account", Method: "DELETE",
+		Group: "个人中心", Description: "重新验证后注销当前用户账号",
+	},
 }
 
 // ensureSelfServiceAuthorization reconciles the authentication-only routes that

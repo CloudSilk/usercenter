@@ -33,6 +33,7 @@ func TestSelfServiceAuthorizationIsSeededForProductionAuth(t *testing.T) {
 		{http.MethodPost, "/api/core/auth/user/security/sessions/revoke-all"},
 		{http.MethodDelete, "/api/core/auth/user/security/sessions/:id"},
 		{http.MethodPost, "/api/core/auth/user/security/tenant/switch"},
+		{http.MethodDelete, "/api/core/auth/user/security/account"},
 	}
 	for _, definition := range definitions {
 		var api permission.API
@@ -51,6 +52,64 @@ func TestSelfServiceAuthorizationIsSeededForProductionAuth(t *testing.T) {
 		if !allowed {
 			t.Fatalf("authenticated users cannot access %s %s", definition.method, definition.path)
 		}
+	}
+}
+
+func TestDeleteOwnAccountRequiresBoundReauthAndDeletesOnlyCurrentUser(t *testing.T) {
+	currentID := mustCreateUser(t, "delete-self", "delete-tenant", "Delete12345")
+	foreignID := mustCreateUser(t, "delete-foreign", "delete-tenant", "Foreign12345")
+	current := &apipb.CurrentUser{Id: currentID, TenantID: "delete-tenant", UserName: "delete-self"}
+	router := newTestEngine(current)
+
+	withoutProof := decodeCommonResponse(t, doJSONRequest(
+		t, router, http.MethodDelete, "/api/core/auth/user/security/account", nil,
+	))
+	if withoutProof.Code != apipb.Code_BadRequest {
+		t.Fatalf("delete without reauth returned %v", withoutProof.Code)
+	}
+
+	proof := requestAccountReauth(t, router, "delete_account", "Delete12345", "")
+	deleted := decodeCommonResponse(t, doJSONRequestWithReauth(
+		t, router, http.MethodDelete, "/api/core/auth/user/security/account", nil, proof,
+	))
+	if deleted.Code != apipb.Code_Success {
+		t.Fatalf("delete own account failed: %v (%s)", deleted.Code, deleted.Message)
+	}
+	var currentCount, foreignCount int64
+	store.DB().Model(&user.User{}).Where("id = ?", currentID).Count(&currentCount)
+	store.DB().Model(&user.User{}).Where("id = ?", foreignID).Count(&foreignCount)
+	if currentCount != 0 || foreignCount != 1 {
+		t.Fatalf("unexpected deletion boundary: current=%d foreign=%d", currentCount, foreignCount)
+	}
+}
+
+func TestPhoneRegisteredAccountCanReverifyWithBoundPhoneCode(t *testing.T) {
+	const phone = "13800138888"
+	currentID := mustCreateUser(t, "phone-reauth-self", "phone-reauth-tenant", "Internal12345")
+	if err := store.DB().Model(&user.User{}).Where("id = ?", currentID).Update("mobile", phone).Error; err != nil {
+		t.Fatalf("bind test phone: %v", err)
+	}
+	_ = store.DB().Unscoped().Where("1 = 1").Delete(&user.PhoneVerificationChallenge{}).Error
+	sender := &httpPhoneSender{}
+	configureHTTPPhoneAuth(t, sender, "phone-reauth-tenant")
+	if _, err := user.IssuePhoneCode(t.Context(), phone, "127.0.0.1", "phone-reauth-code"); err != nil {
+		t.Fatalf("issue reauth code: %v", err)
+	}
+	router := newTestEngine(&apipb.CurrentUser{
+		Id: currentID, TenantID: "phone-reauth-tenant", UserName: "phone-reauth-self",
+	})
+	response := doJSONRequest(t, router, http.MethodPost, "/api/core/auth/user/security/reverify", map[string]string{
+		"action": "delete_account", "phoneCode": sender.code,
+	})
+	var result struct {
+		Code int32 `json:"code"`
+		Data struct {
+			Proof string `json:"proof"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil ||
+		result.Code != int32(apipb.Code_Success) || result.Data.Proof == "" {
+		t.Fatalf("phone reauth failed: %#v err=%v body=%s", result, err, response.Body.String())
 	}
 }
 

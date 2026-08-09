@@ -392,6 +392,17 @@ func UpdateProfile(c *gin.Context) {
 	}
 	req.Id = middleware.GetUserID(c)
 	req.TenantID = middleware.GetTenantID(c)
+	// Mobile is a login/recovery factor, not an ordinary profile field. Keep
+	// the current binding here and require the verified security endpoint for
+	// first bind or replacement.
+	current, currentErr := user.GetUserById(req.Id)
+	if currentErr != nil {
+		resp.Code = apipb.Code_InternalServerError
+		resp.Message = currentErr.Error()
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+	req.Mobile = current.Mobile
 	err = middleware.Validate.Struct(req)
 	if err != nil {
 		resp.Code = apipb.Code_BadRequest
@@ -930,9 +941,11 @@ func RegisterUserRouter(r *gin.Engine) {
 	userGroup.PUT("profile", UpdateProfile)
 	userGroup.GET("security/summary", AccountSecuritySummary)
 	userGroup.POST("security/reverify", ReverifyAccount)
+	userGroup.POST("security/phone", ChangeOwnPhone)
 	userGroup.POST("security/sessions/revoke-all", RevokeAllOwnSessions)
 	userGroup.DELETE("security/sessions/:id", RevokeOwnSession)
 	userGroup.POST("security/tenant/switch", SwitchOwnTenant)
+	userGroup.DELETE("security/account", DeleteOwnAccount)
 	userGroup.POST("add", AddUserHandler)
 	userGroup.PUT("update", AutoHandler(UpdateUser))
 	userGroup.PUT("roles", UpdateUserRoles)

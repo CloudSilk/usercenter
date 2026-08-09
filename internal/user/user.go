@@ -691,6 +691,14 @@ func CompleteMFALoginWithSessionResult(mfaToken, code string, resp *apipb.LoginR
 }
 
 func LoginByWechat(register bool, req *User, resp *apipb.LoginResponse) {
+	LoginByWechatWithSession(register, req, resp, LoginSessionContext{})
+}
+
+// LoginByWechatWithSession authenticates a WeChat identity and binds the
+// issued access token to a caller-provided manageable device session. HTTP
+// callers must persist the corresponding session row before returning a
+// successful token.
+func LoginByWechatWithSession(register bool, req *User, resp *apipb.LoginResponse, loginSession LoginSessionContext) {
 	if req.WechatOpenID == "" && req.WechatUnionID == "" {
 		resp.Code = commonmodel.BadRequest
 		resp.Message = "用户微信信息不完整!"
@@ -748,6 +756,7 @@ func LoginByWechat(register bool, req *User, resp *apipb.LoginResponse) {
 	currentUser := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
 		RoleIDs: u.GetEnabledRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
+		SessionID: loginSession.ID, DeviceType: loginSession.DeviceType, ClientIP: loginSession.ClientIP,
 	}
 	t, err := token.EncodeToken(currentUser)
 	if err != nil {
@@ -917,7 +926,24 @@ func statisticUserCount(db *gorm.DB, t int, tenantID, group string) (int64, erro
 }
 
 func BindPhone(userID string, phoneNumber string) error {
-	return store.DB().Model(&User{}).Where("id=?", userID).Update("mobile", phoneNumber).Error
+	normalized, err := NormalizePhone(phoneNumber)
+	if err != nil {
+		return err
+	}
+	var account User
+	if err := store.DB().Select("id", "tenant_id").Where("id = ?", userID).First(&account).Error; err != nil {
+		return err
+	}
+	var duplicate int64
+	if err := store.DB().Model(&User{}).
+		Where("tenant_id = ? AND mobile = ? AND id <> ?", account.TenantID, normalized, userID).
+		Count(&duplicate).Error; err != nil {
+		return err
+	}
+	if duplicate > 0 {
+		return errors.New("该手机号已绑定其他账号")
+	}
+	return store.DB().Model(&User{}).Where("id = ?", userID).Update("mobile", normalized).Error
 }
 
 func GetOpenIDByUserIDAndConfigID(userID, wechatConfigID string) (string, error) {

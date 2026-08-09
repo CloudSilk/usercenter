@@ -53,7 +53,8 @@ func TestPasswordLoginCreatesManageableSession(t *testing.T) {
 		t.Fatalf("decode login response: %v (body=%s)", err, recorder.Body.String())
 	}
 	if recorder.Code != http.StatusOK || login.Code != apipb.Code_Success || login.Data == "" {
-		t.Fatalf("login failed: status=%d response=%#v", recorder.Code, login)
+		t.Fatalf("login failed: status=%d code=%v message=%q data_present=%t",
+			recorder.Code, login.Code, login.Message, login.Data != "")
 	}
 
 	current, err := token.DecodeToken(login.Data)
@@ -81,6 +82,84 @@ func TestPasswordLoginCreatesManageableSession(t *testing.T) {
 	}
 	if _, _, code, err := authn.AuthenticatePrincipal(login.Data, http.MethodGet, "/api/core/auth/user/profile", false); err == nil || code != commonmodel.TokenInvalid {
 		t.Fatalf("revoked login token remained valid: code=%d err=%v", code, err)
+	}
+}
+
+func TestOwnPhoneChangeRequiresVerificationAndProfileCannotBypass(t *testing.T) {
+	const (
+		tenantID = "tenant-own-phone-change"
+		oldPhone = "13800001111"
+		newPhone = "13900002222"
+		password = "PhoneChange!123"
+	)
+	userID := mustCreateUser(t, "own-phone-change-user", tenantID, password)
+	if err := store.DB().Model(&user.User{}).Where("id = ?", userID).Update("mobile", oldPhone).Error; err != nil {
+		t.Fatalf("set original phone: %v", err)
+	}
+	router := newTestEngine(&apipb.CurrentUser{Id: userID, TenantID: tenantID, UserName: "own-phone-change-user"})
+
+	profileUpdate := decodeCommonResponse(t, doJSONRequest(t, router, http.MethodPut, "/api/core/auth/user/profile", map[string]any{
+		"nickname": "换绑测试", "mobile": newPhone,
+	}))
+	if profileUpdate.Code != apipb.Code_Success {
+		t.Fatalf("ordinary profile update failed: %v (%s)", profileUpdate.Code, profileUpdate.Message)
+	}
+	var account user.User
+	if err := store.DB().Select("id", "mobile").First(&account, "id = ?", userID).Error; err != nil || account.Mobile != oldPhone {
+		t.Fatalf("profile endpoint changed security phone: account=%#v err=%v", account, err)
+	}
+
+	_ = store.DB().Unscoped().Where("1 = 1").Delete(&user.PhoneVerificationChallenge{}).Error
+	sender := &httpPhoneSender{}
+	configureHTTPPhoneAuth(t, sender, tenantID)
+	issued, err := user.IssuePhoneCode(t.Context(), newPhone, "203.0.113.25", "change-phone-code")
+	if err != nil || issued.DebugCode == "" {
+		t.Fatalf("issue new phone code: result=%#v err=%v", issued, err)
+	}
+
+	withoutProof := decodeCommonResponse(t, doJSONRequest(t, router, http.MethodPost, "/api/core/auth/user/security/phone", map[string]string{
+		"phone": newPhone, "code": issued.DebugCode,
+	}))
+	if withoutProof.Code != apipb.Code_BadRequest {
+		t.Fatalf("phone replacement without reauth returned %v", withoutProof.Code)
+	}
+	proof := requestAccountReauth(t, router, "change_phone:"+newPhone, password, "")
+	changed := decodeCommonResponse(t, doJSONRequestWithReauth(
+		t, router, http.MethodPost, "/api/core/auth/user/security/phone",
+		map[string]string{"phone": newPhone, "code": issued.DebugCode}, proof,
+	))
+	if changed.Code != apipb.Code_Success {
+		t.Fatalf("verified phone replacement failed: %v (%s)", changed.Code, changed.Message)
+	}
+	if err := store.DB().Select("id", "mobile").First(&account, "id = ?", userID).Error; err != nil || account.Mobile != newPhone {
+		t.Fatalf("verified phone was not stored: account=%#v err=%v", account, err)
+	}
+}
+
+func TestOwnPhoneFirstBindingUsesVerifiedNewNumber(t *testing.T) {
+	const (
+		tenantID = "tenant-own-phone-first-bind"
+		phone    = "13700003333"
+	)
+	userID := mustCreateUser(t, "own-phone-first-bind-user", tenantID, "FirstBind!123")
+	_ = store.DB().Unscoped().Where("1 = 1").Delete(&user.PhoneVerificationChallenge{}).Error
+	sender := &httpPhoneSender{}
+	configureHTTPPhoneAuth(t, sender, tenantID)
+	issued, err := user.IssuePhoneCode(t.Context(), phone, "203.0.113.26", "first-bind-code")
+	if err != nil || issued.DebugCode == "" {
+		t.Fatalf("issue first-bind code: result=%#v err=%v", issued, err)
+	}
+
+	router := newTestEngine(&apipb.CurrentUser{Id: userID, TenantID: tenantID, UserName: "own-phone-first-bind-user"})
+	bound := decodeCommonResponse(t, doJSONRequest(t, router, http.MethodPost, "/api/core/auth/user/security/phone", map[string]string{
+		"phone": phone, "code": issued.DebugCode,
+	}))
+	if bound.Code != apipb.Code_Success {
+		t.Fatalf("verified first phone binding failed: %v (%s)", bound.Code, bound.Message)
+	}
+	var account user.User
+	if err := store.DB().Select("id", "mobile").First(&account, "id = ?", userID).Error; err != nil || account.Mobile != phone {
+		t.Fatalf("first phone binding was not stored: account=%#v err=%v", account, err)
 	}
 }
 

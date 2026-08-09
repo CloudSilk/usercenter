@@ -168,11 +168,32 @@ func IssuePhoneCode(ctx context.Context, phone, clientIP, requestID string) (Pho
 }
 
 func LoginByPhoneCode(ctx context.Context, phone, code, clientIP, requestID string) (PhoneLoginResult, error) {
+	return LoginByPhoneCodeWithSession(ctx, phone, code, clientIP, requestID, LoginSessionContext{})
+}
+
+// LoginByPhoneCodeWithSession verifies a one-time code and binds the issued
+// access token to the caller-provided manageable device session.
+func LoginByPhoneCodeWithSession(
+	ctx context.Context,
+	phone, code, clientIP, requestID string,
+	loginSession LoginSessionContext,
+) (PhoneLoginResult, error) {
 	service := currentPhoneAuth()
 	if service == nil || !service.cfg.Enabled {
 		return PhoneLoginResult{}, ErrPhoneLoginDisabled
 	}
-	return service.login(ctx, phone, code, clientIP, requestID)
+	return service.login(ctx, phone, code, clientIP, requestID, loginSession)
+}
+
+// VerifyPhoneCode consumes a code for an already-authenticated account
+// security flow without issuing a login token or creating a user.
+func VerifyPhoneCode(ctx context.Context, phone, code, clientIP, requestID string) (string, error) {
+	service := currentPhoneAuth()
+	if service == nil || !service.cfg.Enabled {
+		return "", ErrPhoneLoginDisabled
+	}
+	normalized, _, _, err := service.consumeCode(ctx, phone, code, clientIP, requestID, "phone_reverify")
+	return normalized, err
 }
 
 func currentPhoneAuth() *phoneAuthService {
@@ -248,66 +269,16 @@ func (s *phoneAuthService) issueCode(ctx context.Context, phone, clientIP, reque
 	return result, nil
 }
 
-func (s *phoneAuthService) login(ctx context.Context, phone, code, clientIP, requestID string) (PhoneLoginResult, error) {
-	normalized, err := NormalizePhone(phone)
+func (s *phoneAuthService) login(
+	ctx context.Context,
+	phone, code, clientIP, requestID string,
+	loginSession LoginSessionContext,
+) (PhoneLoginResult, error) {
+	normalized, masked, now, err := s.consumeCode(ctx, phone, code, clientIP, requestID, "phone_login")
 	if err != nil {
-		s.recordAudit("", "", "phone_login", MaskPhone(phone), clientIP, "failure:invalid_phone request_id="+requestID)
 		return PhoneLoginResult{}, err
 	}
-	masked := MaskPhone(normalized)
-	code = strings.TrimSpace(code)
-	if !codePattern.MatchString(code) {
-		s.recordAudit("", "", "phone_login", masked, clientIP, "failure:invalid_code request_id="+requestID)
-		return PhoneLoginResult{}, ErrInvalidPhoneCode
-	}
-
-	s.operation.Lock()
-	defer s.operation.Unlock()
-
-	now := s.cfg.Now().UTC()
 	phoneHash := s.digest("phone", normalized)
-	var challenge PhoneVerificationChallenge
-	err = store.DB().WithContext(ctx).Where("phone_hash = ?", phoneHash).
-		Order("requested_at DESC").First(&challenge).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		s.recordAudit("", "", "phone_login", masked, clientIP, "failure:code_not_found request_id="+requestID)
-		return PhoneLoginResult{}, ErrInvalidPhoneCode
-	}
-	if err != nil {
-		return PhoneLoginResult{}, fmt.Errorf("load phone challenge: %w", err)
-	}
-	switch {
-	case challenge.UsedAt != nil:
-		return PhoneLoginResult{}, ErrPhoneCodeUsed
-	case !now.Before(challenge.ExpiresAt):
-		return PhoneLoginResult{}, ErrPhoneCodeExpired
-	case challenge.Attempts >= s.cfg.MaxAttempts:
-		return PhoneLoginResult{}, ErrPhoneCodeLocked
-	}
-	expected := s.codeDigest(challenge.ID, phoneHash, code)
-	if subtle.ConstantTimeCompare([]byte(expected), []byte(challenge.CodeHash)) != 1 {
-		attempts := challenge.Attempts + 1
-		if err := store.DB().WithContext(ctx).Model(&PhoneVerificationChallenge{}).
-			Where("id = ? AND used_at IS NULL", challenge.ID).
-			Update("attempts", attempts).Error; err != nil {
-			return PhoneLoginResult{}, fmt.Errorf("record phone code attempt: %w", err)
-		}
-		if attempts >= s.cfg.MaxAttempts {
-			s.recordAudit("", "", "phone_login", masked, clientIP, "failure:attempts_exceeded request_id="+requestID)
-			return PhoneLoginResult{}, ErrPhoneCodeLocked
-		}
-		s.recordAudit("", "", "phone_login", masked, clientIP, "failure:invalid_code request_id="+requestID)
-		return PhoneLoginResult{}, ErrInvalidPhoneCode
-	}
-	consume := store.DB().WithContext(ctx).Model(&PhoneVerificationChallenge{}).
-		Where("id = ? AND used_at IS NULL AND attempts < ?", challenge.ID, s.cfg.MaxAttempts).
-		Update("used_at", now)
-	if consume.Error != nil {
-		return PhoneLoginResult{}, fmt.Errorf("consume phone code: %w", consume.Error)
-	}
-	if consume.RowsAffected != 1 {
-		return PhoneLoginResult{}, ErrPhoneCodeUsed
-	}
 
 	u, isNew, err := s.findOrCreatePhoneUser(ctx, normalized, phoneHash)
 	if err != nil {
@@ -327,7 +298,7 @@ func (s *phoneAuthService) login(ctx context.Context, phone, code, clientIP, req
 	}
 
 	resp := &apipb.LoginResponse{Code: apipb.Code_Success}
-	issueVerifiedUserToken(u, resp)
+	issueVerifiedUserToken(u, resp, loginSession)
 	if resp.Code == apipb.Code_Success {
 		s.recordAudit(u.ID, u.UserName, "phone_login", masked, clientIP, "success request_id="+requestID)
 	} else {
@@ -342,7 +313,76 @@ func (s *phoneAuthService) login(ctx context.Context, phone, code, clientIP, req
 	}, nil
 }
 
-func issueVerifiedUserToken(u *User, resp *apipb.LoginResponse) {
+func (s *phoneAuthService) consumeCode(
+	ctx context.Context,
+	phone, code, clientIP, requestID, auditAction string,
+) (string, string, time.Time, error) {
+	normalized, err := NormalizePhone(phone)
+	if err != nil {
+		s.recordAudit("", "", auditAction, MaskPhone(phone), clientIP, "failure:invalid_phone request_id="+requestID)
+		return "", "", time.Time{}, err
+	}
+	masked := MaskPhone(normalized)
+	code = strings.TrimSpace(code)
+	if !codePattern.MatchString(code) {
+		s.recordAudit("", "", auditAction, masked, clientIP, "failure:invalid_code request_id="+requestID)
+		return "", "", time.Time{}, ErrInvalidPhoneCode
+	}
+
+	s.operation.Lock()
+	defer s.operation.Unlock()
+
+	now := s.cfg.Now().UTC()
+	phoneHash := s.digest("phone", normalized)
+	var challenge PhoneVerificationChallenge
+	err = store.DB().WithContext(ctx).Where("phone_hash = ?", phoneHash).
+		Order("requested_at DESC").First(&challenge).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		s.recordAudit("", "", auditAction, masked, clientIP, "failure:code_not_found request_id="+requestID)
+		return "", "", time.Time{}, ErrInvalidPhoneCode
+	}
+	if err != nil {
+		return "", "", time.Time{}, fmt.Errorf("load phone challenge: %w", err)
+	}
+	switch {
+	case challenge.UsedAt != nil:
+		return "", "", time.Time{}, ErrPhoneCodeUsed
+	case !now.Before(challenge.ExpiresAt):
+		return "", "", time.Time{}, ErrPhoneCodeExpired
+	case challenge.Attempts >= s.cfg.MaxAttempts:
+		return "", "", time.Time{}, ErrPhoneCodeLocked
+	}
+	expected := s.codeDigest(challenge.ID, phoneHash, code)
+	if subtle.ConstantTimeCompare([]byte(expected), []byte(challenge.CodeHash)) != 1 {
+		attempts := challenge.Attempts + 1
+		if err := store.DB().WithContext(ctx).Model(&PhoneVerificationChallenge{}).
+			Where("id = ? AND used_at IS NULL", challenge.ID).
+			Update("attempts", attempts).Error; err != nil {
+			return "", "", time.Time{}, fmt.Errorf("record phone code attempt: %w", err)
+		}
+		if attempts >= s.cfg.MaxAttempts {
+			s.recordAudit("", "", auditAction, masked, clientIP, "failure:attempts_exceeded request_id="+requestID)
+			return "", "", time.Time{}, ErrPhoneCodeLocked
+		}
+		s.recordAudit("", "", auditAction, masked, clientIP, "failure:invalid_code request_id="+requestID)
+		return "", "", time.Time{}, ErrInvalidPhoneCode
+	}
+	consume := store.DB().WithContext(ctx).Model(&PhoneVerificationChallenge{}).
+		Where("id = ? AND used_at IS NULL AND attempts < ?", challenge.ID, s.cfg.MaxAttempts).
+		Update("used_at", now)
+	if consume.Error != nil {
+		return "", "", time.Time{}, fmt.Errorf("consume phone code: %w", consume.Error)
+	}
+	if consume.RowsAffected != 1 {
+		return "", "", time.Time{}, ErrPhoneCodeUsed
+	}
+	if auditAction != "phone_login" {
+		s.recordAudit("", "", auditAction, masked, clientIP, "success request_id="+requestID)
+	}
+	return normalized, masked, now, nil
+}
+
+func issueVerifiedUserToken(u *User, resp *apipb.LoginResponse, loginSession LoginSessionContext) {
 	if auth.HasEnabledMFA(u.ID) {
 		challenge, err := auth.IssueMFAChallenge(u.ID)
 		if err != nil {
@@ -358,6 +398,7 @@ func issueVerifiedUserToken(u *User, resp *apipb.LoginResponse) {
 	current := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
 		RoleIDs: u.GetEnabledRoleIDs(), TenantID: u.TenantID, Nickname: u.Nickname, Avatar: u.Avatar,
+		SessionID: loginSession.ID, DeviceType: loginSession.DeviceType, ClientIP: loginSession.ClientIP,
 	}
 	encoded, err := token.EncodeToken(current)
 	if err != nil {

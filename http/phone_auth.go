@@ -62,8 +62,10 @@ type phoneCodeRequest struct {
 }
 
 type phoneLoginRequest struct {
-	Phone string `json:"phone" binding:"required"`
-	Code  string `json:"code" binding:"required"`
+	Phone      string `json:"phone" binding:"required"`
+	Code       string `json:"code" binding:"required"`
+	DeviceType *int32 `json:"deviceType"`
+	DeviceName string `json:"deviceName"`
 }
 
 type phoneResponse struct {
@@ -118,8 +120,9 @@ func phoneAuthLogin(c *gin.Context) {
 		c.JSON(http.StatusOK, phoneResponse{Code: apipb.Code_BadRequest, Message: "手机号和验证码不能为空"})
 		return
 	}
-	result, err := user.LoginByPhoneCode(
-		c.Request.Context(), req.Phone, req.Code, c.ClientIP(), phoneRequestID(c),
+	loginSession, deviceName := loginSessionContext(c, req.DeviceType, req.DeviceName)
+	result, err := user.LoginByPhoneCodeWithSession(
+		c.Request.Context(), req.Phone, req.Code, c.ClientIP(), phoneRequestID(c), loginSession,
 	)
 	if err != nil {
 		writePhoneAuthError(c, err)
@@ -129,6 +132,19 @@ func phoneAuthLogin(c *gin.Context) {
 		c.JSON(http.StatusOK, phoneResponse{Code: apipb.Code_InternalServerError, Message: "登录服务异常"})
 		return
 	}
+	var persisted *persistedLoginSession
+	if result.Auth.Code == apipb.Code_Success {
+		persisted, err = persistLoginSession(c, result.Auth.Data, deviceName)
+		if err != nil {
+			result.Auth.Code = apipb.Code_InternalServerError
+			result.Auth.Message = err.Error()
+			result.Auth.Data = ""
+		}
+	}
+	recordLoginAttempt(
+		c, result.Username, result.UserID, "phone", result.Auth.Code == 41008,
+		loginSession, deviceName, result.Auth, persisted,
+	)
 	if result.Auth.Code != apipb.Code_Success {
 		c.JSON(http.StatusOK, result.Auth)
 		return

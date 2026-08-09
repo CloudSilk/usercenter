@@ -11,6 +11,7 @@ import (
 	commonmodel "github.com/CloudSilk/pkg/model"
 	userhttp "github.com/CloudSilk/usercenter/http"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
+	"github.com/CloudSilk/usercenter/internal/session"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
@@ -121,8 +122,12 @@ func TestPublicPhoneAuthRoutesIssueCodeAndNativeToken(t *testing.T) {
 		t.Fatalf("login response=%#v err=%v body=%s", loginResp, err, loginResponse.Body.String())
 	}
 	current, err := token.DecodeToken(loginResp.Data.Token)
-	if err != nil || current.Id != u.ID || current.TenantID != tenantID {
+	if err != nil || current.Id != u.ID || current.TenantID != tenantID || current.SessionID == "" {
 		t.Fatalf("native token current=%#v err=%v", current, err)
+	}
+	var managed session.Session
+	if err := store.DB().Where("id = ? AND principal_id = ?", current.SessionID, u.ID).First(&managed).Error; err != nil {
+		t.Fatalf("phone login session was not persisted: %v", err)
 	}
 }
 

@@ -24,6 +24,8 @@ type MiniLoginRequest struct {
 	Register        bool   `json:"register"`
 	App             string `json:"app"`
 	Nickname        string `json:"nickname"`
+	DeviceType      *int32 `json:"deviceType"`
+	DeviceName      string `json:"deviceName"`
 }
 
 // wechatMiniLogin 微信小程序登录
@@ -97,7 +99,21 @@ func wechatMiniLogin(c *gin.Context) {
 		}
 	}
 
-	user.LoginByWechat(req.Register, user.PBToUser(ui), resp)
+	loginSession, deviceName := loginSessionContext(c, req.DeviceType, req.DeviceName)
+	if strings.TrimSpace(req.DeviceName) == "" {
+		deviceName = "微信小程序"
+	}
+	user.LoginByWechatWithSession(req.Register, user.PBToUser(ui), resp, loginSession)
+	var persisted *persistedLoginSession
+	if resp.Code == apipb.Code_Success {
+		persisted, err = persistLoginSession(c, resp.Data, deviceName)
+		if err != nil {
+			resp.Code = apipb.Code_InternalServerError
+			resp.Message = err.Error()
+			resp.Data = ""
+		}
+	}
+	recordLoginAttempt(c, ui.UserName, "", "wechat", resp.Code == 41008, loginSession, deviceName, resp, persisted)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -242,7 +258,18 @@ func wechatWebLogin(c *gin.Context) {
 	userInfo.WechatConfigID = wechatOpenPlatformWeb.WechatConfig.ID
 	userInfo.Enable = true
 
-	user.LoginByWechat(true, user.PBToUser(userInfo), resp)
+	loginSession, deviceName := loginSessionContext(c, nil, "微信网页登录")
+	user.LoginByWechatWithSession(true, user.PBToUser(userInfo), resp, loginSession)
+	var persisted *persistedLoginSession
+	if resp.Code == apipb.Code_Success {
+		persisted, err = persistLoginSession(c, resp.Data, deviceName)
+		if err != nil {
+			resp.Code = apipb.Code_InternalServerError
+			resp.Message = err.Error()
+			resp.Data = ""
+		}
+	}
+	recordLoginAttempt(c, userInfo.UserName, "", "wechat", resp.Code == 41008, loginSession, deviceName, resp, persisted)
 	if wechatOpenPlatformWeb.GetQRConnectResult(state) != nil {
 		if resp.Code == apipb.Code_Success {
 			wechatOpenPlatformWeb.UpdateQRConnectResult(state, true, true, resp.Data)

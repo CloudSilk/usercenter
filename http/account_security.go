@@ -190,6 +190,49 @@ func AccountSecuritySummary(c *gin.Context) {
 	writeOK(c, gin.H{"data": summary})
 }
 
+// ChangeOwnPhone binds a verified phone to the current account. Replacing an
+// existing binding additionally requires an action-bound reauthentication
+// proof, while a first binding relies on the active login plus possession of
+// the new phone code.
+func ChangeOwnPhone(c *gin.Context) {
+	principalID := strings.TrimSpace(ucm.GetUserID(c))
+	var req struct {
+		Phone string `json:"phone" binding:"required"`
+		Code  string `json:"code" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeBadRequest(c, fmt.Errorf("手机号和验证码不能为空"))
+		return
+	}
+	normalized, err := user.NormalizePhone(req.Phone)
+	if err != nil {
+		writeBadRequest(c, err)
+		return
+	}
+	account, err := user.GetUserById(principalID)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	currentPhone := strings.TrimSpace(account.Mobile)
+	if currentPhone != "" && currentPhone != normalized && !requireAccountReauth(c, "change_phone:"+normalized) {
+		return
+	}
+	verified, err := user.VerifyPhoneCode(
+		c.Request.Context(), normalized, req.Code, c.ClientIP(), phoneRequestID(c),
+	)
+	if err != nil || verified != normalized {
+		writeBadRequest(c, fmt.Errorf("新手机号验证码不正确或已失效"))
+		return
+	}
+	if err := user.BindPhone(principalID, normalized); err != nil {
+		writeBadRequest(c, err)
+		return
+	}
+	recordAudit(c, "account_phone_changed", principalID, user.MaskPhone(normalized))
+	writeOK(c, gin.H{"data": gin.H{"phoneMasked": user.MaskPhone(normalized)}})
+}
+
 // RevokeOwnSession lets a user disable one of their own devices without
 // granting access to the administrator session API.
 func RevokeOwnSession(c *gin.Context) {
@@ -239,6 +282,22 @@ func RevokeAllOwnSessions(c *gin.Context) {
 	}
 	recordAudit(c, "session_self_revoke_all", principalID, fmt.Sprintf("revoked=%d", count))
 	writeOK(c, gin.H{"data": gin.H{"revoked": count}})
+}
+
+// DeleteOwnAccount permanently removes the current account after an
+// action-bound reauthentication proof, then revokes every remaining session.
+func DeleteOwnAccount(c *gin.Context) {
+	principalID := strings.TrimSpace(ucm.GetUserID(c))
+	if principalID == "" || !requireAccountReauth(c, "delete_account") {
+		return
+	}
+	if err := user.DeleteUser(principalID); err != nil {
+		writeErr(c, err)
+		return
+	}
+	_, _ = session.RevokeAllByPrincipal(principalID, "", "account_deleted")
+	recordAudit(c, "account_self_delete", principalID, "account_deleted")
+	writeOK(c, nil)
 }
 
 // SwitchOwnTenant issues a new tenant-scoped token only when the user has an

@@ -27,15 +27,16 @@ var (
 	accountReauthConsumeMu  sync.Mutex
 )
 
-// ReverifyAccount verifies the current password and, when enabled, an MFA
-// code. The returned proof is short-lived, single-use, and bound to one exact
-// high-risk action so a proof for one device cannot authorize another action.
+// ReverifyAccount verifies the current password or a fresh code sent to the
+// account's bound phone and, when enabled, an MFA code. The returned proof is
+// short-lived, single-use, and bound to one exact high-risk action.
 func ReverifyAccount(c *gin.Context) {
 	principalID := strings.TrimSpace(ucm.GetUserID(c))
 	var req struct {
-		Password string `json:"password" binding:"required"`
-		MFACode  string `json:"mfaCode"`
-		Action   string `json:"action" binding:"required"`
+		Password  string `json:"password"`
+		PhoneCode string `json:"phoneCode"`
+		MFACode   string `json:"mfaCode"`
+		Action    string `json:"action" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		writeBadRequest(c, fmt.Errorf("重新验证参数不完整"))
@@ -46,7 +47,20 @@ func ReverifyAccount(c *gin.Context) {
 		writeBadRequest(c, fmt.Errorf("重新验证参数无效"))
 		return
 	}
-	if err := user.VerifyPassword(principalID, req.Password); err != nil {
+	primaryVerified := false
+	if strings.TrimSpace(req.Password) != "" {
+		primaryVerified = user.VerifyPassword(principalID, req.Password) == nil
+	} else if strings.TrimSpace(req.PhoneCode) != "" {
+		account, err := user.GetUserById(principalID)
+		if err == nil && strings.TrimSpace(account.Mobile) != "" {
+			boundPhone, normalizeErr := user.NormalizePhone(account.Mobile)
+			verifiedPhone, verifyErr := user.VerifyPhoneCode(
+				c.Request.Context(), account.Mobile, req.PhoneCode, c.ClientIP(), phoneRequestID(c),
+			)
+			primaryVerified = normalizeErr == nil && verifyErr == nil && verifiedPhone == boundPhone
+		}
+	}
+	if !primaryVerified {
 		writeBadRequest(c, fmt.Errorf("当前密码或验证码不正确"))
 		return
 	}

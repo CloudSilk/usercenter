@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/CloudSilk/usercenter/internal/auth"
+	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/user"
 	apipb "github.com/CloudSilk/usercenter/proto"
@@ -123,5 +124,32 @@ func TestLogin_NoMFA_NormalToken(t *testing.T) {
 	}
 	if resp.Data == "" {
 		t.Fatal("expected access token for non-MFA login")
+	}
+}
+
+func TestWechatLoginCarriesManageableSessionClaims(t *testing.T) {
+	const unionID = "wechat-session-union-id"
+	u := mustCreateUser(t, "wechat-session-user", "WechatSession123!")
+	if err := store.DB().Model(&user.User{}).Where("id = ?", u.ID).Updates(map[string]any{
+		"wechat_union_id": unionID,
+		"wechat_open_id":  "wechat-session-open-id",
+	}).Error; err != nil {
+		t.Fatalf("bind test WeChat identity: %v", err)
+	}
+
+	resp := &apipb.LoginResponse{Code: apipb.Code_Success}
+	user.LoginByWechatWithSession(false, &user.User{WechatUnionID: unionID}, resp, user.LoginSessionContext{
+		ID: "wechat-manageable-session", DeviceType: 2, ClientIP: "198.51.100.18",
+	})
+	if resp.Code != apipb.Code_Success || resp.Data == "" {
+		t.Fatalf("WeChat login failed: code=%v message=%q", resp.Code, resp.Message)
+	}
+	current, err := token.DecodeToken(resp.Data)
+	if err != nil {
+		t.Fatalf("decode WeChat token: %v", err)
+	}
+	if current.Id != u.ID || current.SessionID != "wechat-manageable-session" ||
+		current.DeviceType != 2 || current.ClientIP != "198.51.100.18" {
+		t.Fatalf("unexpected WeChat session claims: %#v", current)
 	}
 }
