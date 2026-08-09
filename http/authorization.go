@@ -17,10 +17,12 @@ type runtimeAuthorizationRequest struct {
 }
 
 type runtimeAuthorizationIdentity struct {
-	SubjectID string   `json:"subjectID"`
-	TenantID  string   `json:"tenantID"`
-	UserName  string   `json:"userName"`
-	RoleIDs   []string `json:"roleIDs"`
+	SubjectID     string   `json:"subjectID"`
+	TenantID      string   `json:"tenantID"`
+	UserName      string   `json:"userName"`
+	RoleIDs       []string `json:"roleIDs"`
+	PrincipalKind int32    `json:"principalKind"`
+	OwnerUserID   string   `json:"ownerUserID,omitempty"`
 }
 
 type runtimeAuthorizationResult struct {
@@ -56,6 +58,10 @@ func CheckRuntimeAuthorization(c *gin.Context) {
 			return
 		}
 	}
+	ownerUserID := ""
+	if agent, ok := principal.(interface{ OwnerUserID() string }); ok {
+		ownerUserID = strings.TrimSpace(agent.OwnerUserID())
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"code": apipb.Code_Success,
 		"data": runtimeAuthorizationResult{
@@ -64,10 +70,12 @@ func CheckRuntimeAuthorization(c *gin.Context) {
 			Method:    strings.ToUpper(strings.TrimSpace(req.Method)),
 			DataScope: dataScope,
 			Identity: runtimeAuthorizationIdentity{
-				SubjectID: principal.Subject(),
-				TenantID:  principal.TenantID(),
-				UserName:  principal.DisplayName(),
-				RoleIDs:   append([]string{}, principal.Roles()...),
+				SubjectID:     principal.Subject(),
+				TenantID:      principal.TenantID(),
+				UserName:      principal.DisplayName(),
+				RoleIDs:       append([]string{}, principal.Roles()...),
+				PrincipalKind: int32(principal.Kind()),
+				OwnerUserID:   ownerUserID,
 			},
 		},
 	})

@@ -75,6 +75,18 @@ func authenticatePrincipal(t, method, url string, checkAuth, allowPublic bool) (
 	}
 
 	p := principal.FromTokenAndUser(t, currentUser)
+	if currentUser != nil && currentUser.Type == token.PrincipalTypeAgent {
+		agentClaims, agentErr := token.DecodeAgentPrincipal(t)
+		if agentErr != nil {
+			return nil, nil, model.TokenInvalid, agentErr
+		}
+		p = principal.NewAgent(
+			agentClaims.AgentID,
+			agentClaims.OwnerUserID,
+			agentClaims.TenantID,
+			agentClaims.RoleIDs,
+		)
+	}
 	if code, err := validatePrincipalStatus(p, time.Now()); code != model.Success {
 		return nil, nil, code, err
 	}
