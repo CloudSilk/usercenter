@@ -154,6 +154,10 @@ func Apply(catalog AuthorizationCatalog) (AuthorizationCatalogSummary, error) {
 	}
 
 	err := db.Transaction(func(tx *gorm.DB) error {
+		previouslyApplied, err := authorizationCatalogPreviouslyApplied(tx, catalog)
+		if err != nil {
+			return err
+		}
 		roleIDs := make(map[string]string, len(catalog.Roles))
 		for _, definition := range catalog.Roles {
 			id, err := upsertCatalogRole(tx, catalog, definition)
@@ -207,6 +211,7 @@ func Apply(catalog AuthorizationCatalog) (AuthorizationCatalogSummary, error) {
 				menuIDs[grant.MenuID],
 				grant.Functions,
 				grant.Show,
+				!previouslyApplied,
 			); err != nil {
 				return err
 			}
@@ -217,6 +222,7 @@ func Apply(catalog AuthorizationCatalog) (AuthorizationCatalogSummary, error) {
 				grant.TenantID,
 				menuIDs[grant.MenuID],
 				grant.Functions,
+				!previouslyApplied,
 			); err != nil {
 				return err
 			}
@@ -266,6 +272,50 @@ func Apply(catalog AuthorizationCatalog) (AuthorizationCatalogSummary, error) {
 		return AuthorizationCatalogSummary{}, fmt.Errorf("reload Casbin policy: %w", err)
 	}
 	return summary, nil
+}
+
+func authorizationCatalogPreviouslyApplied(tx *gorm.DB, catalog AuthorizationCatalog) (bool, error) {
+	roleIDs := make([]string, 0, len(catalog.Roles))
+	for _, definition := range catalog.Roles {
+		roleIDs = append(roleIDs, definition.ID)
+	}
+	menuIDs := make([]string, 0, len(catalog.Menus))
+	for _, definition := range catalog.Menus {
+		menuIDs = append(menuIDs, definition.ID)
+	}
+	apiIDs := make([]string, 0, len(catalog.APIs))
+	for _, definition := range catalog.APIs {
+		apiIDs = append(apiIDs, definition.ID)
+	}
+
+	checks := []struct {
+		model any
+		ids   []string
+	}{
+		{model: &permission.Role{}, ids: roleIDs},
+		{model: &permission.Menu{}, ids: menuIDs},
+		{model: &permission.API{}, ids: apiIDs},
+	}
+	for _, check := range checks {
+		if len(check.ids) == 0 {
+			continue
+		}
+		var count int64
+		if err := tx.Unscoped().Model(check.model).Where("id IN ?", check.ids).Count(&count).Error; err != nil {
+			return false, err
+		}
+		if count > 0 {
+			return true, nil
+		}
+	}
+
+	var tenantGrantCount int64
+	if err := tx.Unscoped().Model(&tenant.TenantMenu{}).
+		Where("tenant_id = ?", catalog.TenantID).
+		Count(&tenantGrantCount).Error; err != nil {
+		return false, err
+	}
+	return tenantGrantCount > 0, nil
 }
 
 func normalizeAuthorizationCatalog(catalog AuthorizationCatalog) AuthorizationCatalog {
@@ -731,10 +781,20 @@ func ensureCatalogFunctionAPI(tx *gorm.DB, functionID, apiID string) error {
 	return nil
 }
 
-func ensureCatalogRoleGrant(tx *gorm.DB, roleID, menuID string, functions []string, show bool) error {
+func ensureCatalogRoleGrant(
+	tx *gorm.DB,
+	roleID,
+	menuID string,
+	functions []string,
+	show,
+	seed bool,
+) error {
 	var row permission.RoleMenu
 	err := tx.Unscoped().Where("role_id = ? AND menu_id = ?", roleID, menuID).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if !seed {
+			return nil
+		}
 		row = permission.RoleMenu{RoleID: roleID, MenuID: menuID, Funcs: strings.Join(functions, ","), Show: show}
 		if err := tx.Create(&row).Error; err != nil {
 			return fmt.Errorf("create role/menu grant: %w", err)
@@ -744,18 +804,16 @@ func ensureCatalogRoleGrant(tx *gorm.DB, roleID, menuID string, functions []stri
 	if err != nil {
 		return fmt.Errorf("load role/menu grant: %w", err)
 	}
-	functions = unionCSV(row.Funcs, functions)
-	return tx.Unscoped().Model(&row).UpdateColumns(map[string]any{
-		"funcs":      strings.Join(functions, ","),
-		"show":       row.Show || show,
-		"deleted_at": nil,
-	}).Error
+	return nil
 }
 
-func ensureCatalogTenantGrant(tx *gorm.DB, tenantID, menuID string, functions []string) error {
+func ensureCatalogTenantGrant(tx *gorm.DB, tenantID, menuID string, functions []string, seed bool) error {
 	var row tenant.TenantMenu
 	err := tx.Unscoped().Where("tenant_id = ? AND menu_id = ?", tenantID, menuID).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if !seed {
+			return nil
+		}
 		row = tenant.TenantMenu{TenantID: tenantID, MenuID: menuID, Funcs: strings.Join(functions, ",")}
 		if err := tx.Create(&row).Error; err != nil {
 			return fmt.Errorf("create tenant/menu grant: %w", err)
@@ -765,11 +823,7 @@ func ensureCatalogTenantGrant(tx *gorm.DB, tenantID, menuID string, functions []
 	if err != nil {
 		return fmt.Errorf("load tenant/menu grant: %w", err)
 	}
-	functions = unionCSV(row.Funcs, functions)
-	return tx.Unscoped().Model(&row).UpdateColumns(map[string]any{
-		"funcs":      strings.Join(functions, ","),
-		"deleted_at": nil,
-	}).Error
+	return nil
 }
 
 func ensureCatalogABACPolicy(tx *gorm.DB, definition AuthorizationABACPolicy, roleID string) error {
@@ -839,7 +893,29 @@ func ensureCatalogCasbinRules(
 	for _, grant := range catalog.RoleGrants {
 		roleID := roleIDs[grant.RoleID]
 		menuID := menuIDs[grant.MenuID]
+		var roleGrant permission.RoleMenu
+		if err := tx.Where("role_id = ? AND menu_id = ?", roleID, menuID).First(&roleGrant).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			return 0, fmt.Errorf("load effective role/menu grant: %w", err)
+		}
+		var tenantGrant tenant.TenantMenu
+		if err := tx.Where("tenant_id = ? AND menu_id = ?", catalog.TenantID, menuID).First(&tenantGrant).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			return 0, fmt.Errorf("load effective tenant/menu grant: %w", err)
+		}
+		roleFunctions := csvSet(roleGrant.Funcs)
+		tenantFunctions := csvSet(tenantGrant.Funcs)
 		for _, name := range grant.Functions {
+			if _, allowed := roleFunctions[name]; !allowed {
+				continue
+			}
+			if _, allowed := tenantFunctions[name]; !allowed {
+				continue
+			}
 			functionID := functionByMenuAndName[menuID+"\x00"+name]
 			definition, found := functionDefinitionsByResolvedID(functionDefinitions, functionIDs, functionID)
 			if !found {
@@ -977,10 +1053,13 @@ func normalizeStringSet(values []string) []string {
 	return result
 }
 
-func unionCSV(existing string, required []string) []string {
-	values := strings.Split(existing, ",")
-	values = append(values, required...)
-	return normalizeStringSet(values)
+func csvSet(value string) map[string]struct{} {
+	values := normalizeStringSet(strings.Split(value, ","))
+	result := make(map[string]struct{}, len(values))
+	for _, item := range values {
+		result[item] = struct{}{}
+	}
+	return result
 }
 
 func validHTTPMethod(method string) bool {

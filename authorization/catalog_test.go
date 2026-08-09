@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/pkg/db"
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/permission"
@@ -172,6 +173,69 @@ func TestApplyAuthorizationCatalogRestoresSystemRowsAndPreservesCustomData(t *te
 	var customCount int64
 	require.NoError(t, gdb.Model(&permission.Role{}).Where("id = ?", custom.ID).Count(&customCount).Error)
 	require.Equal(t, int64(1), customCount)
+}
+
+func TestApplyAuthorizationCatalogPreservesPublishedTenantMenuBoundary(t *testing.T) {
+	gdb := setupAuthorizationCatalogTestDB(t)
+	originalPlatformTenantID := constants.PlatformTenantID
+	constants.SetPlatformTenantID("catalog-platform")
+	t.Cleanup(func() { constants.SetPlatformTenantID(originalPlatformTenantID) })
+
+	const targetTenantID = "catalog-tenant"
+	require.NoError(t, gdb.Create([]*tenant.Tenant{
+		{Model: commonmodel.Model{ID: constants.PlatformTenantID}, Name: "Platform", Enable: true, IsMust: true},
+		{Model: commonmodel.Model{ID: targetTenantID}, Name: "Tenant", Enable: true},
+	}).Error)
+
+	catalog := testAuthorizationCatalog()
+	catalog.TenantID = targetTenantID
+	catalog.DefaultRoleID = ""
+	for i := range catalog.TenantGrants {
+		catalog.TenantGrants[i].TenantID = targetTenantID
+	}
+	for i := range catalog.ABACPolicies {
+		catalog.ABACPolicies[i].TenantID = targetTenantID
+	}
+	_, err := Apply(catalog)
+	require.NoError(t, err)
+
+	detail, err := permission.GetTenantMenuAuthorization(constants.PlatformTenantID, targetTenantID)
+	require.NoError(t, err)
+	result, err := permission.PublishTenantMenuAuthorization(
+		constants.PlatformTenantID,
+		targetTenantID,
+		detail.Revision,
+		[]permission.TenantMenuAuthorizationSelection{{MenuID: "admin-users", Funcs: []string{"view"}}},
+	)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Summary.SelectedMenuCount)
+	require.Equal(t, 1, result.Summary.SelectedFunctionCount)
+
+	_, err = Apply(catalog)
+	require.NoError(t, err)
+
+	after, err := permission.GetTenantMenuAuthorization(constants.PlatformTenantID, targetTenantID)
+	require.NoError(t, err)
+	require.Equal(t, result.Revision, after.Revision)
+	require.Equal(t, []permission.TenantMenuAuthorizationSelection{
+		{MenuID: "admin-users", Funcs: []string{"view"}},
+	}, after.Selections)
+
+	var roleMenus []permission.RoleMenu
+	require.NoError(t, gdb.Order("role_id ASC, menu_id ASC").Find(&roleMenus).Error)
+	require.Len(t, roleMenus, 2)
+	for _, roleMenu := range roleMenus {
+		require.Equal(t, "admin-users", roleMenu.MenuID)
+		require.Equal(t, "view", roleMenu.Funcs)
+	}
+
+	var policies []permission.CasbinRule
+	require.NoError(t, gdb.Where("ptype = ? AND v0 IN ?", "p", []string{"1", "2", "3"}).Order("v0 ASC").Find(&policies).Error)
+	require.Len(t, policies, 2)
+	for _, policy := range policies {
+		require.Equal(t, "/api/core/auth/user/query", policy.Path)
+		require.Equal(t, "GET", policy.Method)
+	}
 }
 
 func TestValidateAuthorizationCatalogRejectsOverlongStableIDs(t *testing.T) {
