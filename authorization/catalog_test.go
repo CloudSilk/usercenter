@@ -260,6 +260,14 @@ func TestValidateAuthorizationCatalogAcceptsMaximumStableIDLength(t *testing.T) 
 	)
 }
 
+func TestValidateAuthorizationCatalogRejectsUnsupportedDataScope(t *testing.T) {
+	catalog := testAuthorizationCatalog()
+	catalog.ABACPolicies[0].DataScope = 99
+
+	err := validateAuthorizationCatalog(normalizeAuthorizationCatalog(catalog))
+	require.ErrorContains(t, err, "unsupported data scope 99")
+}
+
 func TestEnsureUserRoleRejectsCrossTenantRole(t *testing.T) {
 	gdb := setupAuthorizationCatalogTestDB(t)
 	require.NoError(t, gdb.Create(&user.User{

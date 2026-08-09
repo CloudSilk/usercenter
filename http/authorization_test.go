@@ -29,9 +29,10 @@ func TestRuntimeAuthorizationUsesCurrentPrincipalRoles(t *testing.T) {
 		Id: "runtime-user", TenantID: platformTenant, UserName: "Runtime User", RoleIDs: []string{"1"},
 	})
 	allowed := decodePermissionEffectivenessEnvelope[struct {
-		Allow    bool   `json:"allow"`
-		Reason   string `json:"reason"`
-		Identity struct {
+		Allow     bool                            `json:"allow"`
+		Reason    string                          `json:"reason"`
+		DataScope authorization.DataScopeDecision `json:"dataScope"`
+		Identity  struct {
 			SubjectID string   `json:"subjectID"`
 			TenantID  string   `json:"tenantID"`
 			RoleIDs   []string `json:"roleIDs"`
@@ -41,7 +42,8 @@ func TestRuntimeAuthorizationUsesCurrentPrincipalRoles(t *testing.T) {
 	}).Body.Bytes())
 	if allowed.Code != apipb.Code_Success || !allowed.Data.Allow || allowed.Data.Reason != "role_policy" ||
 		allowed.Data.Identity.SubjectID != "runtime-user" || allowed.Data.Identity.TenantID != platformTenant ||
-		len(allowed.Data.Identity.RoleIDs) != 1 {
+		len(allowed.Data.Identity.RoleIDs) != 1 || len(allowed.Data.DataScope.Rules) != 1 ||
+		allowed.Data.DataScope.Rules[0].DataScope != authorization.DataScopeAll {
 		t.Fatalf("unexpected runtime allow decision: %#v", allowed)
 	}
 

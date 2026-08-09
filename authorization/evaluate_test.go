@@ -54,3 +54,53 @@ func TestEvaluateRolesRejectsInvalidResources(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+func TestEvaluateDataScopesReturnsPolicyUnionAndTenantFallback(t *testing.T) {
+	gdb := setupAuthorizationCatalogTestDB(t)
+	require.NoError(t, gdb.Create(&[]permission.ABACPolicy{
+		{
+			TenantID: "tenant-a", RoleID: "role-project", Resource: "/api/v1/work-orders/:id",
+			Action: http.MethodGet, DataScope: DataScopeProject, Priority: 200, Enable: true,
+		},
+		{
+			TenantID: "tenant-a", RoleID: "role-self", Resource: "/api/v1/work-orders/:id",
+			Action: http.MethodGet, DataScope: DataScopeSelf, Priority: 100, Enable: true,
+		},
+		{
+			TenantID: "tenant-b", RoleID: "role-project", Resource: "/api/v1/work-orders/:id",
+			Action: http.MethodGet, DataScope: DataScopeAll, Priority: 999, Enable: true,
+		},
+	}).Error)
+
+	decision, err := EvaluateDataScopes(
+		[]string{"role-self", "role-missing", "role-project", "role-self"},
+		"tenant-a",
+		"/api/v1/work-orders/:id",
+		http.MethodGet,
+	)
+	require.NoError(t, err)
+	require.Equal(t, []DataScopeRule{
+		{RoleID: "role-missing", DataScope: DataScopeTenant, Source: "tenant_fallback"},
+		{RoleID: "role-project", DataScope: DataScopeProject, Priority: 200, Source: "abac_policy"},
+		{RoleID: "role-self", DataScope: DataScopeSelf, Priority: 100, Source: "abac_policy"},
+	}, decision.Rules)
+
+	fallback, err := EvaluateDataScopes(nil, "tenant-a", "/api/v1/work-orders", http.MethodGet)
+	require.NoError(t, err)
+	require.Equal(t, tenantFallback(""), fallback)
+
+	superAdmin, err := EvaluateDataScopes([]string{"1"}, "tenant-a", "/api/v1/work-orders", http.MethodDelete)
+	require.NoError(t, err)
+	require.Equal(t, DataScopeAll, superAdmin.Rules[0].DataScope)
+}
+
+func TestEvaluateDataScopesRejectsInvalidStoredScope(t *testing.T) {
+	gdb := setupAuthorizationCatalogTestDB(t)
+	require.NoError(t, gdb.Create(&permission.ABACPolicy{
+		TenantID: "tenant-a", RoleID: "role-invalid", Resource: "/api/v1/assets", Action: http.MethodGet,
+		DataScope: 99, Priority: 100, Enable: true,
+	}).Error)
+
+	_, err := EvaluateDataScopes([]string{"role-invalid"}, "tenant-a", "/api/v1/assets", http.MethodGet)
+	require.ErrorContains(t, err, "data scope 99 is invalid")
+}

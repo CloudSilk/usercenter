@@ -25,9 +25,10 @@ type runtimeAuthorizationIdentity struct {
 
 type runtimeAuthorizationResult struct {
 	authorization.Decision
-	Path     string                       `json:"path"`
-	Method   string                       `json:"method"`
-	Identity runtimeAuthorizationIdentity `json:"identity"`
+	Path      string                          `json:"path"`
+	Method    string                          `json:"method"`
+	Identity  runtimeAuthorizationIdentity    `json:"identity"`
+	DataScope authorization.DataScopeDecision `json:"dataScope"`
 }
 
 func CheckRuntimeAuthorization(c *gin.Context) {
@@ -46,12 +47,22 @@ func CheckRuntimeAuthorization(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": apipb.Code_InternalServerError, "message": err.Error()})
 		return
 	}
+	dataScope := authorization.DataScopeDecision{Rules: []authorization.DataScopeRule{}}
+	if decision.Allow {
+		scopeRoleIDs := decision.MatchedRoleIDs
+		dataScope, err = authorization.EvaluateDataScopes(scopeRoleIDs, principal.TenantID(), req.Path, req.Method)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": apipb.Code_InternalServerError, "message": err.Error()})
+			return
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"code": apipb.Code_Success,
 		"data": runtimeAuthorizationResult{
-			Decision: decision,
-			Path:     strings.TrimSpace(req.Path),
-			Method:   strings.ToUpper(strings.TrimSpace(req.Method)),
+			Decision:  decision,
+			Path:      strings.TrimSpace(req.Path),
+			Method:    strings.ToUpper(strings.TrimSpace(req.Method)),
+			DataScope: dataScope,
 			Identity: runtimeAuthorizationIdentity{
 				SubjectID: principal.Subject(),
 				TenantID:  principal.TenantID(),

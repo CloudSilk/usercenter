@@ -17,11 +17,14 @@ import (
 type DataScope int32
 
 const (
-	DataScopeAll    DataScope = 0 // 全部数据
-	DataScopeTenant DataScope = 1 // 本租户
-	DataScopeDept   DataScope = 2 // 本部门(group)
-	DataScopeSelf   DataScope = 3 // 仅本人
-	DataScopeCustom DataScope = 4 // 自定义条件
+	DataScopeAll             DataScope = 0 // 全部数据
+	DataScopeTenant          DataScope = 1 // 本租户
+	DataScopeDept            DataScope = 2 // 本组织
+	DataScopeSelf            DataScope = 3 // 仅本人
+	DataScopeCustom          DataScope = 4 // 自定义条件
+	DataScopeTeam            DataScope = 5 // 本班组
+	DataScopeDeptAndChildren DataScope = 6 // 本组织及下级
+	DataScopeProject         DataScope = 7 // 本项目
 )
 
 // ABACPolicy ABAC 策略规则

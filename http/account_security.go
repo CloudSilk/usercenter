@@ -398,6 +398,12 @@ func accountDataScopeLabel(scope permission.DataScope) accountSecurityDataScope 
 		return accountSecurityDataScope{Code: "SELF", Label: "仅本人", Detail: "角色策略限制为本人创建或负责的数据"}
 	case permission.DataScopeCustom:
 		return accountSecurityDataScope{Code: "CUSTOM", Label: "自定义范围", Detail: "按 UserCenter 自定义条件过滤数据"}
+	case permission.DataScopeTeam:
+		return accountSecurityDataScope{Code: "TEAM", Label: "本班组", Detail: "角色策略限制为当前班组数据"}
+	case permission.DataScopeDeptAndChildren:
+		return accountSecurityDataScope{Code: "ORGANIZATION_TREE", Label: "本组织及下级", Detail: "角色策略限制为当前组织及下级组织数据"}
+	case permission.DataScopeProject:
+		return accountSecurityDataScope{Code: "PROJECT", Label: "本项目", Detail: "角色策略限制为当前项目数据"}
 	default:
 		return accountSecurityDataScope{Code: "TENANT", Label: "本租户", Detail: "角色策略限制为当前租户数据"}
 	}

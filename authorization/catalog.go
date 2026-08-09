@@ -490,6 +490,9 @@ func validateAuthorizationCatalog(catalog AuthorizationCatalog) error {
 		if policy.Resource == "" || policy.Action == "" {
 			return errors.New("ABAC policy resource and action are required")
 		}
+		if !validDataScope(policy.DataScope) {
+			return fmt.Errorf("ABAC policy has unsupported data scope %d", policy.DataScope)
+		}
 	}
 	return nil
 }
