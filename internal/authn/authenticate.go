@@ -12,6 +12,7 @@ package authn
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/pkg/utils/log"
@@ -53,14 +54,20 @@ func AuthenticatePrincipal(t, method, url string, checkAuth bool) (principal.Pri
 	} else if !ok {
 		return nil, nil, model.TokenInvalid, errors.New("token invalid")
 	}
-	if tokenSig := token.GetTokenSignature(t); tokenSig != "" {
+	tokenSig := token.GetTokenSignature(t)
+	if tokenSig != "" {
 		if session.IsRevoked(tokenSig) {
 			return nil, nil, model.TokenInvalid, errors.New("session revoked")
 		}
-		session.UpdateActivity(tokenSig)
 	}
 
 	p := principal.FromTokenAndUser(t, currentUser)
+	if code, err := validatePrincipalStatus(p, time.Now()); code != model.Success {
+		return nil, nil, code, err
+	}
+	if tokenSig != "" {
+		session.UpdateActivity(tokenSig)
+	}
 
 	if !checkAuth {
 		return p, currentUser, model.Success, nil
