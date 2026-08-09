@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/alert"
+	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/pricing"
@@ -44,6 +44,7 @@ func RegisterAdminRouter(r *gin.Engine) {
 	registerModelRouteRoutes(g)
 	registerUsageRoutes(g)
 	registerSessionRoutes(g)
+	registerLoginRecordRoutes(g)
 	registerAuditRoutes(g)
 	registerDashboardRoutes(g)
 	registerPromptRoutes(g)
@@ -547,27 +548,25 @@ func registerUsageRoutes(g *gin.RouterGroup) {
 func registerSessionRoutes(g *gin.RouterGroup) {
 	s := g.Group("/sessions")
 
-	// ?active=1 仅活跃会话;默认含已吊销。
+	// ?active=1 仅活跃会话;默认含已吊销。principalID 为空时返回平台级分页列表。
 	s.GET("", func(c *gin.Context) {
-		principalID := c.Query("principalID")
-		if principalID == "" {
-			writeBadRequest(c, errStr("principalID required"))
-			return
-		}
-		var (
-			list []*session.Session
-			err  error
-		)
-		if c.Query("active") == "1" {
-			list, err = session.ListSessions(principalID)
-		} else {
-			list, err = session.ListAllSessions(principalID)
-		}
+		pageIndex := parseUnix(c.Query("pageIndex"))
+		pageSize := parseUnix(c.Query("pageSize"))
+		list, total, err := session.QuerySessions(session.Query{
+			PrincipalID: c.Query("principalID"),
+			TenantID:    c.Query("tenantID"),
+			Keyword:     c.Query("keyword"),
+			ActiveOnly:  c.Query("active") == "1",
+			PageIndex:   pageIndex,
+			PageSize:    pageSize,
+			IdleMinutes: int(parseUnix(c.Query("idleMinutes"))),
+		})
 		if err != nil {
 			writeErr(c, err)
 			return
 		}
-		writeOK(c, gin.H{"data": list})
+		pageIndex, pageSize = normalizeAdminPage(pageIndex, pageSize)
+		writeOK(c, gin.H{"data": list, "total": total, "pageIndex": pageIndex, "pageSize": pageSize})
 	})
 
 	s.DELETE("/:id", func(c *gin.Context) {
@@ -609,6 +608,36 @@ func registerSessionRoutes(g *gin.RouterGroup) {
 			return
 		}
 		writeOK(c, gin.H{"data": gin.H{"count": count}})
+	})
+}
+
+func registerLoginRecordRoutes(g *gin.RouterGroup) {
+	g.GET("/login-records", func(c *gin.Context) {
+		pageIndex := parseUnix(c.Query("pageIndex"))
+		pageSize := parseUnix(c.Query("pageSize"))
+		query := session.LoginRecordQuery{
+			PrincipalID: c.Query("principalID"),
+			TenantID:    c.Query("tenantID"),
+			Keyword:     c.Query("keyword"),
+			Result:      c.Query("result"),
+			PageIndex:   pageIndex,
+			PageSize:    pageSize,
+		}
+		if raw := c.Query("abnormal"); raw != "" {
+			abnormal, err := strconv.ParseBool(raw)
+			if err != nil {
+				writeBadRequest(c, errStr("abnormal must be true or false"))
+				return
+			}
+			query.Abnormal = &abnormal
+		}
+		list, total, err := session.QueryLoginRecords(query)
+		if err != nil {
+			writeErr(c, err)
+			return
+		}
+		pageIndex, pageSize = normalizeAdminPage(pageIndex, pageSize)
+		writeOK(c, gin.H{"data": list, "total": total, "pageIndex": pageIndex, "pageSize": pageSize})
 	})
 }
 
@@ -717,6 +746,19 @@ func writeBadRequest(c *gin.Context, err error) {
 }
 
 func errStr(s string) error { return &simpleError{msg: s} }
+
+func normalizeAdminPage(pageIndex, pageSize int64) (int64, int64) {
+	if pageIndex <= 0 {
+		pageIndex = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	return pageIndex, pageSize
+}
 
 type simpleError struct{ msg string }
 

@@ -120,13 +120,16 @@ func Login(c *gin.Context) {
 	}
 	loginSession, deviceName := loginSessionContext(c, payload.DeviceType, payload.DeviceName)
 	user.LoginWithSession(req, resp, loginSession)
+	var persisted *persistedLoginSession
 	if resp.Code == apipb.Code_Success {
-		if err := persistLoginSession(c, resp.Data, deviceName); err != nil {
+		persisted, err = persistLoginSession(c, resp.Data, deviceName)
+		if err != nil {
 			resp.Code = apipb.Code_InternalServerError
 			resp.Message = err.Error()
 			resp.Data = ""
 		}
 	}
+	recordLoginAttempt(c, payload.UserName, "", "password", resp.Code == 41008, loginSession, deviceName, resp, persisted)
 	// 登录失败时触发安全告警（基于 IP 的暴力破解检测）
 	if resp.Code == 41001 {
 		alert.AlertLoginFailure(req.UserName, c.ClientIP())
@@ -147,14 +150,18 @@ func MFALoginVerify(c *gin.Context) {
 		return
 	}
 	loginSession, deviceName := loginSessionContext(c, req.DeviceType, req.DeviceName)
-	user.CompleteMFALoginWithSession(req.MFAToken, req.Code, resp, loginSession)
+	principalID := user.CompleteMFALoginWithSessionResult(req.MFAToken, req.Code, resp, loginSession)
+	var persisted *persistedLoginSession
 	if resp.Code == apipb.Code_Success {
-		if err := persistLoginSession(c, resp.Data, deviceName); err != nil {
+		var persistErr error
+		persisted, persistErr = persistLoginSession(c, resp.Data, deviceName)
+		if persistErr != nil {
 			resp.Code = apipb.Code_InternalServerError
-			resp.Message = err.Error()
+			resp.Message = persistErr.Error()
 			resp.Data = ""
 		}
 	}
+	recordLoginAttempt(c, "", principalID, "mfa", true, loginSession, deviceName, resp, persisted)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -172,16 +179,23 @@ func loginSessionContext(c *gin.Context, requestedType *int32, requestedName str
 	}, truncateRunes(deviceName, 200)
 }
 
-func persistLoginSession(c *gin.Context, bearerToken, deviceName string) error {
+type persistedLoginSession struct {
+	Current    *apipb.CurrentUser
+	Abnormal   bool
+	PreviousIP string
+}
+
+func persistLoginSession(c *gin.Context, bearerToken, deviceName string) (*persistedLoginSession, error) {
 	current, err := authtoken.DecodeToken(bearerToken)
 	if err != nil || current == nil {
-		return fmt.Errorf("decode issued login token: %w", err)
+		return nil, fmt.Errorf("decode issued login token: %w", err)
 	}
 	tokenSig := authtoken.GetTokenSignature(bearerToken)
 	if current.SessionID == "" || tokenSig == "" {
 		_ = authtoken.DefaultTokenCache.Del(current.Id, bearerToken)
-		return fmt.Errorf("issued login token has no manageable session")
+		return nil, fmt.Errorf("issued login token has no manageable session")
 	}
+	abnormal, previousIP := session.DetectAnomaly(current.Id, c.ClientIP(), 30)
 	record := &session.Session{
 		Model: cmodel.Model{ID: current.SessionID}, PrincipalID: current.Id, TenantID: current.TenantID,
 		TokenSig: tokenSig, DeviceType: current.DeviceType, DeviceName: deviceName,
@@ -189,9 +203,89 @@ func persistLoginSession(c *gin.Context, bearerToken, deviceName string) error {
 	}
 	if err := session.CreateSession(record); err != nil {
 		_ = authtoken.DefaultTokenCache.Del(current.Id, bearerToken)
-		return fmt.Errorf("record login session: %w", err)
+		return nil, fmt.Errorf("record login session: %w", err)
 	}
-	return nil
+	return &persistedLoginSession{Current: current, Abnormal: abnormal, PreviousIP: previousIP}, nil
+}
+
+func recordLoginAttempt(
+	c *gin.Context,
+	requestedUserName string,
+	principalID string,
+	authMethod string,
+	mfaUsed bool,
+	loginSession user.LoginSessionContext,
+	deviceName string,
+	resp *apipb.LoginResponse,
+	persisted *persistedLoginSession,
+) {
+	record := &session.LoginRecord{
+		AuthMethod: authMethod,
+		MFAUsed:    mfaUsed,
+		DeviceType: loginSession.DeviceType,
+		DeviceName: deviceName,
+		IP:         c.ClientIP(),
+		UserAgent:  truncateRunes(c.Request.UserAgent(), 500),
+		ResultCode: int32(resp.Code),
+		Message:    truncateRunes(resp.Message, 500),
+		RequestID:  truncateRunes(middleware.GetTransID(c), 100),
+	}
+	switch resp.Code {
+	case apipb.Code_Success:
+		record.Result = session.LoginResultSuccess
+	case 41008:
+		record.Result = session.LoginResultChallenge
+	default:
+		record.Result = session.LoginResultFailed
+	}
+
+	if persisted != nil && persisted.Current != nil {
+		record.PrincipalID = persisted.Current.Id
+		record.TenantID = persisted.Current.TenantID
+		record.UserName = persisted.Current.UserName
+		record.SessionID = persisted.Current.SessionID
+		record.Abnormal = persisted.Abnormal
+		record.PreviousIP = persisted.PreviousIP
+		if persisted.Abnormal {
+			record.AnomalyReason = "IP_CHANGED"
+		}
+	} else {
+		identity := resolveLoginIdentity(principalID, requestedUserName)
+		record.PrincipalID = identity.ID
+		record.TenantID = identity.TenantID
+		record.UserName = identity.UserName
+	}
+	if record.UserName == "" {
+		record.UserName = strings.ToLower(strings.TrimSpace(requestedUserName))
+	}
+	session.RecordLogin(record)
+	if record.Abnormal {
+		alert.FireEvent("security.login.anomaly", map[string]interface{}{
+			"principalID": record.PrincipalID,
+			"tenantID":    record.TenantID,
+			"userName":    record.UserName,
+			"ip":          record.IP,
+			"previousIP":  record.PreviousIP,
+			"sessionID":   record.SessionID,
+		})
+	}
+}
+
+func resolveLoginIdentity(principalID, requestedUserName string) user.User {
+	identity := user.User{}
+	database := store.DB()
+	if database == nil {
+		return identity
+	}
+	query := database.Model(&user.User{}).Select("id", "tenant_id", "user_name")
+	if principalID != "" {
+		_ = query.Where("id = ?", principalID).First(&identity).Error
+		return identity
+	}
+	if requestedUserName != "" {
+		_ = query.Where("user_name = ?", strings.ToLower(strings.TrimSpace(requestedUserName))).First(&identity).Error
+	}
+	return identity
 }
 
 func inferDeviceType(userAgent string) int32 {

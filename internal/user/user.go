@@ -651,22 +651,29 @@ func CompleteMFALogin(mfaToken, code string, resp *apipb.LoginResponse) {
 }
 
 func CompleteMFALoginWithSession(mfaToken, code string, resp *apipb.LoginResponse, loginSession LoginSessionContext) {
+	CompleteMFALoginWithSessionResult(mfaToken, code, resp, loginSession)
+}
+
+// CompleteMFALoginWithSessionResult returns the challenge principal whenever
+// it can be resolved, including rejected verification attempts, so callers can
+// create a complete security login record without exposing challenge payloads.
+func CompleteMFALoginWithSessionResult(mfaToken, code string, resp *apipb.LoginResponse, loginSession LoginSessionContext) string {
 	userID, ok := auth.ConsumeMFAChallenge(mfaToken)
 	if !ok {
 		resp.Code = 41009 // MfaChallengeInvalid
 		resp.Message = "MFA 令牌无效或已过期，请重新登录"
-		return
+		return ""
 	}
 	if !auth.VerifyMFACode(userID, code) {
 		resp.Code = 41010 // MfaCodeInvalid
 		resp.Message = "MFA 验证码不正确"
-		return
+		return userID
 	}
 	u := &User{}
 	if err := store.DB().Preload("UserRoles").First(u, "id = ?", userID).Error; err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
-		return
+		return userID
 	}
 	currentUser := &apipb.CurrentUser{
 		Id: u.ID, UserName: u.UserName, Gender: u.Gender,
@@ -677,9 +684,10 @@ func CompleteMFALoginWithSession(mfaToken, code string, resp *apipb.LoginRespons
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
-		return
+		return userID
 	}
 	resp.Data = t
+	return userID
 }
 
 func LoginByWechat(register bool, req *User, resp *apipb.LoginResponse) {

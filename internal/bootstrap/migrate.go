@@ -67,7 +67,7 @@ func AutoMigrate() error {
 		// 此前这些表不在迁移清单内，全新部署的库访问对应功能会报 Table doesn't exist。
 		&apikey.AIProvider{}, &apikey.AIKey{}, &apikey.ModelRoute{},
 		&usage.UsageRecord{}, &usage.UsageBudget{},
-		&session.Session{},
+		&session.Session{}, &session.LoginRecord{},
 		&auth.MFAFactor{}, &auth.RefreshToken{}, &auth.OAuthClient{}, &auth.ConsentRecord{},
 		&prompt.PromptTemplate{},
 		&identity.UserExternalIdentity{},
