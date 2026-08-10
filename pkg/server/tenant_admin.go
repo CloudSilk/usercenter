@@ -92,6 +92,21 @@ func ListTenantAdministrators(tenantID, projectID string) ([]TenantAdministrator
 	return result, nil
 }
 
+func CountTenantProjectUsers(tenantID, projectID string) (int64, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	projectID = strings.TrimSpace(projectID)
+	if tenantID == "" || projectID == "" {
+		return 0, errors.New("tenant and project are required")
+	}
+	var count int64
+	if err := store.DB().Model(&ucuser.User{}).
+		Where("tenant_id = ? AND project_id = ?", tenantID, projectID).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func SetTenantAdministratorEnabled(tenantID, projectID, userID string, enabled bool) error {
 	if _, err := getTenantAdministrator(tenantID, projectID, userID); err != nil {
 		return err

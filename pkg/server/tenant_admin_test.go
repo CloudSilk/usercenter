@@ -41,6 +41,10 @@ func TestTenantAdministratorFacadeLifecycle(t *testing.T) {
 	if err != nil || len(administrators) != 1 || administrators[0].ID != administrator.ID {
 		t.Fatalf("unexpected administrator list: %#v, %v", administrators, err)
 	}
+	userCount, err := CountTenantProjectUsers("tenant-admin-a", "manunexus")
+	if err != nil || userCount != 1 {
+		t.Fatalf("unexpected tenant project user count: %d, %v", userCount, err)
+	}
 	if err := SetTenantAdministratorEnabled("tenant-admin-a", "manunexus", administrator.ID, false); err != nil {
 		t.Fatalf("disable administrator: %v", err)
 	}
