@@ -14,11 +14,13 @@ import (
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/conversation"
 	"github.com/CloudSilk/usercenter/internal/gatewaylog"
+	"github.com/CloudSilk/usercenter/internal/pricing"
 	"github.com/CloudSilk/usercenter/internal/principal"
 	"github.com/CloudSilk/usercenter/internal/prompt"
 	"github.com/CloudSilk/usercenter/internal/ratelimit"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/usage"
+	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -64,6 +66,7 @@ func seedAIProvider(t *testing.T, baseURL, modelAlias string) {
 // newAIGatewayEngine 构造一个注入 Human Principal 的 gin 引擎并注册 AI 网关路由。
 func newAIGatewayEngine(userID, tenantID string) *gin.Engine {
 	r := gin.New()
+	r.Use(ucm.RequestIDMiddleware())
 	r.Use(func(c *gin.Context) {
 		c.Set("Principal", principal.NewHuman(userID, tenantID, nil))
 		c.Next()
@@ -85,6 +88,12 @@ func TestChatCompletions_E2E(t *testing.T) {
 	defer upstream.Close()
 
 	seedAIProvider(t, upstream.URL, "mock-model")
+	_, err := pricing.CreatePrice(&pricing.ModelPrice{
+		TenantID: platformTenant, ModelName: "mock-model", InputPer1M: 10, OutputPer1M: 20, Currency: "USD", Enable: true,
+	})
+	if err != nil {
+		t.Fatalf("create price: %v", err)
+	}
 	r := newAIGatewayEngine("u1", platformTenant)
 
 	body := []byte(`{"model":"mock-model","messages":[{"role":"user","content":"ping"}]}`)
@@ -98,6 +107,21 @@ func TestChatCompletions_E2E(t *testing.T) {
 	}
 	if !bytes.Contains(w.Body.Bytes(), []byte("pong")) {
 		t.Fatalf("expected response to contain 'pong', got %s", w.Body.String())
+	}
+	if w.Header().Get("X-Request-ID") == "" {
+		t.Fatal("expected X-Request-ID response header")
+	}
+	if got := w.Header().Get("X-UserCenter-Prompt-Tokens"); got != "5" {
+		t.Fatalf("prompt token header = %q, want 5", got)
+	}
+	if got := w.Header().Get("X-UserCenter-Completion-Tokens"); got != "1" {
+		t.Fatalf("completion token header = %q, want 1", got)
+	}
+	if got := w.Header().Get("X-UserCenter-Total-Tokens"); got != "6" {
+		t.Fatalf("total token header = %q, want 6", got)
+	}
+	if got := w.Header().Get("X-UserCenter-Cost"); got != "0.00007" {
+		t.Fatalf("cost header = %q, want 0.00007", got)
 	}
 	// 上游应收到解密后的 Bearer 明文 key（验证加密存储→解密转发链路）
 	if gotAuth != "Bearer sk-mock-plaintext" {
@@ -241,6 +265,12 @@ func TestChatCompletions_E2E_Streaming(t *testing.T) {
 	defer upstream.Close()
 
 	seedAIProvider(t, upstream.URL, "mock-stream-model")
+	_, err := pricing.CreatePrice(&pricing.ModelPrice{
+		TenantID: platformTenant, ModelName: "mock-stream-model", InputPer1M: 10, OutputPer1M: 20, Currency: "USD", Enable: true,
+	})
+	if err != nil {
+		t.Fatalf("create stream price: %v", err)
+	}
 	r := newAIGatewayEngine("us", platformTenant)
 
 	body := []byte(`{"model":"mock-stream-model","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
@@ -259,6 +289,19 @@ func TestChatCompletions_E2E_Streaming(t *testing.T) {
 	}
 	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
 		t.Fatalf("expected SSE content-type, got %q", ct)
+	}
+	response := w.Result()
+	if got := response.Trailer.Get("X-UserCenter-Prompt-Tokens"); got != "8" {
+		t.Fatalf("stream prompt token trailer = %q, want 8", got)
+	}
+	if got := response.Trailer.Get("X-UserCenter-Completion-Tokens"); got != "2" {
+		t.Fatalf("stream completion token trailer = %q, want 2", got)
+	}
+	if got := response.Trailer.Get("X-UserCenter-Total-Tokens"); got != "10" {
+		t.Fatalf("stream total token trailer = %q, want 10", got)
+	}
+	if got := response.Trailer.Get("X-UserCenter-Cost"); got != "0.00012" {
+		t.Fatalf("stream cost trailer = %q, want 0.00012", got)
 	}
 	// 流式 usage 应从最后一块提取并落库（completion_tokens=2）
 	var rec usage.UsageRecord

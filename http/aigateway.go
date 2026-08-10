@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -189,6 +190,7 @@ func ChatCompletions(c *gin.Context) {
 	var respStatus int
 	var respCT string
 	if stream {
+		declareUsageTrailers(c)
 		pt, ct, assistantContent = streamProxy(c, resp)
 	} else {
 		// 非流式：先读取响应体并解析 usage（不立即写客户端），以便输出审核可在写入前拦截替换。
@@ -196,6 +198,7 @@ func ChatCompletions(c *gin.Context) {
 		assistantContent = extractAssistantContent(responseBuf)
 	}
 	cost := recordGatewayUsage(sel, tenantID, principalID, principalKind, model, pt, ct, 0, time.Since(start), true, "")
+	setUsageMetadata(c, pt, ct, cost)
 
 	// --- 输出审核（moderate_output）+ 写非流式响应 ---
 	// 非流式：审核在写入客户端之前进行，命中则用安全提示替换（避免对已写出的 body 二次写入）。
@@ -250,6 +253,33 @@ func ChatCompletions(c *gin.Context) {
 	// --- 请求日志 ---
 	recordGatewayLog(c, tenantID, principalID, model, enh.SessionID, pt, ct, cost, time.Since(start), 200, true, "", "", false)
 	_ = cost
+}
+
+const (
+	headerPromptTokens     = "X-UserCenter-Prompt-Tokens"
+	headerCompletionTokens = "X-UserCenter-Completion-Tokens"
+	headerTotalTokens      = "X-UserCenter-Total-Tokens"
+	headerCost             = "X-UserCenter-Cost"
+)
+
+func declareUsageTrailers(c *gin.Context) {
+	c.Header("Trailer", strings.Join([]string{
+		headerPromptTokens,
+		headerCompletionTokens,
+		headerTotalTokens,
+		headerCost,
+	}, ", "))
+}
+
+func setUsageMetadata(c *gin.Context, promptTokens, completionTokens int64, cost float64) {
+	c.Header(headerPromptTokens, strconv.FormatInt(promptTokens, 10))
+	c.Header(headerCompletionTokens, strconv.FormatInt(completionTokens, 10))
+	c.Header(headerTotalTokens, strconv.FormatInt(promptTokens+completionTokens, 10))
+	costText := strings.TrimRight(strings.TrimRight(strconv.FormatFloat(cost, 'f', 12, 64), "0"), ".")
+	if costText == "" {
+		costText = "0"
+	}
+	c.Header(headerCost, costText)
 }
 
 // captureUpstream 读取上游整包响应、解析 usage 并返回副本与状态信息，但不写客户端。
