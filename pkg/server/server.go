@@ -29,6 +29,7 @@ import (
 	"github.com/CloudSilk/pkg/db"
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/bootstrap"
+	"github.com/CloudSilk/usercenter/internal/reauth"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -112,6 +113,12 @@ func SetAlertWebhook(url string) {
 // serves usercenter's APIs so the SPA and its uc_admin_token remain same-origin.
 func RegisterAdminSPA(router *gin.Engine) {
 	bootstrap.RegisterAdminSPA(router)
+}
+
+// ConsumeReauthProof atomically consumes a short-lived, single-use proof issued
+// by UserCenter for the exact principal and high-risk action.
+func ConsumeReauthProof(principalID, action, proof string) bool {
+	return reauth.Consume(principalID, action, proof)
 }
 
 // ---------- 密码哈希（供宿主种子播种用户时使用）----------
