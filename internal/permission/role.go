@@ -353,7 +353,7 @@ func SetRoleEnabled(roleID string, enable bool) error {
 }
 
 func DeleteRole(roleID string) (err error) {
-	return store.DB().Transaction(func(tx *gorm.DB) error {
+	err = store.DB().Transaction(func(tx *gorm.DB) error {
 		// 解耦:直接查 user_roles 表,不依赖 UserRole struct
 		var userRoleCount int64
 		if err := tx.Table("user_roles").Where("role_id = ?", roleID).Count(&userRoleCount).Error; err != nil {
@@ -369,8 +369,8 @@ func DeleteRole(roleID string) (err error) {
 		if duplication {
 			return errors.New("此角色存在子角色不允许删除")
 		}
-		oldRole, err := GetRoleByID(roleID)
-		if err != nil {
+		oldRole := &Role{}
+		if err := tx.Where("id = ?", roleID).First(oldRole).Error; err != nil {
 			return err
 		}
 		if !oldRole.CanDel {
@@ -380,13 +380,26 @@ func DeleteRole(roleID string) (err error) {
 		if err != nil {
 			return err
 		}
+		err = tx.Unscoped().Where("role_id = ?", roleID).Delete(&ABACPolicy{}).Error
+		if err != nil {
+			return err
+		}
 		err = tx.Unscoped().Delete(&Role{}, "id=?", roleID).Error
 		if err != nil {
 			return err
 		}
-		ClearCasbin(0, fmt.Sprint(roleID))
-		return err
+		return tx.Where("ptype = ? AND v0 = ?", "p", fmt.Sprint(roleID)).Delete(&CasbinRule{}).Error
 	})
+	if err != nil {
+		return err
+	}
+	if enforcer != nil {
+		if err := enforcer.LoadPolicy(); err != nil {
+			return err
+		}
+	}
+	InvalidateAuthCache()
+	return nil
 }
 
 func QueryRole(req *apipb.QueryRoleRequest, resp *apipb.QueryRoleResponse, preload bool) {

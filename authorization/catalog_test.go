@@ -147,6 +147,28 @@ func TestApplyAuthorizationCatalogSeedsCompleteNativeGraphIdempotently(t *testin
 	require.Len(t, policies, 4)
 }
 
+func TestApplyAuthorizationCatalogPreservesPublishedABACPolicy(t *testing.T) {
+	gdb := setupAuthorizationCatalogTestDB(t)
+	require.NoError(t, gdb.Create(&tenant.Tenant{
+		Model: commonmodel.Model{ID: "platform"}, Name: "平台", Enable: true, IsMust: true,
+	}).Error)
+	catalog := testAuthorizationCatalog()
+	_, err := Apply(catalog)
+	require.NoError(t, err)
+
+	customCondition := `{"type":"SELF"}`
+	require.NoError(t, gdb.Model(&permission.ABACPolicy{}).
+		Where("tenant_id = ? AND role_id = ? AND resource = ? AND action = ?", "platform", "2", "user", "read").
+		Updates(map[string]any{"data_scope": int32(permission.DataScopeSelf), "condition": customCondition}).Error)
+
+	_, err = Apply(catalog)
+	require.NoError(t, err)
+	var policy permission.ABACPolicy
+	require.NoError(t, gdb.Where("tenant_id = ? AND role_id = ? AND resource = ? AND action = ?", "platform", "2", "user", "read").First(&policy).Error)
+	require.Equal(t, int32(permission.DataScopeSelf), policy.DataScope)
+	require.Equal(t, customCondition, policy.Condition)
+}
+
 func TestApplyAuthorizationCatalogRestoresSystemRowsAndPreservesCustomData(t *testing.T) {
 	gdb := setupAuthorizationCatalogTestDB(t)
 	require.NoError(t, gdb.Create(&tenant.Tenant{

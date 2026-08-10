@@ -125,6 +125,17 @@ type RoleAuthorizationPublishResult struct {
 	AffectedUserIDs []string                 `json:"-"`
 }
 
+// RoleAuthorizationABACPolicy is an optional native ABAC policy published in
+// the same transaction as a role's menu/function and Casbin authorization.
+type RoleAuthorizationABACPolicy struct {
+	TenantID  string `json:"tenantID"`
+	Resource  string `json:"resource"`
+	Action    string `json:"action"`
+	DataScope int32  `json:"dataScope"`
+	Condition string `json:"condition"`
+	Priority  int32  `json:"priority"`
+}
+
 type tenantMenuAuthorization struct {
 	MenuID string
 	Funcs  string
@@ -580,6 +591,22 @@ func replaceRoleAuthorizationPolicies(tx *gorm.DB, role *Role, policies []RoleAu
 }
 
 func PublishRoleAuthorization(roleID, baseRevision string, selections []RoleAuthorizationSelection) (*RoleAuthorizationPublishResult, error) {
+	return publishRoleAuthorization(roleID, baseRevision, selections, nil)
+}
+
+// PublishRoleAuthorizationWithABAC atomically publishes the configurable RBAC
+// matrix and one role-level ABAC data-scope policy.
+func PublishRoleAuthorizationWithABAC(roleID, baseRevision string, selections []RoleAuthorizationSelection, policy RoleAuthorizationABACPolicy) (*RoleAuthorizationPublishResult, error) {
+	policy.TenantID = strings.TrimSpace(policy.TenantID)
+	policy.Resource = strings.TrimSpace(policy.Resource)
+	policy.Action = strings.TrimSpace(policy.Action)
+	if policy.TenantID == "" || policy.Resource == "" || policy.Action == "" {
+		return nil, errors.New("ABAC tenant, resource and action are required")
+	}
+	return publishRoleAuthorization(roleID, baseRevision, selections, &policy)
+}
+
+func publishRoleAuthorization(roleID, baseRevision string, selections []RoleAuthorizationSelection, abac *RoleAuthorizationABACPolicy) (*RoleAuthorizationPublishResult, error) {
 	roleID = strings.TrimSpace(roleID)
 	baseRevision = strings.TrimSpace(baseRevision)
 	if roleID == "" {
@@ -625,6 +652,36 @@ func PublishRoleAuthorization(roleID, baseRevision string, selections []RoleAuth
 
 		if err := replaceRoleAuthorizationPolicies(tx, role, preview.Policies); err != nil {
 			return err
+		}
+		if abac != nil {
+			if role.TenantID != abac.TenantID {
+				return errors.New("ABAC policy tenant does not own role")
+			}
+			var current ABACPolicy
+			err := tx.Where("tenant_id = ? AND role_id = ? AND resource = ? AND action = ?",
+				abac.TenantID, role.ID, abac.Resource, abac.Action).First(&current).Error
+			values := map[string]any{
+				"data_scope": abac.DataScope, "condition": abac.Condition,
+				"enable": true, "priority": abac.Priority,
+			}
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				current = ABACPolicy{
+					TenantID: abac.TenantID, RoleID: role.ID,
+					Resource: abac.Resource, Action: abac.Action,
+					DataScope: abac.DataScope, Condition: abac.Condition,
+					Enable: true, Priority: abac.Priority,
+				}
+				if err := tx.Create(&current).Error; err != nil {
+					return err
+				}
+			case err != nil:
+				return err
+			default:
+				if err := tx.Model(&current).Updates(values).Error; err != nil {
+					return err
+				}
+			}
 		}
 
 		if err := tx.Table("user_roles").

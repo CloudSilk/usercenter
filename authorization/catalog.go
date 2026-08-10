@@ -228,7 +228,7 @@ func Apply(catalog AuthorizationCatalog) (AuthorizationCatalogSummary, error) {
 			}
 		}
 		for _, policy := range catalog.ABACPolicies {
-			if err := ensureCatalogABACPolicy(tx, policy, roleIDs[policy.RoleID]); err != nil {
+			if err := ensureCatalogABACPolicy(tx, policy, roleIDs[policy.RoleID], !previouslyApplied); err != nil {
 				return err
 			}
 		}
@@ -826,7 +826,7 @@ func ensureCatalogTenantGrant(tx *gorm.DB, tenantID, menuID string, functions []
 	return nil
 }
 
-func ensureCatalogABACPolicy(tx *gorm.DB, definition AuthorizationABACPolicy, roleID string) error {
+func ensureCatalogABACPolicy(tx *gorm.DB, definition AuthorizationABACPolicy, roleID string, seed bool) error {
 	var row permission.ABACPolicy
 	err := tx.Where(
 		"tenant_id = ? AND role_id = ? AND resource = ? AND action = ?",
@@ -859,6 +859,9 @@ func ensureCatalogABACPolicy(tx *gorm.DB, definition AuthorizationABACPolicy, ro
 	}
 	if err != nil {
 		return fmt.Errorf("load ABAC policy: %w", err)
+	}
+	if !seed {
+		return nil
 	}
 	return tx.Model(&row).Updates(values).Error
 }
