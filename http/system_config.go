@@ -16,6 +16,7 @@ import (
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/system/config/add [post]
 func AddSystemConfig(c *gin.Context, req *apipb.SystemConfigInfo) (*apipb.CommonResponse, error) {
+	req.TenantID = scopedUserTenantID(c, req.TenantID)
 	id, err := systemconfig.CreateSystemConfig(systemconfig.PBToSystemConfig(req))
 	if err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
@@ -31,6 +32,15 @@ func AddSystemConfig(c *gin.Context, req *apipb.SystemConfigInfo) (*apipb.Common
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/system/config/update [put]
 func UpdateSystemConfig(c *gin.Context, req *apipb.SystemConfigInfo) (*apipb.CommonResponse, error) {
+	current, err := systemconfig.GetSystemConfigByID(req.Id)
+	if err != nil {
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
+	}
+	scope := scopedUserTenantID(c, req.TenantID)
+	if current.TenantID != scope {
+		return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "无权管理该租户的系统配置"}, nil
+	}
+	req.TenantID = current.TenantID
 	if err := systemconfig.UpdateSystemConfig(systemconfig.PBToSystemConfig(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -45,6 +55,13 @@ func UpdateSystemConfig(c *gin.Context, req *apipb.SystemConfigInfo) (*apipb.Com
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/system/config/delete [delete]
 func DeleteSystemConfig(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
+	current, err := systemconfig.GetSystemConfigByID(req.Id)
+	if err != nil {
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
+	}
+	if current.TenantID != scopedUserTenantID(c, c.Query("tenantID")) {
+		return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "无权管理该租户的系统配置"}, nil
+	}
 	if err := systemconfig.DeleteSystemConfig(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -60,8 +77,9 @@ func DeleteSystemConfig(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonRes
 // @Success 200 {object} apipb.QuerySystemConfigResponse
 // @Router /api/core/system/config/query [get]
 func QuerySystemConfig(c *gin.Context, req *apipb.QuerySystemConfigRequest) (*apipb.QuerySystemConfigResponse, error) {
+	tenantID := scopedUserTenantID(c, c.Query("tenantID"))
 	resp := &apipb.QuerySystemConfigResponse{Code: apipb.Code_Success}
-	systemconfig.QuerySystemConfig(req, resp, false)
+	systemconfig.QuerySystemConfigForTenant(req, resp, false, tenantID)
 	return resp, nil
 }
 
@@ -84,6 +102,9 @@ func GetSystemConfigDetail(c *gin.Context) {
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
+	} else if data.TenantID != scopedUserTenantID(c, c.Query("tenantID")) {
+		resp.Code = apipb.Code_NoPermission
+		resp.Message = "无权查看该租户的系统配置"
 	} else {
 		resp.Data = systemconfig.SystemConfigToPB(data)
 	}

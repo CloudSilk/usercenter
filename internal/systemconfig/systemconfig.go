@@ -38,7 +38,17 @@ func DeleteSystemConfig(id string) (err error) {
 }
 
 func QuerySystemConfig(req *apipb.QuerySystemConfigRequest, resp *apipb.QuerySystemConfigResponse, preload bool) {
+	QuerySystemConfigForTenant(req, resp, preload, "")
+}
+
+// QuerySystemConfigForTenant queries configuration within one tenant. An empty
+// tenant ID preserves the provider-level legacy behavior; HTTP callers must
+// always pass the tenant scope resolved from the authenticated user.
+func QuerySystemConfigForTenant(req *apipb.QuerySystemConfigRequest, resp *apipb.QuerySystemConfigResponse, preload bool, tenantID string) {
 	db := store.DB().Model(&SystemConfig{})
+	if tenantID != "" {
+		db = db.Where("tenant_id = ?", tenantID)
+	}
 	if req.IsMust {
 		db = db.Where("is_must = ?", req.IsMust)
 	}

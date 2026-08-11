@@ -5,7 +5,6 @@ import (
 
 	"github.com/CloudSilk/usercenter/internal/dictionaries"
 	apipb "github.com/CloudSilk/usercenter/proto"
-	ucm "github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,7 +16,7 @@ import (
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/dictionaries/add [post]
 func AddDictionaries(c *gin.Context, req *apipb.DictionariesInfo) (*apipb.CommonResponse, error) {
-	req.TenantID = ucm.GetTenantID(c)
+	req.TenantID = scopedUserTenantID(c, req.TenantID)
 	id, err := dictionaries.CreateDictionaries(dictionaries.PBToDictionariesArray(req))
 	if err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
@@ -33,6 +32,15 @@ func AddDictionaries(c *gin.Context, req *apipb.DictionariesInfo) (*apipb.Common
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/dictionaries/update [put]
 func UpdateDictionaries(c *gin.Context, req *apipb.DictionariesInfo) (*apipb.CommonResponse, error) {
+	current, err := dictionaries.GetDictionariesByID(req.Id)
+	if err != nil {
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
+	}
+	scope := scopedUserTenantID(c, req.TenantID)
+	if current.TenantID != scope {
+		return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "无权管理该租户的字典"}, nil
+	}
+	req.TenantID = current.TenantID
 	if err := dictionaries.UpdateDictionaries(dictionaries.PBToDictionariesArray(req)); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -47,6 +55,13 @@ func UpdateDictionaries(c *gin.Context, req *apipb.DictionariesInfo) (*apipb.Com
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/dictionaries/delete [delete]
 func DeleteDictionaries(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
+	current, err := dictionaries.GetDictionariesByID(req.Id)
+	if err != nil {
+		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
+	}
+	if current.TenantID != scopedUserTenantID(c, c.Query("tenantID")) {
+		return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "无权管理该租户的字典"}, nil
+	}
 	if err := dictionaries.DeleteDictionaries(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -63,6 +78,7 @@ func DeleteDictionaries(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonRes
 // @Success 200 {object} apipb.QueryDictionariesResponse
 // @Router /api/core/dictionaries/query [get]
 func QueryDictionaries(c *gin.Context, req *apipb.QueryDictionariesRequest) (*apipb.QueryDictionariesResponse, error) {
+	req.TenantID = scopedUserTenantID(c, requestedUserTenantID(c, req.TenantID))
 	resp := &apipb.QueryDictionariesResponse{Code: apipb.Code_Success}
 	dictionaries.QueryDictionaries(req, resp, false)
 	return resp, nil
@@ -87,6 +103,9 @@ func GetDictionariesDetail(c *gin.Context) {
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
+	} else if data.TenantID != scopedUserTenantID(c, c.Query("tenantID")) {
+		resp.Code = apipb.Code_NoPermission
+		resp.Message = "无权查看该租户的字典"
 	} else {
 		resp.Data = dictionaries.DictionariesToPB(data)
 	}
