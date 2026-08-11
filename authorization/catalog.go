@@ -275,10 +275,6 @@ func Apply(catalog AuthorizationCatalog) (AuthorizationCatalogSummary, error) {
 }
 
 func authorizationCatalogPreviouslyApplied(tx *gorm.DB, catalog AuthorizationCatalog) (bool, error) {
-	roleIDs := make([]string, 0, len(catalog.Roles))
-	for _, definition := range catalog.Roles {
-		roleIDs = append(roleIDs, definition.ID)
-	}
 	menuIDs := make([]string, 0, len(catalog.Menus))
 	for _, definition := range catalog.Menus {
 		menuIDs = append(menuIDs, definition.ID)
@@ -292,7 +288,6 @@ func authorizationCatalogPreviouslyApplied(tx *gorm.DB, catalog AuthorizationCat
 		model any
 		ids   []string
 	}{
-		{model: &permission.Role{}, ids: roleIDs},
 		{model: &permission.Menu{}, ids: menuIDs},
 		{model: &permission.API{}, ids: apiIDs},
 	}
@@ -308,10 +303,33 @@ func authorizationCatalogPreviouslyApplied(tx *gorm.DB, catalog AuthorizationCat
 			return true, nil
 		}
 	}
+	// A bootstrap role (most commonly the shared super-administrator role) can
+	// predate an embedded product catalog. It is not evidence that the product's
+	// menus, API inventory or grants have ever been published. Role-only catalogs
+	// still use their role IDs as the marker because they have no product
+	// resources that can serve as a stronger identity.
+	if len(menuIDs) == 0 && len(apiIDs) == 0 {
+		roleIDs := make([]string, 0, len(catalog.Roles))
+		for _, definition := range catalog.Roles {
+			roleIDs = append(roleIDs, definition.ID)
+		}
+		if len(roleIDs) > 0 {
+			var count int64
+			if err := tx.Unscoped().Model(&permission.Role{}).Where("id IN ?", roleIDs).Count(&count).Error; err != nil {
+				return false, err
+			}
+			if count > 0 {
+				return true, nil
+			}
+		}
+	}
 
+	if len(menuIDs) == 0 {
+		return false, nil
+	}
 	var tenantGrantCount int64
 	if err := tx.Unscoped().Model(&tenant.TenantMenu{}).
-		Where("tenant_id = ?", catalog.TenantID).
+		Where("tenant_id = ? AND menu_id IN ?", catalog.TenantID, menuIDs).
 		Count(&tenantGrantCount).Error; err != nil {
 		return false, err
 	}

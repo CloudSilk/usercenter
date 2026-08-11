@@ -147,6 +147,30 @@ func TestApplyAuthorizationCatalogSeedsCompleteNativeGraphIdempotently(t *testin
 	require.Len(t, policies, 4)
 }
 
+func TestApplyAuthorizationCatalogDoesNotTreatBootstrapRoleAsPriorPublication(t *testing.T) {
+	gdb := setupAuthorizationCatalogTestDB(t)
+	require.NoError(t, gdb.Create(&tenant.Tenant{
+		Model: commonmodel.Model{ID: "platform"}, Name: "平台", Enable: true, IsMust: true,
+	}).Error)
+	require.NoError(t, gdb.Create(&permission.Role{
+		Model: commonmodel.Model{ID: "1"}, TenantID: "platform", Name: "bootstrap-super-admin", Enable: true, IsMust: true,
+	}).Error)
+
+	summary, err := Apply(testAuthorizationCatalog())
+	require.NoError(t, err)
+	require.Equal(t, 4, summary.RoleGrantCount)
+	require.Equal(t, 2, summary.TenantGrantCount)
+	require.Equal(t, 4, summary.CasbinRuleCount)
+
+	var roleGrantCount, tenantGrantCount, policyCount int64
+	require.NoError(t, gdb.Model(&permission.RoleMenu{}).Count(&roleGrantCount).Error)
+	require.NoError(t, gdb.Model(&tenant.TenantMenu{}).Count(&tenantGrantCount).Error)
+	require.NoError(t, gdb.Model(&permission.CasbinRule{}).Where("ptype = ? AND v0 IN ?", "p", []string{"1", "2", "3"}).Count(&policyCount).Error)
+	require.Equal(t, int64(4), roleGrantCount)
+	require.Equal(t, int64(2), tenantGrantCount)
+	require.Equal(t, int64(4), policyCount)
+}
+
 func TestApplyAuthorizationCatalogPreservesPublishedABACPolicy(t *testing.T) {
 	gdb := setupAuthorizationCatalogTestDB(t)
 	require.NoError(t, gdb.Create(&tenant.Tenant{
