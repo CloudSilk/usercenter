@@ -1,8 +1,10 @@
 package http
 
 import (
+	"net/http"
+
 	"github.com/CloudSilk/usercenter/internal/webhook"
-	ucm "github.com/CloudSilk/usercenter/utils/middleware"
+	apipb "github.com/CloudSilk/usercenter/proto"
 	"github.com/gin-gonic/gin"
 )
 
@@ -38,9 +40,7 @@ func registerWebhookRoutes(g *gin.RouterGroup) {
 			writeBadRequest(c, err)
 			return
 		}
-		if req.TenantID == "" {
-			req.TenantID = ucm.GetTenantID(c)
-		}
+		req.TenantID = effectiveTenantID(c)
 		id, err := webhook.CreateSub(&req)
 		if err != nil {
 			writeErr(c, err)
@@ -57,8 +57,13 @@ func registerWebhookRoutes(g *gin.RouterGroup) {
 			return
 		}
 		req.ID = c.Param("id")
-		if err := webhook.UpdateSub(&req); err != nil {
+		updated, err := webhook.UpdateSubForTenant(&req, effectiveTenantID(c))
+		if err != nil {
 			writeErr(c, err)
+			return
+		}
+		if !updated {
+			c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "无权管理该租户的 Webhook"})
 			return
 		}
 		recordAudit(c, "webhook_sub_update", req.ID, req.Name)
@@ -67,8 +72,13 @@ func registerWebhookRoutes(g *gin.RouterGroup) {
 
 	w.DELETE("/:id", func(c *gin.Context) {
 		id := c.Param("id")
-		if err := webhook.DeleteSub(id); err != nil {
+		deleted, err := webhook.DeleteSubForTenant(id, effectiveTenantID(c))
+		if err != nil {
 			writeErr(c, err)
+			return
+		}
+		if !deleted {
+			c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "无权管理该租户的 Webhook"})
 			return
 		}
 		recordAudit(c, "webhook_sub_delete", id, "")

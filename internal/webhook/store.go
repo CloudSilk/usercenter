@@ -48,9 +48,24 @@ func UpdateSub(s *Subscription) error {
 	return store.DB().Model(s).Select("name", "url", "events", "secret", "enable").Where("id = ?", s.ID).Updates(s).Error
 }
 
+// UpdateSubForTenant updates a subscription only when it belongs to tenantID.
+func UpdateSubForTenant(s *Subscription, tenantID string) (bool, error) {
+	result := store.DB().Model(&Subscription{}).
+		Where("id = ? AND tenant_id = ?", s.ID, tenantID).
+		Select("name", "url", "events", "secret", "enable").
+		Updates(s)
+	return result.RowsAffected == 1, result.Error
+}
+
 // DeleteSub 删除一条订阅。
 func DeleteSub(id string) error {
 	return store.DB().Delete(&Subscription{}, "id = ?", id).Error
+}
+
+// DeleteSubForTenant deletes a subscription only when it belongs to tenantID.
+func DeleteSubForTenant(id, tenantID string) (bool, error) {
+	result := store.DB().Where("id = ? AND tenant_id = ?", id, tenantID).Delete(&Subscription{})
+	return result.RowsAffected == 1, result.Error
 }
 
 // GetEnabledSubsForEvent 查询所有启用的、匹配给定事件的订阅。

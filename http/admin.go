@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/CloudSilk/usercenter/internal/audit"
@@ -793,12 +794,16 @@ func currentUserName(c *gin.Context) string {
 	return ucm.GetUserID(c)
 }
 
-// effectiveTenantID:显式传 tenantID(超管跨租户)否则取当前登录用户租户。
+// effectiveTenantID allows an explicit tenant override only for the platform
+// tenant. Ordinary tenant administrators are always scoped to their token.
 func effectiveTenantID(c *gin.Context) string {
-	if t := c.Query("tenantID"); t != "" {
-		return t
+	current := strings.TrimSpace(ucm.GetTenantID(c))
+	if current == constants.PlatformTenantID {
+		if requested := strings.TrimSpace(c.Query("tenantID")); requested != "" {
+			return requested
+		}
 	}
-	return ucm.GetTenantID(c)
+	return current
 }
 
 // queryTimeRange 解析 startTime/endTime(unix 秒,0 表示不限定)。
