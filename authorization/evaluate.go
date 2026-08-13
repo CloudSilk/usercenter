@@ -124,7 +124,7 @@ func EvaluateDataScopes(roleIDs []string, tenantID, path, method string) (DataSc
 
 	var policies []permission.ABACPolicy
 	if err := store.DB().
-		Where("enable = ? AND resource = ? AND action = ? AND role_id IN ? AND tenant_id IN (?, '')",
+		Where("enable = ? AND resource = ? AND action = ? AND role_id IN ? AND tenant_id IN (?, '', '*')",
 			true, path, method, roleIDs, tenantID).
 		Order("priority DESC, id ASC").
 		Find(&policies).Error; err != nil {

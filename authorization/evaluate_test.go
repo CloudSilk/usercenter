@@ -94,6 +94,20 @@ func TestEvaluateDataScopesReturnsPolicyUnionAndTenantFallback(t *testing.T) {
 	require.Equal(t, DataScopeAll, superAdmin.Rules[0].DataScope)
 }
 
+func TestEvaluateDataScopesUsesGlobalPublicRolePolicy(t *testing.T) {
+	gdb := setupAuthorizationCatalogTestDB(t)
+	require.NoError(t, gdb.Create(&permission.ABACPolicy{
+		TenantID: "*", RoleID: "public-employee", Resource: "/api/v1/self",
+		Action: http.MethodGet, DataScope: DataScopeSelf, Priority: 100, Enable: true,
+	}).Error)
+
+	decision, err := EvaluateDataScopes([]string{"public-employee"}, "tenant-a", "/api/v1/self", http.MethodGet)
+	require.NoError(t, err)
+	require.Equal(t, []DataScopeRule{{
+		RoleID: "public-employee", DataScope: DataScopeSelf, Priority: 100, Source: "abac_policy",
+	}}, decision.Rules)
+}
+
 func TestEvaluateDataScopesRejectsInvalidStoredScope(t *testing.T) {
 	gdb := setupAuthorizationCatalogTestDB(t)
 	require.NoError(t, gdb.Create(&permission.ABACPolicy{

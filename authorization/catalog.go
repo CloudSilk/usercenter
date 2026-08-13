@@ -1016,9 +1016,18 @@ func EnsureUserRole(userID, roleID string) error {
 		return errors.New("usercenter store is not initialized")
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
-		_, err := ensureCatalogUserRole(tx, strings.TrimSpace(userID), strings.TrimSpace(roleID))
-		return err
+		return EnsureUserRoleTx(tx, userID, roleID)
 	})
+}
+
+// EnsureUserRoleTx is the transaction-bound variant for embedded products whose
+// business approval and UserCenter role assignment share one GORM database.
+func EnsureUserRoleTx(tx *gorm.DB, userID, roleID string) error {
+	if tx == nil {
+		return errors.New("usercenter role assignment transaction is required")
+	}
+	_, err := ensureCatalogUserRole(tx, strings.TrimSpace(userID), strings.TrimSpace(roleID))
+	return err
 }
 
 func ensureCatalogUserRole(tx *gorm.DB, userID, roleID string) (bool, error) {
@@ -1033,7 +1042,7 @@ func ensureCatalogUserRole(tx *gorm.DB, userID, roleID string) (bool, error) {
 	if err := tx.Where("id = ? AND enable = ?", roleID, true).First(&role).Error; err != nil {
 		return false, fmt.Errorf("load role %q: %w", roleID, err)
 	}
-	if role.TenantID != "" && role.TenantID != target.TenantID {
+	if !role.Public && role.TenantID != "" && role.TenantID != target.TenantID {
 		return false, fmt.Errorf("role %q does not belong to user tenant", roleID)
 	}
 	var link user.UserRole

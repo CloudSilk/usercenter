@@ -390,3 +390,22 @@ func TestEnsureUserRoleRejectsCrossTenantRole(t *testing.T) {
 
 	require.Error(t, EnsureUserRole("user-a", "role-b"))
 }
+
+func TestEnsureUserRoleAllowsPublicRoleAcrossTenantsAndSharesTransaction(t *testing.T) {
+	gdb := setupAuthorizationCatalogTestDB(t)
+	require.NoError(t, gdb.Create(&user.User{
+		TenantModel: commonmodel.TenantModel{Model: commonmodel.Model{ID: "user-a"}, TenantID: "tenant-a"},
+		UserName:    "user-a", Nickname: "A", Enable: true,
+	}).Error)
+	require.NoError(t, gdb.Create(&permission.Role{
+		Model: commonmodel.Model{ID: "public-role"}, TenantID: "platform", Name: "public-role", Public: true, Enable: true,
+	}).Error)
+
+	require.NoError(t, gdb.Transaction(func(tx *gorm.DB) error {
+		return EnsureUserRoleTx(tx, "user-a", "public-role")
+	}))
+	var count int64
+	require.NoError(t, gdb.Model(&user.UserRole{}).
+		Where("user_id = ? AND role_id = ?", "user-a", "public-role").Count(&count).Error)
+	require.Equal(t, int64(1), count)
+}
