@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -418,7 +419,7 @@ func forwardMultipart(
 		}
 		req.Header.Set("Content-Type", contentType)
 		injectAuth(req, sel)
-		client := &http.Client{Timeout: gatewayUpstreamTO}
+		client := &http.Client{Timeout: gatewayUpstreamTimeout()}
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = err
@@ -659,7 +660,7 @@ func callLLMForText(model string, body []byte) string {
 	if err != nil || sel == nil {
 		return ""
 	}
-	req, err := buildUpstreamRequest(sel, body, "/chat/completions")
+	req, err := buildUpstreamRequest(context.Background(), sel, body, "/chat/completions")
 	if err != nil {
 		return ""
 	}
@@ -694,7 +695,7 @@ func generateEmbedding(prompt string) []float32 {
 	if err != nil || sel == nil {
 		return nil
 	}
-	req, err := buildUpstreamRequest(sel, body, "/embeddings")
+	req, err := buildUpstreamRequest(context.Background(), sel, body, "/embeddings")
 	if err != nil {
 		return nil
 	}

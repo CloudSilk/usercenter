@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -38,9 +39,26 @@ import (
 // 鉴权：由调用方中间件负责（已写入 Principal）；本 handler 仅消费 tenantID/principal。
 
 const (
-	gatewayCooldownOn429 = 5 * time.Minute
-	gatewayUpstreamTO    = 120 * time.Second
+	gatewayCooldownOn429          = 5 * time.Minute
+	defaultGatewayUpstreamTimeout = 10 * time.Minute
 )
+
+// gatewayUpstreamTimeout returns the maximum duration of one upstream AI
+// request. Slow reasoning models routinely need more than two minutes before
+// returning response headers, so the gateway must not impose a shorter fixed
+// deadline than its callers. Deployments can tune the ceiling without code
+// changes through UC_AI_GATEWAY_UPSTREAM_TIMEOUT (for example, "15m").
+func gatewayUpstreamTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("UC_AI_GATEWAY_UPSTREAM_TIMEOUT"))
+	if raw == "" {
+		return defaultGatewayUpstreamTimeout
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil || timeout <= 0 {
+		return defaultGatewayUpstreamTimeout
+	}
+	return timeout
+}
 
 // RegisterAIGatewayRouter 挂载 OpenAI 兼容网关端点。鉴权由调用方中间件负责。
 func RegisterAIGatewayRouter(r *gin.Engine) {
@@ -463,13 +481,16 @@ func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, 
 	const maxAttempts = 3
 	var lastErr error
 	// 复用同一 http.Client 以跨重试复用连接池（避免每次重试新建连接）。
-	client := &http.Client{Timeout: gatewayUpstreamTO}
+	client := &http.Client{Timeout: gatewayUpstreamTimeout()}
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if err := c.Request.Context().Err(); err != nil {
+			return nil, nil, err
+		}
 		sel, err := apikey.SelectKey(tenantID, modelAlias)
 		if err != nil {
 			return nil, nil, fmt.Errorf("无可用 Key: %w", err)
 		}
-		req, err := buildUpstreamRequest(sel, body, pathSuffix)
+		req, err := buildUpstreamRequest(c.Request.Context(), sel, body, pathSuffix)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -500,10 +521,10 @@ func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, 
 // buildUpstreamRequest 构造转发到服务商的请求，按 AuthType 注入鉴权。
 // pathSuffix 为相对路径，如 "/chat/completions"、"/embeddings"。
 // baseURL 应包含版本前缀（如 "https://api.openai.com/v1"），直接追加 pathSuffix。
-func buildUpstreamRequest(sel *apikey.KeySelection, body []byte, pathSuffix string) (*http.Request, error) {
+func buildUpstreamRequest(ctx context.Context, sel *apikey.KeySelection, body []byte, pathSuffix string) (*http.Request, error) {
 	base := strings.TrimRight(sel.Provider.BaseURL, "/")
 	target := base + pathSuffix
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, target, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

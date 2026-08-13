@@ -1,11 +1,13 @@
 package http
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/gin-gonic/gin"
@@ -93,7 +95,7 @@ func TestBuildUpstreamRequest_Auth(t *testing.T) {
 				Provider: &apikey.AIProvider{BaseURL: tc.baseURL, AuthType: tc.auth},
 				APIKey:   tc.storedKey,
 			}
-			req, err := buildUpstreamRequest(sel, []byte(`{"model":"x"}`), "/chat/completions")
+			req, err := buildUpstreamRequest(context.Background(), sel, []byte(`{"model":"x"}`), "/chat/completions")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -114,5 +116,40 @@ func TestBuildUpstreamRequest_Auth(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildUpstreamRequest_UsesCallerContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sel := &apikey.KeySelection{
+		Provider: &apikey.AIProvider{BaseURL: "https://api.example.com/v1", AuthType: "bearer"},
+		APIKey:   "sk-test",
+	}
+	req, err := buildUpstreamRequest(ctx, sel, []byte(`{"model":"x"}`), "/chat/completions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Context().Err(); got != context.Canceled {
+		t.Fatalf("upstream request context error = %v, want %v", got, context.Canceled)
+	}
+}
+
+func TestGatewayUpstreamTimeout(t *testing.T) {
+	t.Setenv("UC_AI_GATEWAY_UPSTREAM_TIMEOUT", "")
+	if got := gatewayUpstreamTimeout(); got != defaultGatewayUpstreamTimeout {
+		t.Fatalf("default timeout = %s, want %s", got, defaultGatewayUpstreamTimeout)
+	}
+
+	t.Setenv("UC_AI_GATEWAY_UPSTREAM_TIMEOUT", "13m")
+	if got := gatewayUpstreamTimeout(); got != 13*time.Minute {
+		t.Fatalf("configured timeout = %s, want 13m", got)
+	}
+
+	for _, invalid := range []string{"invalid", "0s", "-1s"} {
+		t.Setenv("UC_AI_GATEWAY_UPSTREAM_TIMEOUT", invalid)
+		if got := gatewayUpstreamTimeout(); got != defaultGatewayUpstreamTimeout {
+			t.Fatalf("timeout for %q = %s, want fallback %s", invalid, got, defaultGatewayUpstreamTimeout)
+		}
 	}
 }
