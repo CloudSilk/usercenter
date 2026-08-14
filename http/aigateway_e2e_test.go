@@ -2,6 +2,7 @@ package http_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -63,6 +64,35 @@ func seedAIProvider(t *testing.T, baseURL, modelAlias string) {
 	}
 }
 
+func seedTenantAIProvider(t *testing.T, tenantID, baseURL, authType, secret, modelAlias, upstreamModel string) {
+	t.Helper()
+	apikey.SetEncryptionKeyFrom("test-encryption-key")
+
+	provider := &apikey.AIProvider{
+		TenantID: tenantID,
+		Name:     "tenant-provider-" + tenantID,
+		BaseURL:  baseURL,
+		AuthType: authType,
+		Healthy:  true,
+	}
+	providerID, err := apikey.CreateProvider(provider)
+	if err != nil {
+		t.Fatalf("create tenant provider: %v", err)
+	}
+	if _, err := apikey.CreateKey(&apikey.AIKey{
+		TenantID: tenantID, ProviderID: providerID, Name: "tenant-key-" + tenantID,
+		Priority: 0, Enable: true,
+	}, secret); err != nil {
+		t.Fatalf("create tenant key: %v", err)
+	}
+	if _, err := apikey.CreateRoute(&apikey.ModelRoute{
+		TenantID: tenantID, ModelAlias: modelAlias, UpstreamModel: upstreamModel,
+		ProviderID: providerID, Priority: 0, Enable: true,
+	}); err != nil {
+		t.Fatalf("create tenant route: %v", err)
+	}
+}
+
 // newAIGatewayEngine 构造一个注入 Human Principal 的 gin 引擎并注册 AI 网关路由。
 func newAIGatewayEngine(userID, tenantID string) *gin.Engine {
 	r := gin.New()
@@ -73,6 +103,67 @@ func newAIGatewayEngine(userID, tenantID string) *gin.Engine {
 	})
 	userhttp.RegisterAIGatewayRouter(r)
 	return r
+}
+
+func TestChatCompletionsRoutesSameAliasByTenantAndRewritesUpstreamModel(t *testing.T) {
+	const alias = "shared-smart-text-alias"
+	type capturedRequest struct {
+		model string
+		auth  string
+	}
+	var capturedA, capturedB capturedRequest
+
+	upstreamA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		capturedA = capturedRequest{model: body.Model, auth: r.Header.Get("Authorization")}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"tenant-a"}}]}`))
+	}))
+	defer upstreamA.Close()
+	upstreamB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		capturedB = capturedRequest{model: body.Model, auth: r.Header.Get("Authorization")}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"tenant-b"}}]}`))
+	}))
+	defer upstreamB.Close()
+
+	seedTenantAIProvider(t, "gateway-tenant-a", upstreamA.URL, "bearer", "sk-gateway-a", alias, "provider-model-a")
+	seedTenantAIProvider(t, "gateway-tenant-b", upstreamB.URL, "header", "sk-gateway-b", alias, "provider-model-b")
+
+	for _, tc := range []struct {
+		name     string
+		tenantID string
+		content  string
+	}{
+		{name: "tenant-a", tenantID: "gateway-tenant-a", content: "tenant-a"},
+		{name: "tenant-b", tenantID: "gateway-tenant-b", content: "tenant-b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine := newAIGatewayEngine("gateway-user-"+tc.tenantID, tc.tenantID)
+			body := []byte(`{"model":"` + alias + `","messages":[{"role":"user","content":"ping"}]}`)
+			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), tc.content) {
+				t.Fatalf("tenant route response mismatch: status=%d body=%s", response.Code, response.Body.String())
+			}
+		})
+	}
+
+	if capturedA.model != "provider-model-a" || capturedA.auth != "Bearer sk-gateway-a" {
+		t.Fatalf("tenant A upstream mismatch: %#v", capturedA)
+	}
+	if capturedB.model != "provider-model-b" || capturedB.auth != "sk-gateway-b" {
+		t.Fatalf("tenant B upstream mismatch: %#v", capturedB)
+	}
 }
 
 // TestChatCompletions_E2E 端到端验证整条链路：

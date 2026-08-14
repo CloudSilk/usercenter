@@ -19,6 +19,7 @@ const (
 	maxAIKeyNameLength             = 100
 	maxAIKeySecretLength           = 4096
 	maxAIModelAliasLength          = 100
+	maxAIUpstreamModelLength       = 100
 	maxAIRouteDescriptionLength    = 500
 	minAIRoutePriority             = -1000
 	maxAIRoutePriority             = 1000
@@ -92,10 +93,14 @@ func normalizeAIRouteInput(route *apikey.ModelRoute) error {
 		return errors.New("model route is required")
 	}
 	route.ModelAlias = strings.TrimSpace(route.ModelAlias)
+	route.UpstreamModel = strings.TrimSpace(route.UpstreamModel)
 	route.ProviderID = strings.TrimSpace(route.ProviderID)
 	route.Description = strings.TrimSpace(route.Description)
 	if route.ModelAlias == "" || utf8.RuneCountInString(route.ModelAlias) > maxAIModelAliasLength {
 		return fmt.Errorf("模型别名不能为空且不能超过 %d 个字符", maxAIModelAliasLength)
+	}
+	if utf8.RuneCountInString(route.UpstreamModel) > maxAIUpstreamModelLength {
+		return fmt.Errorf("上游模型名不能超过 %d 个字符", maxAIUpstreamModelLength)
 	}
 	if route.ProviderID == "" {
 		return errors.New("请选择目标服务商")
@@ -447,11 +452,12 @@ func updateAIRouteForTenant(tenantID, id string, request apikey.ModelRoute) erro
 		return errors.New("该服务商已存在相同模型别名的路由")
 	}
 	return store.DB().Model(route).Updates(map[string]interface{}{
-		"model_alias": request.ModelAlias,
-		"provider_id": request.ProviderID,
-		"priority":    request.Priority,
-		"enable":      request.Enable,
-		"description": request.Description,
+		"model_alias":    request.ModelAlias,
+		"upstream_model": request.UpstreamModel,
+		"provider_id":    request.ProviderID,
+		"priority":       request.Priority,
+		"enable":         request.Enable,
+		"description":    request.Description,
 	}).Error
 }
 

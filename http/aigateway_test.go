@@ -90,15 +90,24 @@ func TestBuildUpstreamRequest_Auth(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sel := &apikey.KeySelection{
-				Provider: &apikey.AIProvider{BaseURL: tc.baseURL, AuthType: tc.auth},
-				APIKey:   tc.storedKey,
+				Provider:      &apikey.AIProvider{BaseURL: tc.baseURL, AuthType: tc.auth},
+				ModelAlias:    "public-model-alias",
+				UpstreamModel: "provider-model-name",
+				APIKey:        tc.storedKey,
 			}
-			req, err := buildUpstreamRequest(sel, []byte(`{"model":"x"}`), "/chat/completions")
+			req, err := buildUpstreamRequest(sel, []byte(`{"model":"public-model-alias"}`), "/chat/completions")
 			if err != nil {
 				t.Fatal(err)
 			}
 			if req.URL.String() != tc.wantURL {
 				t.Fatalf("url: got %s want %s", req.URL.String(), tc.wantURL)
+			}
+			requestBody, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatalf("read request body: %v", err)
+			}
+			if !strings.Contains(string(requestBody), `"model":"provider-model-name"`) {
+				t.Fatalf("request model was not rewritten to selected upstream model: %s", requestBody)
 			}
 			if tc.queryKey != "" {
 				// query 模式：密钥在 URL 查询参数中，且不应出现在 Authorization 头

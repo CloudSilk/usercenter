@@ -184,12 +184,13 @@ func TestAdminAIManagementLifecycle(t *testing.T) {
 		"enable":     true,
 	})
 	routeID := createRouteThroughAdmin(t, r, map[string]any{
-		"tenantID":    forgedTenantID,
-		"modelAlias":  "document-generation",
-		"providerID":  providerID,
-		"priority":    20,
-		"enable":      true,
-		"description": "公文生成主路由",
+		"tenantID":      forgedTenantID,
+		"modelAlias":    "document-generation",
+		"upstreamModel": " vendor-document-v2 ",
+		"providerID":    providerID,
+		"priority":      20,
+		"enable":        true,
+		"description":   "公文生成主路由",
 	})
 
 	var storedKey apikey.AIKey
@@ -198,6 +199,13 @@ func TestAdminAIManagementLifecycle(t *testing.T) {
 	}
 	if storedKey.TenantID != tenantID || storedKey.APIKeyEnc == "" || storedKey.APIKeyEnc == firstSecret {
 		t.Fatalf("key was not tenant-scoped and encrypted: %#v", storedKey)
+	}
+	var storedRoute apikey.ModelRoute
+	if err := store.DB().Where("id = ?", routeID).First(&storedRoute).Error; err != nil {
+		t.Fatalf("load stored route: %v", err)
+	}
+	if storedRoute.TenantID != tenantID || storedRoute.ModelAlias != "document-generation" || storedRoute.UpstreamModel != "vendor-document-v2" {
+		t.Fatalf("route tenant or upstream model was not normalized: %#v", storedRoute)
 	}
 
 	keyList := doJSONRequest(
@@ -264,6 +272,20 @@ func TestAdminAIManagementLifecycle(t *testing.T) {
 	if rotatedKey.Enable || rotatedKey.Name != "Primary Key Renamed" ||
 		rotatedKey.KeyHint != "sk-r...4321" || rotatedKey.APIKeyEnc == storedKey.APIKeyEnc {
 		t.Fatalf("key update or rotation did not persist: %#v", rotatedKey)
+	}
+
+	requireAdminSuccess(t, doJSONRequest(t, r, http.MethodPut, "/admin/api/model-routes/"+routeID, map[string]any{
+		"modelAlias":    "document-generation",
+		"upstreamModel": "vendor-document-v3",
+		"providerID":    providerID,
+		"priority":      5,
+		"enable":        true,
+	}).Body.Bytes())
+	if err := store.DB().Where("id = ?", routeID).First(&storedRoute).Error; err != nil {
+		t.Fatalf("reload updated route: %v", err)
+	}
+	if storedRoute.UpstreamModel != "vendor-document-v3" || storedRoute.Priority != 5 {
+		t.Fatalf("route update did not persist upstream model: %#v", storedRoute)
 	}
 
 	requireAdminSuccess(t, doJSONRequest(t, r, http.MethodDelete, "/admin/api/model-routes/"+routeID, nil).Body.Bytes())

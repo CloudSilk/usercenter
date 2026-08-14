@@ -503,6 +503,7 @@ func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, 
 func buildUpstreamRequest(sel *apikey.KeySelection, body []byte, pathSuffix string) (*http.Request, error) {
 	base := strings.TrimRight(sel.Provider.BaseURL, "/")
 	target := base + pathSuffix
+	body = rewriteUpstreamModel(body, sel.UpstreamModel)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -523,6 +524,26 @@ func buildUpstreamRequest(sel *apikey.KeySelection, body []byte, pathSuffix stri
 		req.Header.Set("Authorization", "Bearer "+sel.APIKey)
 	}
 	return req, nil
+}
+
+// rewriteUpstreamModel keeps the public model alias at the gateway boundary
+// while sending the provider-specific model name selected by ModelRoute.
+// Non-JSON request bodies are returned unchanged.
+func rewriteUpstreamModel(body []byte, upstreamModel string) []byte {
+	upstreamModel = strings.TrimSpace(upstreamModel)
+	if upstreamModel == "" {
+		return body
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
+		return body
+	}
+	payload["model"] = upstreamModel
+	rewritten, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return rewritten
 }
 
 // bufferedProxy 透传整包响应，并解析 usage。

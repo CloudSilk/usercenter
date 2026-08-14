@@ -55,12 +55,13 @@ func (AIKey) TableName() string { return "ai_key" }
 // ModelRoute 模型路由策略(request → model alias → provider+key)
 type ModelRoute struct {
 	commonmodel.Model
-	TenantID    string `json:"tenantID" gorm:"index;size:36"`
-	ModelAlias  string `json:"modelAlias" gorm:"size:100;index;comment:模型别名(gpt-4/claude-3等)"`
-	ProviderID  string `json:"providerID" gorm:"size:36;index;comment:目标服务商"`
-	Priority    int32  `json:"priority" gorm:"default:0;comment:路由优先级"`
-	Enable      bool   `json:"enable" gorm:"index;default:true"`
-	Description string `json:"description" gorm:"size:500"`
+	TenantID      string `json:"tenantID" gorm:"index;size:36"`
+	ModelAlias    string `json:"modelAlias" gorm:"size:100;index;comment:对外模型别名(gpt-4/claude-3等)"`
+	UpstreamModel string `json:"upstreamModel" gorm:"size:100;comment:上游实际模型名;default:''"`
+	ProviderID    string `json:"providerID" gorm:"size:36;index;comment:目标服务商"`
+	Priority      int32  `json:"priority" gorm:"default:0;comment:路由优先级"`
+	Enable        bool   `json:"enable" gorm:"index;default:true"`
+	Description   string `json:"description" gorm:"size:500"`
 }
 
 func (ModelRoute) TableName() string { return "model_route" }
@@ -224,10 +225,10 @@ func RotateKey(id, newPlaintext string) error {
 		return err
 	}
 	return store.DB().Model(&AIKey{}).Where("id=?", id).Updates(map[string]interface{}{
-		"api_key_enc": enc,
-		"key_hint":    makeKeyHint(newPlaintext),
+		"api_key_enc":  enc,
+		"key_hint":     makeKeyHint(newPlaintext),
 		"cooldown_end": 0,
-		"last429":     0,
+		"last429":      0,
 	}).Error
 }
 
@@ -241,11 +242,14 @@ func MarkCooldown(id string, duration time.Duration) {
 
 // --- Key 池选择(故障转移) ---
 
-// KeySelection 选中的 Key + Provider
+// KeySelection 记录一次模型路由解析得到的别名、上游模型、Provider 和 Key。
 type KeySelection struct {
-	Key      *AIKey
-	Provider *AIProvider
-	APIKey   string // 解密后的明文
+	Key           *AIKey
+	Provider      *AIProvider
+	Route         *ModelRoute
+	ModelAlias    string
+	UpstreamModel string
+	APIKey        string // 解密后的明文
 }
 
 // SelectKey 根据模型路由选择可用 Key(主从池 + 故障转移)
@@ -253,13 +257,27 @@ type KeySelection struct {
 func SelectKey(tenantID, modelAlias string) (*KeySelection, error) {
 	// 1. 查路由
 	var routes []*ModelRoute
-	routeDB := store.DB().Where("enable = ? AND tenant_id IN (?, '')", true, tenantID)
-	if modelAlias != "" {
-		routeDB = routeDB.Where("model_alias = ?", modelAlias)
+	findRoutes := func(routeTenantID string) ([]*ModelRoute, error) {
+		var found []*ModelRoute
+		db := store.DB().Where("enable = ? AND tenant_id = ?", true, routeTenantID)
+		if modelAlias != "" {
+			db = db.Where("model_alias = ?", modelAlias)
+		}
+		err := db.Order("priority, created_at").Find(&found).Error
+		return found, err
 	}
-	if err := routeDB.Order("priority").Find(&routes).Error; err != nil {
+	if tenantID != "" {
+		tenantRoutes, err := findRoutes(tenantID)
+		if err != nil {
+			return nil, err
+		}
+		routes = append(routes, tenantRoutes...)
+	}
+	globalRoutes, err := findRoutes("")
+	if err != nil {
 		return nil, err
 	}
+	routes = append(routes, globalRoutes...)
 	if len(routes) == 0 {
 		return nil, errors.New("no model route found")
 	}
@@ -267,16 +285,26 @@ func SelectKey(tenantID, modelAlias string) (*KeySelection, error) {
 	now := time.Now().Unix()
 	// 2. 按路由优先级遍历,选第一个有可用 Key 的 Provider
 	for _, route := range routes {
-		provider, err := GetProviderByID(route.ProviderID)
-		if err != nil || !provider.Healthy {
+		provider, err := providerForRoute(route, tenantID)
+		if err != nil {
 			continue
 		}
 		// 3. 选该 Provider 下最高优先级的可用 Key
 		var key AIKey
-		err = store.DB().Where("provider_id = ? AND enable = ? AND cooldown_end <= ?",
-			route.ProviderID, true, now).
-			Order("priority").
-			First(&key).Error
+		findKey := func(keyTenantID string) error {
+			return store.DB().Where(
+				"provider_id = ? AND tenant_id = ? AND enable = ? AND cooldown_end <= ?",
+				route.ProviderID, keyTenantID, true, now,
+			).Order("priority, created_at").First(&key).Error
+		}
+		if provider.TenantID == "" && tenantID != "" {
+			err = findKey(tenantID)
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				err = findKey("")
+			}
+		} else {
+			err = findKey(provider.TenantID)
+		}
 		if err != nil {
 			continue
 		}
@@ -286,10 +314,41 @@ func SelectKey(tenantID, modelAlias string) (*KeySelection, error) {
 			log.Errorf(context.Background(), "decrypt api key %s failed: %v", key.ID, err)
 			continue
 		}
-		return &KeySelection{Key: &key, Provider: provider, APIKey: plaintext}, nil
+		upstreamModel := strings.TrimSpace(route.UpstreamModel)
+		if upstreamModel == "" {
+			upstreamModel = strings.TrimSpace(route.ModelAlias)
+		}
+		return &KeySelection{
+			Key:           &key,
+			Provider:      provider,
+			Route:         route,
+			ModelAlias:    route.ModelAlias,
+			UpstreamModel: upstreamModel,
+			APIKey:        plaintext,
+		}, nil
 	}
 
 	return nil, errors.New("no available api key (all keys disabled or in cooldown)")
+}
+
+// providerForRoute only exposes a provider within the selected route's tenant
+// boundary. A global route must use a global provider; a tenant route may use
+// either that tenant's provider or an explicitly shared global provider.
+func providerForRoute(route *ModelRoute, tenantID string) (*AIProvider, error) {
+	if route == nil {
+		return nil, errors.New("model route is nil")
+	}
+	db := store.DB().Where("id = ? AND healthy = ?", route.ProviderID, true)
+	if route.TenantID == "" {
+		db = db.Where("tenant_id = ''")
+	} else {
+		db = db.Where("tenant_id IN (?, '')", tenantID)
+	}
+	provider := &AIProvider{}
+	if err := db.First(provider).Error; err != nil {
+		return nil, err
+	}
+	return provider, nil
 }
 
 // --- ModelRoute CRUD ---
