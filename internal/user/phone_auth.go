@@ -295,6 +295,14 @@ func (s *phoneAuthService) login(
 		if err := s.cfg.UserReady(ctx, u.ID, isNew); err != nil {
 			return PhoneLoginResult{}, fmt.Errorf("prepare phone user: %w", err)
 		}
+		// The embedding hook may have assigned roles or changed account state.
+		// Reload before issuing the token so the very first login reflects those
+		// durable changes instead of signing a stale pre-hook user snapshot.
+		refreshed, err := GetUserById(u.ID)
+		if err != nil {
+			return PhoneLoginResult{}, fmt.Errorf("reload prepared phone user: %w", err)
+		}
+		u = &refreshed
 	}
 
 	resp := &apipb.LoginResponse{Code: apipb.Code_Success}

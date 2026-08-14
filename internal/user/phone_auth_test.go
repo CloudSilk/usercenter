@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
+	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/tenant"
 	"github.com/CloudSilk/usercenter/internal/user"
@@ -111,9 +113,19 @@ func TestPhoneLoginCreatesUserRunsHookAndIssuesNativeToken(t *testing.T) {
 	sender := &phoneTestSender{}
 	var hookUser string
 	var hookNew bool
+	const readyRoleID = "phone-ready-role"
+	_ = store.DB().Unscoped().Where("id = ?", readyRoleID).Delete(&permission.Role{}).Error
+	if err := store.DB().Create(&permission.Role{Model: commonmodel.Model{ID: readyRoleID}, TenantID: tenantID,
+		Name: readyRoleID, Public: true, Enable: true}).Error; err != nil {
+		t.Fatalf("create ready role: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Where("role_id = ?", readyRoleID).Delete(&user.UserRole{}).Error
+		_ = store.DB().Unscoped().Where("id = ?", readyRoleID).Delete(&permission.Role{}).Error
+	})
 	configurePhoneTest(t, sender, &now, tenantID, func(_ context.Context, userID string, isNew bool) error {
 		hookUser, hookNew = userID, isNew
-		return nil
+		return store.DB().Create(&user.UserRole{Model: commonmodel.Model{ID: "phone-ready-assignment"}, UserID: userID, RoleID: readyRoleID}).Error
 	})
 	if _, err := user.IssuePhoneCode(t.Context(), phone, "10.0.0.1", "code"); err != nil {
 		t.Fatalf("IssuePhoneCode: %v", err)
@@ -129,6 +141,9 @@ func TestPhoneLoginCreatesUserRunsHookAndIssuesNativeToken(t *testing.T) {
 	current, err := token.DecodeToken(result.Auth.Data)
 	if err != nil || current.Id != result.UserID || current.TenantID != tenantID {
 		t.Fatalf("DecodeToken=%#v err=%v", current, err)
+	}
+	if !slices.Contains(current.RoleIDs, readyRoleID) {
+		t.Fatalf("token did not include role assigned by UserReady: %#v", current.RoleIDs)
 	}
 	var created user.User
 	if err := store.DB().Where("id = ?", result.UserID).First(&created).Error; err != nil {
