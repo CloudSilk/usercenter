@@ -106,7 +106,8 @@ func TestPlatformTenantCanExplicitlyManageTargetWebhook(t *testing.T) {
 	})
 	var updateResponse apipb.CommonResponse
 	if err := json.Unmarshal(update.Body.Bytes(), &updateResponse); err != nil || updateResponse.Code != apipb.Code_Success {
-		t.Fatalf("platform target webhook update failed: response=%#v err=%v body=%s", updateResponse, err, update.Body.String())
+		t.Fatalf("platform target webhook update failed: code=%v message=%q err=%v body=%s",
+			updateResponse.Code, updateResponse.Message, err, update.Body.String())
 	}
 	updated, err := webhook.GetSub(sub.ID)
 	if err != nil || updated.Name != "platform-updated" {
@@ -115,6 +116,7 @@ func TestPlatformTenantCanExplicitlyManageTargetWebhook(t *testing.T) {
 	remove := doJSONRequest(t, r, http.MethodDelete, "/admin/api/webhooks/"+sub.ID+"?tenantID="+targetTenant, nil)
 	var deleteResponse apipb.CommonResponse
 	if err := json.Unmarshal(remove.Body.Bytes(), &deleteResponse); err != nil || deleteResponse.Code != apipb.Code_Success {
-		t.Fatalf("platform target webhook delete failed: response=%#v err=%v body=%s", deleteResponse, err, remove.Body.String())
+		t.Fatalf("platform target webhook delete failed: code=%v message=%q err=%v body=%s",
+			deleteResponse.Code, deleteResponse.Message, err, remove.Body.String())
 	}
 }

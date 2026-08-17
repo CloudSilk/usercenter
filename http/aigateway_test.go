@@ -1,6 +1,8 @@
 package http
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +12,23 @@ import (
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/gin-gonic/gin"
 )
+
+func TestBuildUpstreamRequestWithContextPropagatesCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sel := &apikey.KeySelection{
+		Provider:      &apikey.AIProvider{BaseURL: "https://api.example.com/v1", AuthType: "bearer"},
+		APIKey:        "sk-test",
+		UpstreamModel: "upstream-model",
+	}
+	req, err := buildUpstreamRequestWithContext(ctx, sel, []byte(`{"model":"public-model"}`), "/chat/completions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(req.Context().Err(), context.Canceled) {
+		t.Fatalf("upstream request lost caller cancellation: %v", req.Context().Err())
+	}
+}
 
 // TestBufferedProxy_ParseUsage 验证整包转发时从 OpenAI usage 字段提取 token 用量。
 func TestBufferedProxy_ParseUsage(t *testing.T) {

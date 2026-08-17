@@ -190,3 +190,45 @@ func TestSelectKeyRejectsForeignTenantKey(t *testing.T) {
 		t.Fatalf("expected foreign tenant key to be rejected, got %v", err)
 	}
 }
+
+func TestSelectKeyExcludingAdvancesWithoutMutatingCooldown(t *testing.T) {
+	const alias = "request-local-key-failover-alias"
+	provider := &AIProvider{Name: "request-local-key-failover-provider", BaseURL: "https://failover.example/v1", AuthType: "bearer", Healthy: true}
+	providerID, err := CreateProvider(provider)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	firstID, err := CreateKey(&AIKey{ProviderID: providerID, Name: "request-local-key-first", Priority: 0, Enable: true}, "sk-first")
+	if err != nil {
+		t.Fatalf("create first key: %v", err)
+	}
+	secondID, err := CreateKey(&AIKey{ProviderID: providerID, Name: "request-local-key-second", Priority: 1, Enable: true}, "sk-second")
+	if err != nil {
+		t.Fatalf("create second key: %v", err)
+	}
+	if _, err := CreateRoute(&ModelRoute{ModelAlias: alias, ProviderID: providerID, Enable: true}); err != nil {
+		t.Fatalf("create route: %v", err)
+	}
+
+	first, err := SelectKeyExcluding("", alias, nil)
+	if err != nil || first.Key.ID != firstID {
+		t.Fatalf("select first key: selection=%#v err=%v", first, err)
+	}
+	second, err := SelectKeyExcluding("", alias, []string{firstID})
+	if err != nil || second.Key.ID != secondID {
+		t.Fatalf("select distinct second key: selection=%#v err=%v", second, err)
+	}
+	if _, err := SelectKeyExcluding("", alias, []string{firstID, secondID}); err == nil || !strings.Contains(err.Error(), "no available api key") {
+		t.Fatalf("expected exhausted request-local candidates, got %v", err)
+	}
+
+	for _, keyID := range []string{firstID, secondID} {
+		var key AIKey
+		if err := store.DB().First(&key, "id = ?", keyID).Error; err != nil {
+			t.Fatalf("reload key %s: %v", keyID, err)
+		}
+		if key.CooldownEnd != 0 {
+			t.Fatalf("request-local exclusion mutated cooldown for %s: %d", keyID, key.CooldownEnd)
+		}
+	}
+}

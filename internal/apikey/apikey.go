@@ -255,6 +255,14 @@ type KeySelection struct {
 // SelectKey 根据模型路由选择可用 Key(主从池 + 故障转移)
 // 策略:按 priority 排序,跳过 enable=false 和 cooldown 未过期的
 func SelectKey(tenantID, modelAlias string) (*KeySelection, error) {
+	return SelectKeyExcluding(tenantID, modelAlias, nil)
+}
+
+// SelectKeyExcluding selects the next eligible route/key while excluding keys
+// already attempted by the current gateway request. Exclusions are request
+// local: unlike cooldown they do not mutate shared routing state or penalize a
+// healthy key for a provider-wide transient failure.
+func SelectKeyExcluding(tenantID, modelAlias string, excludedKeyIDs []string) (*KeySelection, error) {
 	// 1. 查路由
 	var routes []*ModelRoute
 	findRoutes := func(routeTenantID string) ([]*ModelRoute, error) {
@@ -292,10 +300,14 @@ func SelectKey(tenantID, modelAlias string) (*KeySelection, error) {
 		// 3. 选该 Provider 下最高优先级的可用 Key
 		var key AIKey
 		findKey := func(keyTenantID string) error {
-			return store.DB().Where(
+			query := store.DB().Where(
 				"provider_id = ? AND tenant_id = ? AND enable = ? AND cooldown_end <= ?",
 				route.ProviderID, keyTenantID, true, now,
-			).Order("priority, created_at").First(&key).Error
+			)
+			if len(excludedKeyIDs) > 0 {
+				query = query.Where("id NOT IN ?", excludedKeyIDs)
+			}
+			return query.Order("priority, created_at").First(&key).Error
 		}
 		if provider.TenantID == "" && tenantID != "" {
 			err = findKey(tenantID)

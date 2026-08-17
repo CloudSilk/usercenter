@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -38,9 +39,18 @@ import (
 // 鉴权：由调用方中间件负责（已写入 Principal）；本 handler 仅消费 tenantID/principal。
 
 const (
-	gatewayCooldownOn429 = 5 * time.Minute
-	gatewayUpstreamTO    = 120 * time.Second
+	gatewayCooldownOn429    = 5 * time.Minute
+	defaultGatewayUpstreamTO = 120 * time.Second
 )
+
+// gatewayUpstreamTO 是网关调用上游模型的整体超时。长篇生成的大 prompt 经常超过
+// 120s,可用 UC_GATEWAY_UPSTREAM_TIMEOUT_SEC(秒)按上游实际延迟调大。
+var gatewayUpstreamTO = func() time.Duration {
+	if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv("UC_GATEWAY_UPSTREAM_TIMEOUT_SEC"))); err == nil && v > 0 {
+		return time.Duration(v) * time.Second
+	}
+	return defaultGatewayUpstreamTO
+}()
 
 // RegisterAIGatewayRouter 挂载 OpenAI 兼容网关端点。鉴权由调用方中间件负责。
 func RegisterAIGatewayRouter(r *gin.Engine) {
@@ -462,14 +472,22 @@ func injectStreamOptions(body []byte) []byte {
 func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, stream bool, pathSuffix string) (*http.Response, *apikey.KeySelection, error) {
 	const maxAttempts = 3
 	var lastErr error
+	attemptedKeyIDs := make([]string, 0, maxAttempts)
 	// 复用同一 http.Client 以跨重试复用连接池（避免每次重试新建连接）。
 	client := &http.Client{Timeout: gatewayUpstreamTO}
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		sel, err := apikey.SelectKey(tenantID, modelAlias)
+		if err := c.Request.Context().Err(); err != nil {
+			return nil, nil, err
+		}
+		sel, err := apikey.SelectKeyExcluding(tenantID, modelAlias, attemptedKeyIDs)
 		if err != nil {
+			if lastErr != nil {
+				return nil, nil, lastErr
+			}
 			return nil, nil, fmt.Errorf("无可用 Key: %w", err)
 		}
-		req, err := buildUpstreamRequest(sel, body, pathSuffix)
+		attemptedKeyIDs = append(attemptedKeyIDs, sel.Key.ID)
+		req, err := buildUpstreamRequestWithContext(c.Request.Context(), sel, body, pathSuffix)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -501,10 +519,17 @@ func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, 
 // pathSuffix 为相对路径，如 "/chat/completions"、"/embeddings"。
 // baseURL 应包含版本前缀（如 "https://api.openai.com/v1"），直接追加 pathSuffix。
 func buildUpstreamRequest(sel *apikey.KeySelection, body []byte, pathSuffix string) (*http.Request, error) {
+	return buildUpstreamRequestWithContext(context.Background(), sel, body, pathSuffix)
+}
+
+func buildUpstreamRequestWithContext(ctx context.Context, sel *apikey.KeySelection, body []byte, pathSuffix string) (*http.Request, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	base := strings.TrimRight(sel.Provider.BaseURL, "/")
 	target := base + pathSuffix
 	body = rewriteUpstreamModel(body, sel.UpstreamModel)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, target, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
