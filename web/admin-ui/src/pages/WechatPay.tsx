@@ -112,14 +112,23 @@ const STATUS_BADGE: Record<string, string> = {
   ABNORMAL: "bg-red-500/15 text-red-600",
 }
 
-/** 带 token 的 CSV/blob 下载(api 客户端仅处理 JSON)。 */
+/** 带 token 的 CSV/blob 下载(api 客户端仅处理 JSON)。
+ *  后端出错时会返回 JSON 载荷,此处识别并弹 toast 而非保存错误内容。 */
 async function downloadBlob(url: string, fallbackName: string): Promise<void> {
   const token = getToken()
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
-  if (!res.ok) {
-    toast.error(`下载失败 HTTP ${res.status}`)
+  const contentType = res.headers.get("Content-Type") || ""
+  if (!res.ok || contentType.includes("application/json")) {
+    let message = `下载失败 HTTP ${res.status}`
+    try {
+      const body = (await res.json()) as { message?: string }
+      if (body.message) message = body.message
+    } catch {
+      /* 非 JSON 响应,保留默认错误 */
+    }
+    toast.error(message)
     return
   }
   const blob = await res.blob()
@@ -130,6 +139,12 @@ async function downloadBlob(url: string, fallbackName: string): Promise<void> {
   a.download = m ? m[1] : fallbackName
   a.click()
   URL.revokeObjectURL(a.href)
+}
+
+/** 本地时区的 YYYY-MM-DD。 */
+function fmtLocalDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 const emptyConfig: PayConfigInfo = {
@@ -235,6 +250,10 @@ export default function WechatPay() {
 
   // ---- 账单归档 ----
   const [billConfigID, setBillConfigID] = useState("")
+  const [billConfigIDPull, setBillConfigIDPull] = useState("")
+  const [billDate, setBillDate] = useState(fmtLocalDate(new Date(Date.now() - 86400000)))
+  const [billType, setBillType] = useState("ALL")
+  const [pulling, setPulling] = useState(false)
   const bills = useQuery({
     queryKey: ["pay-bills", billConfigID],
     queryFn: () =>
@@ -243,6 +262,25 @@ export default function WechatPay() {
         days: 30,
       }),
   })
+
+  /** 手动拉取指定日期/类型的交易账单(实时调微信侧)。 */
+  async function pullTradeBill() {
+    if (!billConfigIDPull || !billDate) {
+      toast.error("请先填写商户配置ID")
+      return
+    }
+    setPulling(true)
+    try {
+      await downloadBlob(
+        `/api/core/wechat/pay/order/trade-bill?configID=${encodeURIComponent(billConfigIDPull)}` +
+          `&billDate=${billDate}&billType=${billType}`,
+        `trade_bill_${billDate}.csv`,
+      )
+    } finally {
+      setPulling(false)
+      qc.invalidateQueries({ queryKey: ["pay-bills"] })
+    }
+  }
 
   // ---- 退款审核 ----
   const pendingRefunds = useQuery({
@@ -490,6 +528,43 @@ export default function WechatPay() {
             value={billConfigID}
             onChange={(e) => setBillConfigID(e.target.value)}
           />
+        </div>
+        <div className="flex flex-wrap items-end gap-2 rounded border bg-muted/30 p-3">
+          <div className="space-y-1">
+            <Label className="text-xs">商户配置ID</Label>
+            <Input
+              className="w-56"
+              value={billConfigIDPull}
+              onChange={(e) => setBillConfigIDPull(e.target.value)}
+              placeholder="configID"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">账单日期(昨日及更早)</Label>
+            <Input
+              type="date"
+              className="w-40"
+              value={billDate}
+              max={fmtLocalDate(new Date(Date.now() - 86400000))}
+              onChange={(e) => setBillDate(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">类型</Label>
+            <select
+              className="rounded border px-2 py-2 text-sm"
+              value={billType}
+              onChange={(e) => setBillType(e.target.value)}
+            >
+              <option value="ALL">全部流水</option>
+              <option value="SUCCESS">仅成功</option>
+              <option value="REFUND">仅退款</option>
+            </select>
+          </div>
+          <Button size="sm" disabled={pulling || !billConfigIDPull} onClick={pullTradeBill}>
+            <Download className="mr-1 h-4 w-4" />
+            {pulling ? "拉取中..." : "手动拉取账单"}
+          </Button>
         </div>
         <Table>
           <TableHeader>
