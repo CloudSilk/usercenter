@@ -638,6 +638,21 @@ func TestSyncRefundStatus(t *testing.T) {
 	if _, err := SyncRefundStatus(context.Background(), "other-tenant", refund.OutRefundNo); err != ErrOrderNotOwned {
 		t.Fatalf("expected ErrOrderNotOwned, got %v", err)
 	}
+	// 平台侧(空租户)可同步仍在处理中的退款单
+	second, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 100,
+	})
+	if err != nil {
+		t.Fatalf("apply second refund: %v", err)
+	}
+	fakeAPI.refundStatus = RefundClosed
+	got2, err := SyncRefundStatus(context.Background(), "", second.OutRefundNo)
+	if err != nil {
+		t.Fatalf("platform sync: %v", err)
+	}
+	if got2.Status != RefundClosed {
+		t.Fatalf("expected CLOSED via platform sync, got %s", got2.Status)
+	}
 }
 
 func TestCreateJSAPIPaymentExpire(t *testing.T) {

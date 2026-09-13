@@ -1,6 +1,8 @@
 package http
 
 import (
+	"errors"
+	"net/http"
 	"time"
 
 	"github.com/CloudSilk/usercenter/internal/wechatpay"
@@ -231,9 +233,51 @@ func QueryWechatRefunds(c *gin.Context, req *RefundAdminQueryRequest) (*RefundAd
 	return resp, nil
 }
 
+// GetWechatRefundDetail 管理端查询单笔退款单,默认主动向微信侧同步最新状态。
+//
+//	@Summary 微信支付退款单详情(可同步状态)
+//	@Tags 微信支付退款管理
+//	@Param authorization header string true "jwt token"
+//	@Param outRefundNo query string true "商户退款单号"
+//	@Param sync query bool false "是否向微信侧查单同步,默认true"
+//	@Success 200 {object} RefundAdminQueryResponse
+//	@Router /api/core/wechat/pay/refund/detail [get]
+func GetWechatRefundDetail(c *gin.Context) {
+	resp := &RefundAdminQueryResponse{Code: apipb.Code_Success}
+	outRefundNo := c.Query("outRefundNo")
+	if outRefundNo == "" {
+		resp.Code = apipb.Code_BadRequest
+		resp.Message = "outRefundNo不能为空"
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+	var (
+		refund *wechatpay.PayRefund
+		err    error
+	)
+	if c.DefaultQuery("sync", "true") == "true" {
+		refund, err = wechatpay.SyncRefundStatus(c.Request.Context(), middleware.GetTenantID(c), outRefundNo)
+	} else {
+		refund, err = wechatpay.GetPayRefundByOutRefundNo(outRefundNo)
+		if err == nil && refund == nil {
+			err = errors.New("退款单不存在")
+		}
+	}
+	if err != nil {
+		resp.Code = apipb.Code_BadRequest
+		resp.Message = err.Error()
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+	resp.Data = []*RefundAdminItem{refundToAdminItem(refund)}
+	resp.Records, resp.Total, resp.Pages = 1, 1, 1
+	c.JSON(http.StatusOK, resp)
+}
+
 // RegisterWechatPayRefundRouter 挂载管理端退款端点。
 func RegisterWechatPayRefundRouter(r *gin.Engine) {
 	g := r.Group("/api/core/wechat/pay/refund")
 	g.POST("apply", AutoHandler(ApplyWechatRefund))
 	g.GET("query", AutoQueryHandler(QueryWechatRefunds))
+	g.GET("detail", GetWechatRefundDetail)
 }

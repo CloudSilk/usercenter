@@ -364,6 +364,7 @@ func ApplyRefund(ctx context.Context, in ApplyRefundInput) (*PayRefund, error) {
 }
 
 // SyncRefundStatus 向微信侧查退款单并对账更新本地状态。
+// tenantID 为空表示平台侧操作,不校验租户归属;非空时校验退款单归属。
 func SyncRefundStatus(ctx context.Context, tenantID, outRefundNo string) (*PayRefund, error) {
 	refund, err := GetPayRefundByOutRefundNo(outRefundNo)
 	if err != nil {
@@ -372,7 +373,7 @@ func SyncRefundStatus(ctx context.Context, tenantID, outRefundNo string) (*PayRe
 	if refund == nil {
 		return nil, errors.New("退款单不存在")
 	}
-	if refund.TenantID != tenantID {
+	if tenantID != "" && refund.TenantID != tenantID {
 		return nil, ErrOrderNotOwned
 	}
 	if refund.Status == RefundSuccess || refund.Status == RefundClosed {
