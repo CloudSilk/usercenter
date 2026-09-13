@@ -217,6 +217,34 @@ func extractAssistantContent(body []byte) string {
 	return ""
 }
 
+// cacheableUpstreamResponse 判断非流式上游响应是否值得写入缓存。
+// 两类响应永不入缓存：
+//  1. 非 200 状态——上游/鉴权错误（如 API_KEY_EXPIRED）按 prompt 缓存后会
+//     在故障恢复后继续毒害相同请求；
+//  2. finish_reason 为 length/max_tokens——截断的 JSON 或正文被缓存后，
+//     所有重试都会瞬时命中同一份残破响应，永远无法自愈。
+func cacheableUpstreamResponse(body []byte, statusCode int) bool {
+	if statusCode != http.StatusOK || len(body) == 0 {
+		return false
+	}
+	var resp struct {
+		Choices []struct {
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal(body, &resp) != nil {
+		return false
+	}
+	if len(resp.Choices) == 0 {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(resp.Choices[0].FinishReason)) {
+	case "length", "max_tokens", "max_output_tokens":
+		return false
+	}
+	return true
+}
+
 // recordGatewayLog 记录网关请求日志（非流式）。
 func recordGatewayLog(c *gin.Context, tenantID, principalID, model, sessionID string,
 	promptTokens, compTokens int64, cost float64, latency time.Duration,

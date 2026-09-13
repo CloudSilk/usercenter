@@ -52,6 +52,10 @@ var gatewayUpstreamTO = func() time.Duration {
 	return defaultGatewayUpstreamTO
 }()
 
+// forwardBackoffBase 是 forwardWithRetry 同 Key 退避轮的基准间隔（第 n 轮等待
+// n*forwardBackoffBase)。测试可覆盖为极小值以避免真实等待。
+var forwardBackoffBase = 10 * time.Second
+
 // RegisterAIGatewayRouter 挂载 OpenAI 兼容网关端点。鉴权由调用方中间件负责。
 func RegisterAIGatewayRouter(r *gin.Engine) {
 	r.POST("/v1/chat/completions", ChatCompletions)
@@ -231,8 +235,8 @@ func ChatCompletions(c *gin.Context) {
 		recordGatewayLog(c, tenantID, principalID, model, enh.SessionID, pt, ct, cost, time.Since(start), 200, false, "output_moderation_blocked", "", false)
 	}
 
-	// --- 写入缓存（仅非流式 + 有 user 消息）---
-	if !stream && !enh.CacheBypass && cacheKey != "" && len(responseBuf) > 0 {
+	// --- 写入缓存（仅非流式 + 有 user 消息 + 响应完整且成功）---
+	if !stream && !enh.CacheBypass && cacheKey != "" && cacheableUpstreamResponse(responseBuf, respStatus) {
 		aicache.Set(cacheKey, string(responseBuf), model, pt, ct, cost)
 	}
 
@@ -469,45 +473,64 @@ func injectStreamOptions(body []byte) []byte {
 
 // forwardWithRetry 选 Key 转发；上游 429 时把该 Key 打入冷却并重试下一个路由（至多 maxAttempts-1 次）。
 // pathSuffix 追加到 provider baseURL 末尾，如 "/chat/completions"、"/embeddings"、"/images/generations"。
+// 唯一 Key 场景下首轮尝试耗尽后，对传输错误/上游 429/5xx 做有限退避轮（复用同 Key），
+// 吸收上游瞬时过载（如 MiniMax 529），避免单点 Key 把瞬时故障直接抛给调用方。
 func forwardWithRetry(c *gin.Context, tenantID, modelAlias string, body []byte, stream bool, pathSuffix string) (*http.Response, *apikey.KeySelection, error) {
 	const maxAttempts = 3
+	const maxBackoffRounds = 2
 	var lastErr error
 	attemptedKeyIDs := make([]string, 0, maxAttempts)
 	// 复用同一 http.Client 以跨重试复用连接池（避免每次重试新建连接）。
 	client := &http.Client{Timeout: gatewayUpstreamTO}
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err := c.Request.Context().Err(); err != nil {
-			return nil, nil, err
-		}
-		sel, err := apikey.SelectKeyExcluding(tenantID, modelAlias, attemptedKeyIDs)
-		if err != nil {
-			if lastErr != nil {
-				return nil, nil, lastErr
+	for round := 0; round <= maxBackoffRounds; round++ {
+		if round > 0 {
+			if lastErr == nil {
+				break
 			}
-			return nil, nil, fmt.Errorf("无可用 Key: %w", err)
+			// 退避后清空已试集合，允许复用同一 Key（429 冷却期内的 Key 仍会被选择器跳过）。
+			attemptedKeyIDs = attemptedKeyIDs[:0]
+			timer := time.NewTimer(time.Duration(round) * forwardBackoffBase)
+			select {
+			case <-c.Request.Context().Done():
+				timer.Stop()
+				return nil, nil, c.Request.Context().Err()
+			case <-timer.C:
+			}
 		}
-		attemptedKeyIDs = append(attemptedKeyIDs, sel.Key.ID)
-		req, err := buildUpstreamRequestWithContext(c.Request.Context(), sel, body, pathSuffix)
-		if err != nil {
-			return nil, nil, err
+		for attempt := 0; attempt < maxAttempts; attempt++ {
+			if err := c.Request.Context().Err(); err != nil {
+				return nil, nil, err
+			}
+			sel, err := apikey.SelectKeyExcluding(tenantID, modelAlias, attemptedKeyIDs)
+			if err != nil {
+				if lastErr != nil {
+					break // 新 Key 已耗尽，进入退避轮（复用同 Key）
+				}
+				return nil, nil, fmt.Errorf("无可用 Key: %w", err)
+			}
+			attemptedKeyIDs = append(attemptedKeyIDs, sel.Key.ID)
+			req, err := buildUpstreamRequestWithContext(c.Request.Context(), sel, body, pathSuffix)
+			if err != nil {
+				return nil, nil, err
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			if resp.StatusCode == http.StatusTooManyRequests {
+				resp.Body.Close()
+				apikey.MarkCooldown(sel.Key.ID, gatewayCooldownOn429)
+				lastErr = fmt.Errorf("上游 429（Key 已冷却，重试下一个）")
+				continue
+			}
+			if resp.StatusCode >= 500 {
+				resp.Body.Close()
+				lastErr = fmt.Errorf("上游 %d", resp.StatusCode)
+				continue
+			}
+			return resp, sel, nil
 		}
-		resp, err := client.Do(req)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if resp.StatusCode == http.StatusTooManyRequests {
-			resp.Body.Close()
-			apikey.MarkCooldown(sel.Key.ID, gatewayCooldownOn429)
-			lastErr = fmt.Errorf("上游 429（Key 已冷却，重试下一个）")
-			continue
-		}
-		if resp.StatusCode >= 500 {
-			resp.Body.Close()
-			lastErr = fmt.Errorf("上游 %d", resp.StatusCode)
-			continue
-		}
-		return resp, sel, nil
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("转发失败")

@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/CloudSilk/usercenter/internal/apikey"
 	"github.com/gin-gonic/gin"
@@ -142,5 +144,94 @@ func TestBuildUpstreamRequest_Auth(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestForwardWithRetrySameKeyBackoffAbsorbsUpstream529 验证唯一 Key 场景下，
+// 上游连续 529 时 forwardWithRetry 通过退避轮复用同 Key，吸收瞬时过载后成功。
+func TestForwardWithRetrySameKeyBackoffAbsorbsUpstream529(t *testing.T) {
+	var calls int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&calls, 1)
+		if n <= 2 {
+			w.WriteHeader(529)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"x","choices":[{"message":{"role":"assistant","content":"pong"}}]}`))
+	}))
+	defer upstream.Close()
+
+	old := forwardBackoffBase
+	forwardBackoffBase = time.Millisecond
+	defer func() { forwardBackoffBase = old }()
+
+	const alias = "mock-model-samekey-backoff"
+	const tenant = "platform-test"
+	apikey.SetEncryptionKeyFrom("test-encryption-key")
+	p := &apikey.AIProvider{TenantID: tenant, Name: "mock-provider-backoff", BaseURL: upstream.URL, AuthType: "bearer", Healthy: true}
+	pid, err := apikey.CreateProvider(p)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	if _, err := apikey.CreateKey(&apikey.AIKey{TenantID: tenant, ProviderID: pid, Name: "mock-key-backoff", Priority: 0, Enable: true}, "sk-mock-backoff"); err != nil {
+		t.Fatalf("create key: %v", err)
+	}
+	if _, err := apikey.CreateRoute(&apikey.ModelRoute{TenantID: tenant, ModelAlias: alias, ProviderID: pid, Priority: 0, Enable: true}); err != nil {
+		t.Fatalf("create route: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"`+alias+`"}`))
+
+	resp, sel, err := forwardWithRetry(c, tenant, alias, []byte(`{"model":"`+alias+`"}`), false, "/chat/completions")
+	if err != nil {
+		t.Fatalf("expected backoff rounds to absorb 529 storm, got err: %v", err)
+	}
+	defer resp.Body.Close()
+	if sel == nil {
+		t.Fatal("expected key selection")
+	}
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Fatalf("expected 3 upstream calls (529,529,200), got %d", got)
+	}
+}
+
+// TestForwardWithRetrySameKeyBackoffExhausted 验证退避轮耗尽后仍返回最后的上游错误。
+func TestForwardWithRetrySameKeyBackoffExhausted(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(529)
+	}))
+	defer upstream.Close()
+
+	old := forwardBackoffBase
+	forwardBackoffBase = time.Millisecond
+	defer func() { forwardBackoffBase = old }()
+
+	const alias = "mock-model-samekey-exhausted"
+	const tenant = "platform-test"
+	apikey.SetEncryptionKeyFrom("test-encryption-key")
+	p := &apikey.AIProvider{TenantID: tenant, Name: "mock-provider-exhausted", BaseURL: upstream.URL, AuthType: "bearer", Healthy: true}
+	pid, err := apikey.CreateProvider(p)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	if _, err := apikey.CreateKey(&apikey.AIKey{TenantID: tenant, ProviderID: pid, Name: "mock-key-exhausted", Priority: 0, Enable: true}, "sk-mock-exhausted"); err != nil {
+		t.Fatalf("create key: %v", err)
+	}
+	if _, err := apikey.CreateRoute(&apikey.ModelRoute{TenantID: tenant, ModelAlias: alias, ProviderID: pid, Priority: 0, Enable: true}); err != nil {
+		t.Fatalf("create route: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"`+alias+`"}`))
+
+	_, _, err = forwardWithRetry(c, tenant, alias, []byte(`{"model":"`+alias+`"}`), false, "/chat/completions")
+	if err == nil || !strings.Contains(err.Error(), "529") {
+		t.Fatalf("expected final 上游 529 error after backoff exhaustion, got %v", err)
 	}
 }
