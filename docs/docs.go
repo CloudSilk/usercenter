@@ -3370,6 +3370,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/core/wechat/pay/stats/daily": {
+            "get": {
+                "tags": [
+                    "微信支付订单管理"
+                ],
+                "summary": "微信支付对账日报",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "统计最近 N 天(含今日),默认 7,范围 1-90",
+                        "name": "days",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "租户ID,留空为全租户汇总",
+                        "name": "tenantID",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.PayDailyStatsResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/wechat/connect/qrconnect": {
             "get": {
                 "tags": [
@@ -4185,6 +4222,23 @@ const docTemplate = `{
             "properties": {
                 "code": {
                     "$ref": "#/definitions/usercenter.Code"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.PayDailyStatsResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/wechatpay.DailyPayStat"
+                    }
                 },
                 "message": {
                     "type": "string"
@@ -6062,6 +6116,40 @@ const docTemplate = `{
                 "token": {
                     "description": "Token",
                     "type": "string"
+                }
+            }
+        },
+        "wechatpay.DailyPayStat": {
+            "type": "object",
+            "properties": {
+                "closedCount": {
+                    "description": "ClosedCount 当日关单笔数(含过期兜底)。",
+                    "type": "integer"
+                },
+                "createdAmount": {
+                    "type": "integer"
+                },
+                "createdCount": {
+                    "description": "CreatedCount/CreatedAmount 当日下单笔数与金额。",
+                    "type": "integer"
+                },
+                "date": {
+                    "description": "Date 统计日期(本地时区 YYYY-MM-DD)。",
+                    "type": "string"
+                },
+                "paidAmount": {
+                    "type": "integer"
+                },
+                "paidCount": {
+                    "description": "PaidCount/PaidAmount 当日支付成功笔数与金额(按支付完成时间)。",
+                    "type": "integer"
+                },
+                "refundAmount": {
+                    "type": "integer"
+                },
+                "refundCount": {
+                    "description": "RefundCount/RefundAmount 当日有效退款申请笔数与金额\n(待审核+受理中+已成功,不含已拒绝)。",
+                    "type": "integer"
                 }
             }
         },
