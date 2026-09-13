@@ -416,5 +416,49 @@ func TestLoadPrivateKeyRequiresPKCS8(t *testing.T) {
 	}
 }
 
+// TestQueryPayOrders 验证管理端订单分页查询的过滤条件。
+func TestQueryPayOrders(t *testing.T) {
+	const tenant = "wp-tenant-query"
+	setupApp(t, tenant)
+	tradeNos := map[string]string{}
+	for i, status := range []string{PayOrderCreated, PayOrderPaid, PayOrderClosed} {
+		order := &PayOrder{
+			TenantID: tenant, UserID: "query-user", WechatConfigID: "wc-" + tenant,
+			AppID: "wx-app", MchID: "mch-query", OutTradeNo: strings.Repeat("0", i) + "query-trade-" + status,
+			Amount: int64(100 + i), Status: status, Description: "d",
+		}
+		if _, err := CreatePayOrder(order); err != nil {
+			t.Fatalf("create order: %v", err)
+		}
+		tradeNos[status] = order.OutTradeNo
+	}
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&PayOrder{}, "tenant_id = ?", tenant).Error
+	})
+
+	result, err := QueryPayOrders(&PayOrderQuery{TenantID: tenant, PageSize: 2, PageIndex: 1})
+	if err != nil {
+		t.Fatalf("QueryPayOrders: %v", err)
+	}
+	if result.Total != 3 || len(result.Records) != 2 || result.Pages != 2 {
+		t.Fatalf("unexpected paging: total=%d records=%d pages=%d", result.Total, len(result.Records), result.Pages)
+	}
+	byStatus, err := QueryPayOrders(&PayOrderQuery{TenantID: tenant, Status: PayOrderPaid})
+	if err != nil || byStatus.Total != 1 {
+		t.Fatalf("status filter: %v %+v", err, byStatus)
+	}
+	if byStatus.Records[0].OutTradeNo != tradeNos[PayOrderPaid] {
+		t.Fatalf("unexpected filtered order: %s", byStatus.Records[0].OutTradeNo)
+	}
+	byNo, err := QueryPayOrders(&PayOrderQuery{UserID: "query-user", OutTradeNo: tradeNos[PayOrderClosed]})
+	if err != nil || byNo.Total != 1 {
+		t.Fatalf("outTradeNo filter: %v %+v", err, byNo)
+	}
+	none, err := QueryPayOrders(&PayOrderQuery{TenantID: "no-such-tenant"})
+	if err != nil || none.Total != 0 {
+		t.Fatalf("expected empty result for foreign tenant: %v %+v", err, none)
+	}
+}
+
 // 编译期约束:确保 fakePayAPI 始终实现 PayAPI。
 var _ PayAPI = (*fakePayAPI)(nil)

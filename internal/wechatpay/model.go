@@ -208,3 +208,52 @@ func UpdatePayOrderPrepay(id, prepayID string) error {
 	return store.DB().Model(&PayOrder{}).Where("id = ?", id).
 		Update("prepay_id", prepayID).Error
 }
+
+// PayOrderQuery 管理端支付订单分页查询条件。
+type PayOrderQuery struct {
+	PageIndex  int
+	PageSize   int
+	TenantID   string
+	UserID     string
+	MchID      string
+	Status     string
+	OutTradeNo string
+}
+
+type PayOrderListResult struct {
+	Records []*PayOrder
+	Total   int64
+	Pages   int64
+}
+
+func QueryPayOrders(q *PayOrderQuery) (*PayOrderListResult, error) {
+	db := store.DB().Model(&PayOrder{})
+	if q.TenantID != "" {
+		db = db.Where("tenant_id = ?", q.TenantID)
+	}
+	if q.UserID != "" {
+		db = db.Where("user_id = ?", q.UserID)
+	}
+	if q.MchID != "" {
+		db = db.Where("mch_id = ?", q.MchID)
+	}
+	if q.Status != "" {
+		db = db.Where("status = ?", q.Status)
+	}
+	if q.OutTradeNo != "" {
+		db = db.Where("out_trade_no = ?", q.OutTradeNo)
+	}
+	if q.PageSize <= 0 {
+		q.PageSize = 10
+	}
+	if q.PageIndex <= 0 {
+		q.PageIndex = 1
+	}
+	result := &PayOrderListResult{}
+	if err := db.Count(&result.Total).Error; err != nil {
+		return nil, err
+	}
+	result.Pages = (result.Total + int64(q.PageSize) - 1) / int64(q.PageSize)
+	err := db.Order("created_at DESC").Offset((q.PageIndex - 1) * q.PageSize).Limit(q.PageSize).Find(&result.Records).Error
+	return result, err
+}
