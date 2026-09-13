@@ -18,6 +18,18 @@ import (
 
 // /api/wechat/notify?signature=779ee239e53c506537b56e530cd96bd5869c890a&echostr=7007211687744363958×tamp=1632722226&nonce=1266362590
 // WechatNotify 微信消息通知
+//
+//	@Summary 微信服务器消息/事件推送回调
+//	@Tags 微信登录
+//	@Description GET 用于微信服务器 URL 验证(echostr 回显);POST 接收加密消息推送
+//	@Param app path string true "应用名称"
+//	@Param signature query string true "微信签名"
+//	@Param echostr query string false "URL 验证随机串(GET)"
+//	@Param timestamp query string true "时间戳"
+//	@Param nonce query string true "随机数"
+//	@Success 200 {string} string
+//	@Router /api/wechat/notify/{app} [get]
+//	@Router /api/wechat/notify/{app} [post]
 func WechatNotify(c *gin.Context) {
 	app := c.Param("app")
 	wechatOpenPlatformWeb := wechat.GetWechatOpenPlatformWeb(app)

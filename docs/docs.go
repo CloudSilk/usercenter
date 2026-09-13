@@ -3182,6 +3182,78 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/core/wechat/pay/refund/approve": {
+            "post": {
+                "tags": [
+                    "微信支付退款管理"
+                ],
+                "summary": "微信支付退款审核",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "审核请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/http.ApproveRefundRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.RefundAdminQueryResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/core/wechat/pay/refund/detail": {
+            "get": {
+                "tags": [
+                    "微信支付退款管理"
+                ],
+                "summary": "微信支付退款单详情(可同步状态)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "商户退款单号",
+                        "name": "outRefundNo",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "是否向微信侧查单同步,默认true",
+                        "name": "sync",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.RefundAdminQueryResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/core/wechat/pay/refund/query": {
             "get": {
                 "tags": [
@@ -3238,6 +3310,229 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/http.RefundAdminQueryResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/wechat/connect/qrconnect": {
+            "get": {
+                "tags": [
+                    "微信登录"
+                ],
+                "summary": "获取微信网页扫码授权地址",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "应用名称",
+                        "name": "app",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "是否轮询模式(true/false)",
+                        "name": "poll",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.GetQRConnectResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/wechat/mini/login": {
+            "post": {
+                "tags": [
+                    "微信登录"
+                ],
+                "summary": "微信小程序登录/注册",
+                "parameters": [
+                    {
+                        "description": "登录请求(jsCode 必填,register=true 时可携带手机号与资料)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/http.MiniLoginRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/usercenter.LoginResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/wechat/mini/phone/bind": {
+            "post": {
+                "tags": [
+                    "微信登录"
+                ],
+                "summary": "微信小程序绑定手机号",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "绑定请求(app/phoneNumberCode)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/http.MiniLoginRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/usercenter.LoginResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/wechat/mini/register/check": {
+            "post": {
+                "tags": [
+                    "微信登录"
+                ],
+                "summary": "检查微信用户是否已注册",
+                "parameters": [
+                    {
+                        "description": "检查请求(jsCode/app)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/http.MiniLoginRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/user.CheckRegisterWithWechatResp"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/wechat/notify/{app}": {
+            "get": {
+                "description": "GET 用于微信服务器 URL 验证(echostr 回显);POST 接收加密消息推送",
+                "tags": [
+                    "微信登录"
+                ],
+                "summary": "微信服务器消息/事件推送回调",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "应用名称",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "微信签名",
+                        "name": "signature",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "URL 验证随机串(GET)",
+                        "name": "echostr",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "时间戳",
+                        "name": "timestamp",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "随机数",
+                        "name": "nonce",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "GET 用于微信服务器 URL 验证(echostr 回显);POST 接收加密消息推送",
+                "tags": [
+                    "微信登录"
+                ],
+                "summary": "微信服务器消息/事件推送回调",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "应用名称",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "微信签名",
+                        "name": "signature",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "URL 验证随机串(GET)",
+                        "name": "echostr",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "时间戳",
+                        "name": "timestamp",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "随机数",
+                        "name": "nonce",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -3415,6 +3710,107 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/api/wechat/qrcode": {
+            "get": {
+                "tags": [
+                    "微信登录"
+                ],
+                "summary": "获取微信公众号带参二维码",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "应用名称",
+                        "name": "app",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "是否临时二维码(true/false)",
+                        "name": "isTemp",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "临时二维码有效期(秒,默认300)",
+                        "name": "expireSeconds",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.GetQRCodeResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/wechat/qrcode/result": {
+            "get": {
+                "tags": [
+                    "微信登录"
+                ],
+                "summary": "轮询二维码扫码结果",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "应用名称",
+                        "name": "app",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "二维码 ticket",
+                        "name": "ticket",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.CheckQRScannResultResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/wechat/web/login": {
+            "get": {
+                "tags": [
+                    "微信登录"
+                ],
+                "summary": "微信网页扫码登录回调",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "微信授权 code",
+                        "name": "code",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "状态参数(app_siteID_deviceType 格式)",
+                        "name": "state",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/usercenter.LoginResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -3460,6 +3856,9 @@ const docTemplate = `{
                 "privateKey": {
                     "type": "string"
                 },
+                "refundApprovalRequired": {
+                    "type": "boolean"
+                },
                 "refundNotifyURL": {
                     "type": "string"
                 },
@@ -3492,6 +3891,46 @@ const docTemplate = `{
                 },
                 "refundAmount": {
                     "type": "integer"
+                }
+            }
+        },
+        "http.ApproveRefundRequest": {
+            "type": "object",
+            "required": [
+                "outRefundNo"
+            ],
+            "properties": {
+                "approved": {
+                    "type": "boolean"
+                },
+                "comment": {
+                    "type": "string",
+                    "maxLength": 200
+                },
+                "outRefundNo": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.CheckQRScannResultResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "finished": {
+                            "type": "boolean"
+                        },
+                        "token": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "message": {
+                    "type": "string"
                 }
             }
         },
@@ -3540,6 +3979,74 @@ const docTemplate = `{
                 }
             }
         },
+        "http.GetQRCodeResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "qrcode": {
+                            "type": "string"
+                        },
+                        "ticket": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.GetQRConnectResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.MiniLoginRequest": {
+            "type": "object",
+            "properties": {
+                "app": {
+                    "type": "string"
+                },
+                "deviceName": {
+                    "type": "string"
+                },
+                "deviceType": {
+                    "type": "integer"
+                },
+                "encryptedData": {
+                    "type": "string"
+                },
+                "iv": {
+                    "type": "string"
+                },
+                "jsCode": {
+                    "type": "string"
+                },
+                "nickname": {
+                    "type": "string"
+                },
+                "phoneNumberCode": {
+                    "type": "string"
+                },
+                "register": {
+                    "type": "boolean"
+                }
+            }
+        },
         "http.PayConfigInfo": {
             "type": "object",
             "required": [
@@ -3577,6 +4084,9 @@ const docTemplate = `{
                 },
                 "privateKey": {
                     "type": "string"
+                },
+                "refundApprovalRequired": {
+                    "type": "boolean"
                 },
                 "refundNotifyURL": {
                     "type": "string"
@@ -3754,6 +4264,15 @@ const docTemplate = `{
                 "amount": {
                     "type": "integer"
                 },
+                "approveComment": {
+                    "type": "string"
+                },
+                "approvedAt": {
+                    "type": "string"
+                },
+                "approverID": {
+                    "type": "string"
+                },
                 "createdAt": {
                     "type": "string"
                 },
@@ -3803,6 +4322,44 @@ const docTemplate = `{
                 },
                 "message": {
                     "type": "string"
+                },
+                "pages": {
+                    "type": "integer"
+                },
+                "records": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "user.CheckRegisterWithWechatResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "current": {
+                    "type": "integer"
+                },
+                "data": {
+                    "type": "boolean"
+                },
+                "desc": {
+                    "type": "boolean"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "orderField": {
+                    "type": "string"
+                },
+                "pageIndex": {
+                    "type": "integer"
+                },
+                "pageSize": {
+                    "type": "integer"
                 },
                 "pages": {
                     "type": "integer"

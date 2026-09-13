@@ -22,6 +22,8 @@ definitions:
         type: string
       privateKey:
         type: string
+      refundApprovalRequired:
+        type: boolean
       refundNotifyURL:
         type: string
       tenantID:
@@ -53,6 +55,32 @@ definitions:
     required:
     - outTradeNo
     - refundAmount
+    type: object
+  http.ApproveRefundRequest:
+    properties:
+      approved:
+        type: boolean
+      comment:
+        maxLength: 200
+        type: string
+      outRefundNo:
+        type: string
+    required:
+    - outRefundNo
+    type: object
+  http.CheckQRScannResultResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      data:
+        properties:
+          finished:
+            type: boolean
+          token:
+            type: string
+        type: object
+      message:
+        type: string
     type: object
   http.ClosePayOrderRequest:
     properties:
@@ -86,6 +114,50 @@ definitions:
     - app
     - description
     type: object
+  http.GetQRCodeResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      data:
+        properties:
+          qrcode:
+            type: string
+          ticket:
+            type: string
+        type: object
+      message:
+        type: string
+    type: object
+  http.GetQRConnectResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      data:
+        type: string
+      message:
+        type: string
+    type: object
+  http.MiniLoginRequest:
+    properties:
+      app:
+        type: string
+      deviceName:
+        type: string
+      deviceType:
+        type: integer
+      encryptedData:
+        type: string
+      iv:
+        type: string
+      jsCode:
+        type: string
+      nickname:
+        type: string
+      phoneNumberCode:
+        type: string
+      register:
+        type: boolean
+    type: object
   http.PayConfigInfo:
     properties:
       apiV3Key:
@@ -107,6 +179,8 @@ definitions:
         type: string
       privateKey:
         type: string
+      refundApprovalRequired:
+        type: boolean
       refundNotifyURL:
         type: string
       tenantID:
@@ -228,6 +302,12 @@ definitions:
     properties:
       amount:
         type: integer
+      approveComment:
+        type: string
+      approvedAt:
+        type: string
+      approverID:
+        type: string
       createdAt:
         type: string
       id:
@@ -261,6 +341,31 @@ definitions:
         type: array
       message:
         type: string
+      pages:
+        type: integer
+      records:
+        type: integer
+      total:
+        type: integer
+    type: object
+  user.CheckRegisterWithWechatResp:
+    properties:
+      code:
+        type: integer
+      current:
+        type: integer
+      data:
+        type: boolean
+      desc:
+        type: boolean
+      message:
+        type: string
+      orderField:
+        type: string
+      pageIndex:
+        type: integer
+      pageSize:
+        type: integer
       pages:
         type: integer
       records:
@@ -3454,6 +3559,53 @@ paths:
       summary: 微信支付退款申请
       tags:
       - 微信支付退款管理
+  /api/core/wechat/pay/refund/approve:
+    post:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 审核请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/http.ApproveRefundRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.RefundAdminQueryResponse'
+      summary: 微信支付退款审核
+      tags:
+      - 微信支付退款管理
+  /api/core/wechat/pay/refund/detail:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 商户退款单号
+        in: query
+        name: outRefundNo
+        required: true
+        type: string
+      - description: 是否向微信侧查单同步,默认true
+        in: query
+        name: sync
+        type: boolean
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.RefundAdminQueryResponse'
+      summary: 微信支付退款单详情(可同步状态)
+      tags:
+      - 微信支付退款管理
   /api/core/wechat/pay/refund/query:
     get:
       parameters:
@@ -3494,6 +3646,153 @@ paths:
       summary: 分页查询微信支付退款单
       tags:
       - 微信支付退款管理
+  /api/wechat/connect/qrconnect:
+    get:
+      parameters:
+      - description: 应用名称
+        in: query
+        name: app
+        required: true
+        type: string
+      - description: 是否轮询模式(true/false)
+        in: query
+        name: poll
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.GetQRConnectResponse'
+      summary: 获取微信网页扫码授权地址
+      tags:
+      - 微信登录
+  /api/wechat/mini/login:
+    post:
+      parameters:
+      - description: 登录请求(jsCode 必填,register=true 时可携带手机号与资料)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/http.MiniLoginRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.LoginResponse'
+      summary: 微信小程序登录/注册
+      tags:
+      - 微信登录
+  /api/wechat/mini/phone/bind:
+    post:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 绑定请求(app/phoneNumberCode)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/http.MiniLoginRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.LoginResponse'
+      summary: 微信小程序绑定手机号
+      tags:
+      - 微信登录
+  /api/wechat/mini/register/check:
+    post:
+      parameters:
+      - description: 检查请求(jsCode/app)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/http.MiniLoginRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/user.CheckRegisterWithWechatResp'
+      summary: 检查微信用户是否已注册
+      tags:
+      - 微信登录
+  /api/wechat/notify/{app}:
+    get:
+      description: GET 用于微信服务器 URL 验证(echostr 回显);POST 接收加密消息推送
+      parameters:
+      - description: 应用名称
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: 微信签名
+        in: query
+        name: signature
+        required: true
+        type: string
+      - description: URL 验证随机串(GET)
+        in: query
+        name: echostr
+        type: string
+      - description: 时间戳
+        in: query
+        name: timestamp
+        required: true
+        type: string
+      - description: 随机数
+        in: query
+        name: nonce
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: 微信服务器消息/事件推送回调
+      tags:
+      - 微信登录
+    post:
+      description: GET 用于微信服务器 URL 验证(echostr 回显);POST 接收加密消息推送
+      parameters:
+      - description: 应用名称
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: 微信签名
+        in: query
+        name: signature
+        required: true
+        type: string
+      - description: URL 验证随机串(GET)
+        in: query
+        name: echostr
+        type: string
+      - description: 时间戳
+        in: query
+        name: timestamp
+        required: true
+        type: string
+      - description: 随机数
+        in: query
+        name: nonce
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: 微信服务器消息/事件推送回调
+      tags:
+      - 微信登录
   /api/wechat/pay/order:
     get:
       parameters:
@@ -3607,4 +3906,70 @@ paths:
       summary: 微信支付退款记录查询
       tags:
       - 微信支付
+  /api/wechat/qrcode:
+    get:
+      parameters:
+      - description: 应用名称
+        in: query
+        name: app
+        required: true
+        type: string
+      - description: 是否临时二维码(true/false)
+        in: query
+        name: isTemp
+        type: string
+      - description: 临时二维码有效期(秒,默认300)
+        in: query
+        name: expireSeconds
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.GetQRCodeResponse'
+      summary: 获取微信公众号带参二维码
+      tags:
+      - 微信登录
+  /api/wechat/qrcode/result:
+    get:
+      parameters:
+      - description: 应用名称
+        in: query
+        name: app
+        required: true
+        type: string
+      - description: 二维码 ticket
+        in: query
+        name: ticket
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.CheckQRScannResultResponse'
+      summary: 轮询二维码扫码结果
+      tags:
+      - 微信登录
+  /api/wechat/web/login:
+    get:
+      parameters:
+      - description: 微信授权 code
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: 状态参数(app_siteID_deviceType 格式)
+        in: query
+        name: state
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.LoginResponse'
+      summary: 微信网页扫码登录回调
+      tags:
+      - 微信登录
 swagger: "2.0"

@@ -29,6 +29,12 @@ type MiniLoginRequest struct {
 }
 
 // wechatMiniLogin 微信小程序登录
+//
+//	@Summary 微信小程序登录/注册
+//	@Tags 微信登录
+//	@Param body body MiniLoginRequest true "登录请求(jsCode 必填,register=true 时可携带手机号与资料)"
+//	@Success 200 {object} apipb.LoginResponse
+//	@Router /api/wechat/mini/login [post]
 func wechatMiniLogin(c *gin.Context) {
 	transID := middleware.GetTransID(c)
 	req := &MiniLoginRequest{}
@@ -118,6 +124,12 @@ func wechatMiniLogin(c *gin.Context) {
 }
 
 // wechatMiniCheckRegister 检查微信用户是否注册过
+//
+//	@Summary 检查微信用户是否已注册
+//	@Tags 微信登录
+//	@Param body body MiniLoginRequest true "检查请求(jsCode/app)"
+//	@Success 200 {object} user.CheckRegisterWithWechatResp
+//	@Router /api/wechat/mini/register/check [post]
 func wechatMiniCheckRegister(c *gin.Context) {
 	transID := middleware.GetTransID(c)
 	req := &MiniLoginRequest{}
@@ -155,6 +167,13 @@ func wechatMiniCheckRegister(c *gin.Context) {
 }
 
 // bindPhone 绑定手机号
+//
+//	@Summary 微信小程序绑定手机号
+//	@Tags 微信登录
+//	@Param authorization header string true "jwt token"
+//	@Param body body MiniLoginRequest true "绑定请求(app/phoneNumberCode)"
+//	@Success 200 {object} apipb.LoginResponse
+//	@Router /api/wechat/mini/phone/bind [post]
 func bindPhone(c *gin.Context) {
 	transID := middleware.GetTransID(c)
 	req := &MiniLoginRequest{}
@@ -193,6 +212,13 @@ func bindPhone(c *gin.Context) {
 }
 
 // wechatWebLogin 微信网页登录
+//
+//	@Summary 微信网页扫码登录回调
+//	@Tags 微信登录
+//	@Param code query string true "微信授权 code"
+//	@Param state query string true "状态参数(app_siteID_deviceType 格式)"
+//	@Success 200 {object} apipb.LoginResponse
+//	@Router /api/wechat/web/login [get]
 func wechatWebLogin(c *gin.Context) {
 	resp := &apipb.LoginResponse{Code: apipb.Code_Success}
 	code := c.Query("code")
@@ -298,6 +324,15 @@ func RegisterWechatRouter(r *gin.Engine) {
 	wechat.InitWechat()
 }
 
+// getQRCode 获取微信公众号带参二维码
+//
+//	@Summary 获取微信公众号带参二维码
+//	@Tags 微信登录
+//	@Param app query string true "应用名称"
+//	@Param isTemp query string false "是否临时二维码(true/false)"
+//	@Param expireSeconds query string false "临时二维码有效期(秒,默认300)"
+//	@Success 200 {object} GetQRCodeResponse
+//	@Router /api/wechat/qrcode [get]
 func getQRCode(c *gin.Context) {
 	resp := &GetQRCodeResponse{Code: apipb.Code_Success}
 	app := c.Query("app")
@@ -331,6 +366,14 @@ func getQRCode(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// getQRConnect 获取微信网页扫码授权地址
+//
+//	@Summary 获取微信网页扫码授权地址
+//	@Tags 微信登录
+//	@Param app query string true "应用名称"
+//	@Param poll query string false "是否轮询模式(true/false)"
+//	@Success 200 {object} GetQRConnectResponse
+//	@Router /api/wechat/connect/qrconnect [get]
 func getQRConnect(c *gin.Context) {
 	resp := &GetQRConnectResponse{Code: apipb.Code_Success}
 	app := c.Query("app")
@@ -362,6 +405,14 @@ func getQRConnect(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// checkQRScannResult 轮询二维码扫码结果
+//
+//	@Summary 轮询二维码扫码结果
+//	@Tags 微信登录
+//	@Param app query string true "应用名称"
+//	@Param ticket query string true "二维码 ticket"
+//	@Success 200 {object} CheckQRScannResultResponse
+//	@Router /api/wechat/qrcode/result [get]
 func checkQRScannResult(c *gin.Context) {
 	app := c.Query("app")
 	ticket := c.Query("ticket")
