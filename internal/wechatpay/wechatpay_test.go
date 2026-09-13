@@ -2353,3 +2353,109 @@ func TestBuildDailyReportPayloadUnknownDate(t *testing.T) {
 		t.Fatalf("expected nil payload for missing date, got %+v", payload)
 	}
 }
+
+func TestCreateJSAPIPaymentRemainingBranches(t *testing.T) {
+	const tenant = "wp-create-branches"
+	app := setupApp(t, tenant)
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		t.Fatalf("get wechat config: %v", err)
+	}
+	cfg, err := GetPayConfigByWechatConfigID(wc.ID)
+	if err != nil {
+		t.Fatalf("get pay config: %v", err)
+	}
+
+	// 缺少回调地址:配置 notifyURL 清空后下单报错
+	savedURL := cfg.NotifyURL
+	cfg.NotifyURL = ""
+	if err := UpdatePayConfig(cfg); err != nil {
+		t.Fatalf("clear notify url: %v", err)
+	}
+	in := CreateOrderInput{TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 100}
+	if _, _, err := CreateJSAPIPayment(context.Background(), in); err == nil ||
+		!strings.Contains(err.Error(), "回调地址") {
+		t.Fatalf("expected missing notify url error, got %v", err)
+	}
+	// openID resolver 报错透传
+	cfg.NotifyURL = savedURL
+	if err := UpdatePayConfig(cfg); err != nil {
+		t.Fatalf("restore notify url: %v", err)
+	}
+	oldResolver := OpenIDResolver
+	OpenIDResolver = func(userID, wechatConfigID string) (string, error) {
+		return "", errors.New("resolver boom")
+	}
+	if _, _, err := CreateJSAPIPayment(context.Background(), in); err == nil ||
+		!strings.Contains(err.Error(), "resolver boom") {
+		t.Fatalf("expected resolver error passthrough, got %v", err)
+	}
+	OpenIDResolver = oldResolver
+	if _, _, err := CreateJSAPIPayment(context.Background(), in); err != nil {
+		t.Fatalf("restore after resolver error: %v", err)
+	}
+}
+
+func TestHandlePayNotifyClientInitFailed(t *testing.T) {
+	const tenant = "wp-notify-initfail"
+	app := setupApp(t, tenant)
+	order, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 100,
+	})
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	_ = order
+
+	// 取真实 PayConfig.ID 作为缓存失效 key
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		t.Fatalf("get wechat config: %v", err)
+	}
+	payCfg, err := GetPayConfigByWechatConfigID(wc.ID)
+	if err != nil {
+		t.Fatalf("get pay config: %v", err)
+	}
+
+	payAPIMu.Lock()
+	originalFactory := payAPIFactory
+	payAPIFactory = func(cfg *PayConfig) (PayAPI, error) {
+		return nil, errors.New("init boom")
+	}
+	payAPIMu.Unlock()
+	InvalidatePayAPI(payCfg.ID)
+	defer func() {
+		payAPIMu.Lock()
+		payAPIFactory = originalFactory
+		payAPIMu.Unlock()
+	}()
+
+	fakeAPI.notify = &NotifyContent{
+		EventType: "TRANSACTION.SUCCESS", OutTradeNo: order.OutTradeNo,
+		TransactionID: "tx-x", TradeState: "SUCCESS",
+	}
+	req := httptest.NewRequest("POST", "/api/wechat/notify/pay/"+app, strings.NewReader("{}"))
+	if err := HandlePayNotify(req, app); err == nil || !strings.Contains(err.Error(), "init boom") {
+		t.Fatalf("expected client init error, got %v", err)
+	}
+}
+
+func TestSyncOrderStatusQueryErrorKeepsCreated(t *testing.T) {
+	const tenant = "wp-sync-err"
+	app := setupApp(t, tenant)
+	order, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 100,
+	})
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	fakeAPI.queryErr = errors.New("network down")
+	got, err := SyncOrderStatus(context.Background(), tenant, "user-1", order.OutTradeNo)
+	if err != nil {
+		t.Fatalf("SyncOrderStatus: %v", err)
+	}
+	if got.Status != PayOrderCreated {
+		t.Fatalf("query error should keep CREATED, got %s", got.Status)
+	}
+	fakeAPI.queryErr = nil
+}
