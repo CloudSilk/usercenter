@@ -177,6 +177,8 @@ func RegisterWechatPayOrderRouter(r *gin.Engine) {
 	g := r.Group("/api/core/wechat/pay/order")
 	g.GET("query", AutoQueryHandler(QueryWechatPayOrders))
 	g.GET("export", ExportWechatPayOrders)
+	s := r.Group("/api/core/wechat/pay/stats")
+	s.GET("daily", AutoQueryHandler(QueryWechatPayDailyStats))
 }
 
 // ApplyRefundRequest 管理端退款申请请求。
@@ -383,4 +385,39 @@ func RegisterWechatPayRefundRouter(r *gin.Engine) {
 	g.POST("approve", AutoHandler(ApproveWechatRefund))
 	g.GET("query", AutoQueryHandler(QueryWechatRefunds))
 	g.GET("detail", GetWechatRefundDetail)
+}
+
+// PayDailyStatsQueryRequest 对账日报查询请求。
+type PayDailyStatsQueryRequest struct {
+	// Days 统计最近 N 天(含今日),默认 7,范围 1-90。
+	Days     int    `form:"days" binding:"omitempty,gt=0,lte=90"`
+	TenantID string `form:"tenantID"`
+}
+
+// PayDailyStatsResponse 对账日报响应。
+type PayDailyStatsResponse struct {
+	Code    apipb.Code                `json:"code"`
+	Message string                    `json:"message,omitempty"`
+	Data    []*wechatpay.DailyPayStat `json:"data,omitempty"`
+}
+
+// QueryWechatPayDailyStats 管理端支付对账日报:按日聚合下单/支付/关单/退款。
+//
+//	@Summary 微信支付对账日报
+//	@Tags 微信支付订单管理
+//	@Param authorization header string true "jwt token"
+//	@Param days query int false "统计最近 N 天(含今日),默认 7,范围 1-90"
+//	@Param tenantID query string false "租户ID,留空为全租户汇总"
+//	@Success 200 {object} PayDailyStatsResponse
+//	@Router /api/core/wechat/pay/stats/daily [get]
+func QueryWechatPayDailyStats(c *gin.Context, req *PayDailyStatsQueryRequest) (*PayDailyStatsResponse, error) {
+	resp := &PayDailyStatsResponse{Code: apipb.Code_Success}
+	stats, err := wechatpay.QueryDailyPayStats(req.TenantID, req.Days)
+	if err != nil {
+		resp.Code = apipb.Code_InternalServerError
+		resp.Message = err.Error()
+		return resp, nil
+	}
+	resp.Data = stats
+	return resp, nil
 }

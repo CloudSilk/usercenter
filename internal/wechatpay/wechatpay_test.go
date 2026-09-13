@@ -1261,3 +1261,85 @@ func TestApproveRefundAudit(t *testing.T) {
 		}
 	}
 }
+
+func TestQueryDailyPayStats(t *testing.T) {
+	const tenant = "wp-stats-1"
+	setupApp(t, tenant)
+	today := time.Now()
+	todayStr := today.Format("2006-01-02")
+	yesterday := today.AddDate(0, 0, -1)
+
+	// 今日下单 2 笔(其中 1 笔今日支付成功),昨日下单 1 笔(昨日支付后今日关闭)
+	o1 := &PayOrder{TenantID: tenant, UserID: "u", WechatConfigID: "wc", AppID: "wx", MchID: "m",
+		OutTradeNo: "stats-today-created", Amount: 100, Status: PayOrderCreated}
+	o2 := &PayOrder{TenantID: tenant, UserID: "u", WechatConfigID: "wc", AppID: "wx", MchID: "m",
+		OutTradeNo: "stats-today-paid", Amount: 500, Status: PayOrderPaid,
+		PaidAt: &today}
+	o3 := &PayOrder{TenantID: tenant, UserID: "u", WechatConfigID: "wc", AppID: "wx", MchID: "m",
+		OutTradeNo: "stats-yesterday-closed", Amount: 300, Status: PayOrderClosed,
+		PaidAt: &yesterday, ClosedAt: &today}
+	orders := []*PayOrder{o1, o2, o3}
+	for _, o := range orders {
+		if _, err := CreatePayOrder(o); err != nil {
+			t.Fatalf("create order: %v", err)
+		}
+	}
+	// 把 o3 的下单时间改到昨日
+	if err := store.DB().Model(&PayOrder{}).Where("id = ?", o3.ID).
+		Update("created_at", yesterday).Error; err != nil {
+		t.Fatalf("backdate order: %v", err)
+	}
+	refund := &PayRefund{TenantID: tenant, PayOrderID: o2.ID, OutTradeNo: o2.OutTradeNo,
+		OutRefundNo: "stats-refund-1", Amount: 100, Total: 500, Status: RefundSuccess}
+	if _, err := CreatePayRefund(refund); err != nil {
+		t.Fatalf("create refund: %v", err)
+	}
+	// 一笔已拒绝退款,不计入统计
+	if _, err := CreatePayRefund(&PayRefund{TenantID: tenant, PayOrderID: o2.ID,
+		OutTradeNo: o2.OutTradeNo, OutRefundNo: "stats-refund-rejected",
+		Amount: 50, Total: 500, Status: RefundRejected}); err != nil {
+		t.Fatalf("create rejected refund: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&PayOrder{}, "tenant_id = ?", tenant).Error
+		_ = store.DB().Unscoped().Delete(&PayRefund{}, "tenant_id = ?", tenant).Error
+	})
+
+	stats, err := QueryDailyPayStats(tenant, 7)
+	if err != nil {
+		t.Fatalf("QueryDailyPayStats: %v", err)
+	}
+	if len(stats) != 7 {
+		t.Fatalf("expected 7 days, got %d", len(stats))
+	}
+	byDate := map[string]*DailyPayStat{}
+	for _, s := range stats {
+		byDate[s.Date] = s
+	}
+	td := byDate[todayStr]
+	if td == nil {
+		t.Fatal("today stat missing")
+	}
+	if td.CreatedCount != 2 || td.CreatedAmount != 600 {
+		t.Fatalf("unexpected today created: %+v", td)
+	}
+	if td.PaidCount != 1 || td.PaidAmount != 500 {
+		t.Fatalf("unexpected today paid: %+v", td)
+	}
+	if td.ClosedCount != 1 {
+		t.Fatalf("unexpected today closed: %+v", td)
+	}
+	if td.RefundCount != 1 || td.RefundAmount != 100 {
+		t.Fatalf("rejected refund should be excluded: %+v", td)
+	}
+	// 租户过滤:其他租户视角应为全零
+	other, err := QueryDailyPayStats("other-tenant", 3)
+	if err != nil {
+		t.Fatalf("other tenant stats: %v", err)
+	}
+	for _, s := range other {
+		if s.CreatedCount != 0 {
+			t.Fatalf("expected zero for foreign tenant: %+v", s)
+		}
+	}
+}
