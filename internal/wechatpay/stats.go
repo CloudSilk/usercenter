@@ -139,9 +139,9 @@ var (
 	dailyReportLastDate string
 )
 
-// buildDailyReportPayload 汇总 reportDate 当日的对账数据。
-func buildDailyReportPayload(reportDate string) (map[string]any, error) {
-	stats, err := QueryDailyPayStats("", 90)
+// buildDailyReportPayload 汇总 reportDate 当日指定范围(租户ID留空为平台全量)的对账数据。
+func buildDailyReportPayload(tenantID, reportDate string) (map[string]any, error) {
+	stats, err := QueryDailyPayStats(tenantID, 90)
 	if err != nil {
 		return nil, err
 	}
@@ -161,6 +161,7 @@ func buildDailyReportPayload(reportDate string) (map[string]any, error) {
 
 // maybePushDailyReport 对账循环 tick 时调用:到达每日推送时刻且当日未推送,
 // 则推送昨日对账日报(webhook + 审计留痕,不受告警静默窗口影响)。
+// 推送范围:平台全量汇总一条 + 各有支付活动租户分别一条(payload 携带 tenantID)。
 func maybePushDailyReport(ctx context.Context, now time.Time) {
 	if !DailyReportEnabled || now.Hour() < DailyReportHour {
 		return
@@ -171,17 +172,51 @@ func maybePushDailyReport(ctx context.Context, now time.Time) {
 	}
 	dailyReportLastDate = today
 	reportDate := now.AddDate(0, 0, -1).Format("2006-01-02")
-	payload, err := buildDailyReportPayload(reportDate)
+
+	pushOne := func(tenantID, date string) {
+		payload, err := buildDailyReportPayload(tenantID, date)
+		if err != nil {
+			log.Errorf(ctx, "支付对账日报汇总失败(租户 %s):%v", tenantID, err)
+			return
+		}
+		if payload == nil {
+			return
+		}
+		if tenantID != "" {
+			payload["tenantID"] = tenantID
+			payload["scope"] = "tenant"
+		} else {
+			payload["scope"] = "platform"
+		}
+		alertFire("pay_daily_report", payload)
+		recordAlertAudit("pay_daily_report", payload)
+	}
+	pushOne("", reportDate) // 平台汇总
+	tenantIDs, err := ListActivePayTenantIDs(2)
 	if err != nil {
-		log.Errorf(ctx, "支付对账日报汇总失败:%v", err)
+		log.Errorf(ctx, "对账日报租户列表查询失败:%v", err)
 		return
 	}
-	if payload == nil {
-		return
+	pushed := 0
+	for _, tid := range tenantIDs {
+		if tid == "" {
+			continue
+		}
+		pushOne(tid, reportDate)
+		pushed++
 	}
-	alertFire("pay_daily_report", payload)
-	recordAlertAudit("pay_daily_report", payload)
-	log.Infof(ctx, "支付对账日报已推送(%s)", reportDate)
+	log.Infof(ctx, "支付对账日报已推送(%s):平台 1 条,分租户 %d 条", reportDate, pushed)
+}
+
+// ListActivePayTenantIDs 取最近 days 天有下单活动的租户ID列表。
+func ListActivePayTenantIDs(days int) ([]string, error) {
+	start := time.Now().AddDate(0, 0, -(days - 1))
+	start = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
+	var ids []string
+	err := store.DB().Model(&PayOrder{}).
+		Where("created_at >= ?", start).
+		Distinct("tenant_id").Pluck("tenant_id", &ids).Error
+	return ids, err
 }
 
 // SetDailyReportConfig 配置日报推送开关与推送时刻(启动时调用一次)。

@@ -1374,25 +1374,78 @@ func TestMaybePushDailyReport(t *testing.T) {
 		t.Fatal("should not push before report hour")
 	}
 
-	// 到达时刻:推送昨日日报(webhook+审计各一条),payload 日期为昨日
+	// 到达时刻:推送昨日日报(平台汇总 + 各活跃租户各一条)
 	DailyReportHour = 0
+	// 再造一个有昨日支付活动的租户,验证分租户推送
+	otherTenant := tenant + "-b"
+	setupApp(t, otherTenant)
+	otherOrder := &PayOrder{TenantID: otherTenant, UserID: "u2", WechatConfigID: "wc", AppID: "wx",
+		MchID: "m", OutTradeNo: "daily-report-other", Amount: 700, Status: PayOrderCreated}
+	if _, err := CreatePayOrder(otherOrder); err != nil {
+		t.Fatalf("create other order: %v", err)
+	}
+	if err := store.DB().Model(&PayOrder{}).Where("id = ?", otherOrder.ID).
+		Update("created_at", now.AddDate(0, 0, -1)).Error; err != nil {
+		t.Fatalf("backdate other order: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&PayOrder{}, "id = ?", otherOrder.ID).Error
+		_ = store.DB().Unscoped().Delete(&wechatconfig.WechatConfig{}, "tenant_id = ?", otherTenant).Error
+		_ = store.DB().Unscoped().Delete(&PayConfig{}, "tenant_id = ?", otherTenant).Error
+	})
+	// 活跃租户是全库口径(含其他测试残留的当日订单租户),预期条数动态计算
+	activeTenants, err := ListActivePayTenantIDs(2)
+	if err != nil {
+		t.Fatalf("list active tenants: %v", err)
+	}
+	tenantFound := false
+	for _, tid := range activeTenants {
+		if tid == otherTenant {
+			tenantFound = true
+		}
+	}
+	if !tenantFound {
+		t.Fatalf("expected %q among active tenants: %v", otherTenant, activeTenants)
+	}
 	maybePushDailyReport(context.Background(), now)
+	// 平台 1 条 + 每个活跃租户 1 条
+	wantTotal := 1 + len(activeTenants)
 	events := getEvents()
-	if len(events) != 1 || events[0] != "pay_daily_report" {
-		t.Fatalf("expected daily report pushed once, got %v", events)
+	if len(events) != wantTotal {
+		t.Fatalf("expected %d daily reports (platform+%d tenants), got %d: %v",
+			wantTotal, len(activeTenants), len(events), events)
+	}
+	for _, e := range events {
+		if e != "pay_daily_report" {
+			t.Fatalf("unexpected event %q", e)
+		}
 	}
 	audits := getAudits()
-	if len(audits) != 1 || audits[0].Action != "pay_daily_report" {
-		t.Fatalf("expected daily report audit, got %+v", audits)
+	if len(audits) != wantTotal {
+		t.Fatalf("expected %d daily report audits, got %d: %+v", wantTotal, len(audits), audits)
 	}
 	wantDate := now.AddDate(0, 0, -1).Format("2006-01-02")
 	if !strings.Contains(audits[0].Detail, wantDate) {
 		t.Fatalf("expected report date %s in detail: %s", wantDate, audits[0].Detail)
 	}
+	// 首条为平台汇总,其余携带 tenantID 与 scope=tenant
+	if !strings.Contains(audits[0].Detail, `"scope":"platform"`) {
+		t.Fatalf("expected platform scope in first audit: %s", audits[0].Detail)
+	}
+	tenantScopeCount := 0
+	for _, a := range audits[1:] {
+		if !strings.Contains(a.Detail, `"scope":"tenant"`) || !strings.Contains(a.Detail, `"tenantID"`) {
+			t.Fatalf("expected tenant scope with tenantID: %s", a.Detail)
+		}
+		tenantScopeCount++
+	}
+	if tenantScopeCount != len(activeTenants) {
+		t.Fatalf("expected %d tenant-scoped reports, got %d", len(activeTenants), tenantScopeCount)
+	}
 
 	// 同日重复调用不推送(去重)
 	maybePushDailyReport(context.Background(), now)
-	if len(getEvents()) != 1 {
+	if len(getEvents()) != wantTotal {
 		t.Fatal("duplicate push on same day should be suppressed")
 	}
 }
