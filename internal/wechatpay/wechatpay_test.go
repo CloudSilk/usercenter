@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/CloudSilk/pkg/db"
+	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/wechatconfig"
 	glebsqlite "github.com/glebarez/sqlite"
@@ -964,10 +965,12 @@ func TestRefundApprovalTenantGuard(t *testing.T) {
 
 func TestReconcileConfigAndLoop(t *testing.T) {
 	// 参数应用与钳制
-	oldInterval, oldAge, oldBatch, oldAlert := ReconcileLoopInterval, ReconcileScanAge, ReconcileBatchSize, ReconcileAlertAge
+	oldInterval, oldAge, oldBatch, oldAlert, oldSilence := ReconcileLoopInterval, ReconcileScanAge, ReconcileBatchSize, ReconcileAlertAge, ReconcileAlertSilence
 	defer func() {
 		reconcileMu.Lock()
 		ReconcileLoopInterval, ReconcileScanAge, ReconcileBatchSize, ReconcileAlertAge = oldInterval, oldAge, oldBatch, oldAlert
+		ReconcileAlertSilence = oldSilence
+		alertSilenceLast = map[string]time.Time{}
 		reconcileMu.Unlock()
 	}()
 	ConfigureReconcile(3*time.Second, 2*time.Minute, 5000, 2*time.Hour, time.Minute)
@@ -1037,6 +1040,32 @@ func collectAlerts() (func() []string, func()) {
 		}
 }
 
+// collectAudits 替换审计写入为内存收集器,返回收集函数与还原函数。
+func collectAudits() (func() []audit.AuditLog, func()) {
+	reconcileMu.Lock()
+	original := auditRecorder
+	reconcileMu.Unlock()
+	mu := &sync.Mutex{}
+	var logs []audit.AuditLog
+	auditRecorder = func(db *gorm.DB, userID, userName string, principalKind int32, action, targetID, ip, detail string) {
+		mu.Lock()
+		defer mu.Unlock()
+		logs = append(logs, audit.AuditLog{
+			UserID: userID, UserName: userName, PrincipalKind: principalKind,
+			Action: action, TargetID: targetID, Detail: detail,
+		})
+	}
+	return func() []audit.AuditLog {
+			mu.Lock()
+			defer mu.Unlock()
+			return append([]audit.AuditLog(nil), logs...)
+		}, func() {
+			reconcileMu.Lock()
+			auditRecorder = original
+			reconcileMu.Unlock()
+		}
+}
+
 func TestReconcileAlerts(t *testing.T) {
 	const tenant = "wp-alert-1"
 	app := setupApp(t, tenant)
@@ -1068,9 +1097,11 @@ func TestReconcileAlerts(t *testing.T) {
 		_ = store.DB().Unscoped().Delete(&PayOrder{}, "tenant_id = ?", tenant).Error
 	})
 
-	// 注入告警收集器与按单定制查单结果
+	// 注入告警收集器、审计收集器与按单定制查单结果
 	getEvents, restore := collectAlerts()
 	defer restore()
+	getAudits, restoreAudits := collectAudits()
+	defer restoreAudits()
 	alertSilenceLast = map[string]time.Time{} // 重置静默状态,确保首轮告警必发
 	oldAge := ReconcileAlertAge
 	ReconcileAlertAge = 24 * time.Hour
@@ -1098,10 +1129,26 @@ func TestReconcileAlerts(t *testing.T) {
 		t.Fatalf("expected stuck_created alert, got %v", events)
 	}
 
+	// 告警事件应同步落审计日志:系统主体,详情含订单号
+	audits := getAudits()
+	if len(audits) != 2 {
+		t.Fatalf("expected 2 audit records, got %d: %+v", len(audits), audits)
+	}
+	for _, a := range audits {
+		if a.UserID != "system" || a.PrincipalKind != 2 {
+			t.Fatalf("unexpected audit principal: %+v", a)
+		}
+	}
+	if audits[0].Action != "pay_reconcile_query_failed" ||
+		!strings.Contains(audits[0].Detail, "alert-query-fail") {
+		t.Fatalf("unexpected first audit: %+v", audits[0])
+	}
+
 	// 下一轮:查单恢复正常;滞留单会按设计重复告警,但不应再出现查单失败告警
 	fakeAPI.queryErr = nil
 	fakeAPI.queryResult = &TransactionResult{TradeState: "NOTPAY"}
 	base := len(getEvents())
+	auditBase := len(getAudits())
 	if _, err := ReconcileStaleOrders(context.Background()); err != nil {
 		t.Fatalf("second ReconcileStaleOrders: %v", err)
 	}
@@ -1109,6 +1156,10 @@ func TestReconcileAlerts(t *testing.T) {
 		if e == "pay_reconcile_query_failed" {
 			t.Fatalf("unexpected query_failed alert after recovery: %v", getEvents())
 		}
+	}
+	// 静默窗口内不应重复写审计
+	if got := len(getAudits()) - auditBase; got != 0 {
+		t.Fatalf("expected no audit records within silence window, got %d", got)
 	}
 }
 

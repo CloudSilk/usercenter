@@ -2,11 +2,13 @@ package wechatpay
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 
 	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/CloudSilk/usercenter/internal/alert"
+	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/store"
 )
 
@@ -30,6 +32,9 @@ var (
 	// alertFire 告警推送函数,测试可替换。未配置 webhook URL 时为空操作。
 	alertFire = alert.FireWebhook
 
+	// auditRecorder 审计写入函数,测试可替换。
+	auditRecorder = audit.RecordAuditWithKind
+
 	// alertSilenceLast 各事件类型上次发送时间(静默窗口去重)。
 	alertSilenceLast = map[string]time.Time{}
 
@@ -48,6 +53,19 @@ func shouldAlert(eventType string) bool {
 	}
 	alertSilenceLast[eventType] = time.Now()
 	return true
+}
+
+// recordAlertAudit 告警事件落审计日志:系统主体(PrincipalKind=2),
+// 与 webhook 推送同受静默窗口控制;detail 截断至 900 字节防超长。
+func recordAlertAudit(eventType string, payload map[string]any) {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		b = []byte("{}")
+	}
+	if len(b) > 900 {
+		b = b[:900]
+	}
+	auditRecorder(store.DB(), "system", "wechatpay-reconcile", 2, eventType, "", "", string(b))
 }
 
 // ConfigureReconcile 应用对账参数(须在 StartReconcileLoop 前调用)。
@@ -216,14 +234,18 @@ func ReconcileStaleOrders(ctx context.Context) (int, error) {
 	}
 	if len(queryFailures) > 0 && shouldAlert("pay_reconcile_query_failed") {
 		alertFire("pay_reconcile_query_failed", map[string]any{"count": len(queryFailures), "orders": queryFailures})
+		recordAlertAudit("pay_reconcile_query_failed", map[string]any{"count": len(queryFailures), "orders": queryFailures})
 	}
 	if len(clientFailures) > 0 && shouldAlert("pay_reconcile_client_failed") {
 		alertFire("pay_reconcile_client_failed", map[string]any{"count": len(clientFailures), "failures": clientFailures})
+		recordAlertAudit("pay_reconcile_client_failed", map[string]any{"count": len(clientFailures), "failures": clientFailures})
 	}
 	if len(stuckOrders) > 0 && shouldAlert("pay_order_stuck_created") {
-		alertFire("pay_order_stuck_created", map[string]any{
+		payload := map[string]any{
 			"count": len(stuckOrders), "orders": stuckOrders, "thresholdHours": int(ReconcileAlertAge.Hours()),
-		})
+		}
+		alertFire("pay_order_stuck_created", payload)
+		recordAlertAudit("pay_order_stuck_created", payload)
 	}
 	return processed, nil
 }
