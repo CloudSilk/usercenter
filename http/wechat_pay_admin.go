@@ -179,6 +179,7 @@ func RegisterWechatPayOrderRouter(r *gin.Engine) {
 	g.GET("export", ExportWechatPayOrders)
 	g.POST("batch-close", AutoHandler(BatchCloseWechatOrders))
 	g.GET("trade-bill", TradeBill)
+	g.GET("trade-bill/range", TradeBillRange)
 	s := r.Group("/api/core/wechat/pay/stats")
 	s.GET("daily", AutoQueryHandler(QueryWechatPayDailyStats))
 	s.GET("refund-reason", AutoQueryHandler(QueryWechatRefundReasonStats))
@@ -586,12 +587,51 @@ func TradeBill(c *gin.Context) {
 		return
 	}
 	csvData, err := wechatpay.GetTradeBill(c.Request.Context(),
-		middleware.GetTenantID(c), req.ConfigID, req.BillDate, req.BillType)
+		middleware.GetTenantID(c), middleware.GetUserID(c), req.ConfigID, req.BillDate, req.BillType)
 	if err != nil {
 		c.JSON(http.StatusOK, &PayOrderAdminQueryResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
 		return
 	}
 	filename := "trade_bill_" + req.BillDate + "_" + req.ConfigID + ".csv"
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", csvData)
+}
+
+// TradeBillRangeQueryRequest 按日期范围批量拉取账单请求。
+type TradeBillRangeQueryRequest struct {
+	ConfigID  string `form:"configID" binding:"required"`
+	StartDate string `form:"startDate" binding:"required"`
+	EndDate   string `form:"endDate" binding:"required"`
+	// BillType 账单类型 ALL/SUCCESS/REFUND,留空 ALL。
+	BillType string `form:"billType" binding:"omitempty,oneof=ALL SUCCESS REFUND"`
+}
+
+// TradeBillRange 按日期范围批量拉取交易账单并合并为单个 CSV(跨度上限31天,单日失败不中断)。
+//
+//	@Summary 按日期范围批量下载微信交易账单
+//	@Tags 微信支付订单管理
+//	@Param authorization header string true "jwt token"
+//	@Param configID query string true "商户配置ID"
+//	@Param startDate query string true "开始日期(YYYY-MM-DD)"
+//	@Param endDate query string true "结束日期(YYYY-MM-DD,仅昨日及更早)"
+//	@Param billType query string false "账单类型 ALL/SUCCESS/REFUND,默认 ALL"
+//	@Success 200 {string} string
+//	@Router /api/core/wechat/pay/order/trade-bill/range [get]
+func TradeBillRange(c *gin.Context) {
+	req := &TradeBillRangeQueryRequest{}
+	if err := c.ShouldBindQuery(req); err != nil {
+		c.JSON(http.StatusOK, &PayOrderAdminQueryResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
+		return
+	}
+	csvData, err := wechatpay.GetTradeBillRange(c.Request.Context(),
+		middleware.GetTenantID(c), middleware.GetUserID(c),
+		req.ConfigID, req.StartDate, req.EndDate, req.BillType)
+	if err != nil {
+		c.JSON(http.StatusOK, &PayOrderAdminQueryResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
+		return
+	}
+	filename := "trade_bill_" + req.StartDate + "_to_" + req.EndDate + ".csv"
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
 	c.Data(http.StatusOK, "text/csv; charset=utf-8", csvData)

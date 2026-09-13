@@ -705,6 +705,12 @@ const (
 	BillTypeRefund  = "REFUND"
 )
 
+// 账单下载审计动作。
+const (
+	AuditActionTradeBillDownload      = "pay_trade_bill_download"
+	AuditActionTradeBillRangeDownload = "pay_trade_bill_range_download"
+)
+
 // normalizeBillType 归一化账单类型:空默认 ALL,非法值报错。
 func normalizeBillType(billType string) (string, error) {
 	if billType == "" {
@@ -719,8 +725,8 @@ func normalizeBillType(billType string) (string, error) {
 
 // GetTradeBill 下载指定商户配置在 billDate(YYYY-MM-DD)、指定类型(billType: ALL/SUCCESS/REFUND,
 // 留空 ALL)的交易账单 CSV。微信侧账单 T+1 生成,当日/未来日期直接拒绝;
-// tenantID 为空表示平台侧操作。
-func GetTradeBill(ctx context.Context, tenantID, configID, billDate, billType string) ([]byte, error) {
+// tenantID 为空表示平台侧操作;operatorID 记入审计留痕。
+func GetTradeBill(ctx context.Context, tenantID, operatorID, configID, billDate, billType string) ([]byte, error) {
 	billType, err := normalizeBillType(billType)
 	if err != nil {
 		return nil, err
@@ -744,5 +750,72 @@ func GetTradeBill(ctx context.Context, tenantID, configID, billDate, billType st
 	if err != nil {
 		return nil, err
 	}
-	return api.DownloadTradeBill(ctx, billDate, billType)
+	csvData, err := api.DownloadTradeBill(ctx, billDate, billType)
+	if err != nil {
+		return nil, err
+	}
+	auditRecorder(store.DB(), operatorID, "", 0, AuditActionTradeBillDownload, configID, "",
+		fmt.Sprintf(`{"billDate":%q,"billType":%q}`, billDate, billType))
+	return csvData, nil
+}
+
+// maxTradeBillRangeDays 范围批量拉取的最大天数。
+const maxTradeBillRangeDays = 31
+
+// GetTradeBillRange 按日期范围[startDate,endDate](均含,跨度上限31天, endDate 不得为当日)
+// 逐日拉取账单并合并为单个 CSV:各日之间以注释分隔行标注日期,单日失败不中断(写入失败说明行)。
+// 范围操作整体记一条审计。
+func GetTradeBillRange(ctx context.Context, tenantID, operatorID, configID, startDate, endDate, billType string) ([]byte, error) {
+	billType, err := normalizeBillType(billType)
+	if err != nil {
+		return nil, err
+	}
+	s, err := time.ParseInLocation("2006-01-02", startDate, time.Local)
+	if err != nil {
+		return nil, errors.New("开始日期格式应为 YYYY-MM-DD")
+	}
+	e, err := time.ParseInLocation("2006-01-02", endDate, time.Local)
+	if err != nil {
+		return nil, errors.New("结束日期格式应为 YYYY-MM-DD")
+	}
+	if e.Before(s) {
+		return nil, errors.New("结束日期不得早于开始日期")
+	}
+	days := int(e.Sub(s).Hours()/24) + 1
+	if days > maxTradeBillRangeDays {
+		return nil, fmt.Errorf("日期范围上限 %d 天", maxTradeBillRangeDays)
+	}
+	today := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.Local)
+	if !e.Before(today) {
+		return nil, errors.New("交易账单仅可申请昨日及更早日期")
+	}
+	cfg, err := GetPayConfigByID(configID)
+	if err != nil {
+		return nil, fmt.Errorf("支付配置不存在")
+	}
+	if tenantID != "" && cfg.TenantID != tenantID {
+		return nil, ErrOrderNotOwned
+	}
+	api, err := GetPayAPI(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	var merged []byte
+	failed := 0
+	for i := 0; i < days; i++ {
+		day := s.AddDate(0, 0, i).Format("2006-01-02")
+		merged = append(merged, []byte("# ===== "+day+" =====\n")...)
+		csvData, err := api.DownloadTradeBill(ctx, day, billType)
+		if err != nil {
+			failed++
+			merged = append(merged, []byte("# [获取失败] "+err.Error()+"\n")...)
+			continue
+		}
+		merged = append(merged, csvData...)
+		merged = append(merged, '\n')
+	}
+	auditRecorder(store.DB(), operatorID, "", 0, AuditActionTradeBillRangeDownload, configID, "",
+		fmt.Sprintf(`{"start":%q,"end":%q,"billType":%q,"failed":%d}`, startDate, endDate, billType, failed))
+	return merged, nil
 }

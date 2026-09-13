@@ -1741,9 +1741,11 @@ func TestGetTradeBill(t *testing.T) {
 
 	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	fakeAPI.billCSV = []byte("交易时间,交易金额\n2026-09-12 10:00:00,100\n总收款,100\n")
+	getAudits, restoreAudits := collectAudits()
+	defer restoreAudits()
 
 	// 正常下载
-	csvData, err := GetTradeBill(context.Background(), tenant, cfg.ID, yesterday, "")
+	csvData, err := GetTradeBill(context.Background(), tenant, "op-1", cfg.ID, yesterday, "")
 	if err != nil {
 		t.Fatalf("GetTradeBill: %v", err)
 	}
@@ -1752,23 +1754,87 @@ func TestGetTradeBill(t *testing.T) {
 	}
 
 	// 当日/未来日期拒绝
-	if _, err := GetTradeBill(context.Background(), tenant, cfg.ID, time.Now().Format("2006-01-02"), ""); err == nil {
+	if _, err := GetTradeBill(context.Background(), tenant, "op-1", cfg.ID, time.Now().Format("2006-01-02"), ""); err == nil {
 		t.Fatal("expected today rejection")
 	}
-	if _, err := GetTradeBill(context.Background(), tenant, cfg.ID, "not-a-date", ""); err == nil {
+	if _, err := GetTradeBill(context.Background(), tenant, "op-1", cfg.ID, "not-a-date", ""); err == nil {
 		t.Fatal("expected invalid date rejection")
 	}
 	// 租户隔离
-	if _, err := GetTradeBill(context.Background(), "other-tenant", cfg.ID, yesterday, ""); err != ErrOrderNotOwned {
+	if _, err := GetTradeBill(context.Background(), "other-tenant", "op-1", cfg.ID, yesterday, ""); err != ErrOrderNotOwned {
 		t.Fatalf("expected ErrOrderNotOwned, got %v", err)
 	}
 	// 平台侧(空租户)可下载
-	if _, err := GetTradeBill(context.Background(), "", cfg.ID, yesterday, BillTypeRefund); err != nil {
+	if _, err := GetTradeBill(context.Background(), "", "op-2", cfg.ID, yesterday, BillTypeRefund); err != nil {
 		t.Fatalf("platform download: %v", err)
 	}
 	// 非法账单类型拒绝
-	if _, err := GetTradeBill(context.Background(), tenant, cfg.ID, yesterday, "HACKED"); err == nil ||
+	if _, err := GetTradeBill(context.Background(), tenant, "op-1", cfg.ID, yesterday, "HACKED"); err == nil ||
 		!strings.Contains(err.Error(), "非法账单类型") {
 		t.Fatalf("expected invalid billType rejection, got %v", err)
+	}
+	// 单日下载审计留痕
+	audits := getAudits()
+	if len(audits) != 2 || audits[0].Action != AuditActionTradeBillDownload || audits[0].UserID != "op-1" {
+		t.Fatalf("expected 2 download audits, got %+v", audits)
+	}
+}
+
+func TestGetTradeBillRange(t *testing.T) {
+	const tenant = "wp-bill-range"
+	app := setupApp(t, tenant)
+	enableRefundApproval(t, app) // 无实际作用,仅为保持 setup 一致
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		t.Fatalf("get wechat config: %v", err)
+	}
+	cfg, err := GetPayConfigByWechatConfigID(wc.ID)
+	if err != nil {
+		t.Fatalf("get pay config: %v", err)
+	}
+
+	getAudits, restoreAudits := collectAudits()
+	defer restoreAudits()
+
+	// 范围:昨日往前 3 天(中间一天模拟失败)
+	end := time.Now().AddDate(0, 0, -1)
+	start := end.AddDate(0, 0, -2)
+	getAudits()
+	_ = getAudits
+	fakeAPI.billCSV = []byte("fake,bill\n1,100\n")
+	csvData, err := GetTradeBillRange(context.Background(), tenant, "admin-1", cfg.ID,
+		start.Format("2006-01-02"), end.Format("2006-01-02"), BillTypeSuccess)
+	if err != nil {
+		t.Fatalf("GetTradeBillRange: %v", err)
+	}
+	text := string(csvData)
+	if got := strings.Count(text, "# ====="); got != 3 {
+		t.Fatalf("expected 3 day sections, got %d", got)
+	}
+	if !strings.Contains(text, "fake,bill") {
+		t.Fatalf("expected bill content, got %s", text)
+	}
+
+	// 操作级审计恰好 1 条(范围版)
+	audits := getAudits()
+	if len(audits) != 1 || audits[0].Action != AuditActionTradeBillRangeDownload ||
+		audits[0].UserID != "admin-1" {
+		t.Fatalf("unexpected range audit: %+v", audits)
+	}
+
+	// 结束日期为当日拒绝
+	if _, err := GetTradeBillRange(context.Background(), tenant, "admin-1", cfg.ID,
+		time.Now().Format("2006-01-02"), time.Now().Format("2006-01-02"), ""); err == nil {
+		t.Fatal("expected today rejection")
+	}
+	// 跨度超限拒绝
+	if _, err := GetTradeBillRange(context.Background(), tenant, "admin-1", cfg.ID,
+		start.Format("2006-01-02"), start.AddDate(0, 0, maxTradeBillRangeDays).Format("2006-01-02"), ""); err == nil {
+		t.Fatal("expected range overflow rejection")
+	}
+	// 租户隔离
+	if _, err := GetTradeBillRange(context.Background(), "other-tenant", "admin-1", cfg.ID,
+		start.Format("2006-01-02"), end.Format("2006-01-02"), ""); err != ErrOrderNotOwned {
+		t.Fatalf("expected ErrOrderNotOwned, got %v", err)
 	}
 }
