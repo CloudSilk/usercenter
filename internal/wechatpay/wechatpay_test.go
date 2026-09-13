@@ -2260,3 +2260,96 @@ func TestEdgeBranches(t *testing.T) {
 	}
 	fakeAPI.closeErr = nil
 }
+
+func TestQueryPayRefundsAndBillFiles(t *testing.T) {
+	const tenant = "wp-refund-bill-cov"
+	setupApp(t, tenant)
+	order := &PayOrder{TenantID: tenant, UserID: "u", WechatConfigID: "wc", AppID: "wx", MchID: "m",
+		OutTradeNo: "refund-cov-trade", Amount: 1000, Status: PayOrderPaid}
+	if _, err := CreatePayOrder(order); err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	mk := func(no, code, status string) {
+		t.Helper()
+		if _, err := CreatePayRefund(&PayRefund{TenantID: tenant, PayOrderID: order.ID,
+			OutTradeNo: order.OutTradeNo, OutRefundNo: no, Amount: 10, Total: 1000,
+			ReasonCode: code, Status: status}); err != nil {
+			t.Fatalf("create refund %s: %v", no, err)
+		}
+	}
+	mk("cov-refund-q1", RefundReasonQuality, RefundSuccess)
+	mk("cov-refund-q2", RefundReasonQuality, RefundProcessing)
+	mk("cov-refund-p", RefundReasonPrice, RefundPending)
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&PayRefund{}, "tenant_id = ?", tenant).Error
+		_ = store.DB().Unscoped().Delete(&PayOrder{}, "id = ?", order.ID).Error
+	})
+
+	// QueryPayRefunds 各过滤分支
+	if r, err := QueryPayRefunds(&PayRefundQuery{TenantID: tenant, Status: RefundPending, PageSize: 0, PageIndex: 0}); err != nil || r.Total != 1 {
+		t.Fatalf("status filter: %v %+v", err, r)
+	}
+	if r, err := QueryPayRefunds(&PayRefundQuery{TenantID: tenant, OutTradeNo: order.OutTradeNo, PageSize: 2}); err != nil || r.Total != 3 {
+		t.Fatalf("trade filter: %v %+v", err, r)
+	}
+	if r, err := QueryPayRefunds(&PayRefundQuery{TenantID: tenant, PageSize: 2}); err != nil || r.Pages != 2 {
+		t.Fatalf("paging: %v %+v", err, r)
+	}
+
+	// UpsertBillFile 已存在跳过 + GetBillFileByID + ListBillFiles(tenant 过滤)
+	bill := &BillFile{TenantID: tenant, ConfigID: "cfg-cov", BillDate: "2026-09-01",
+		BillType: BillTypeAll, Content: []byte("c1")}
+	created, err := UpsertBillFile(bill)
+	if err != nil || !created {
+		t.Fatalf("first upsert: created=%v err=%v", created, err)
+	}
+	created, err = UpsertBillFile(&BillFile{TenantID: tenant, ConfigID: "cfg-cov",
+		BillDate: "2026-09-01", BillType: BillTypeAll, Content: []byte("c2")})
+	if err != nil || created {
+		t.Fatalf("duplicate upsert should skip, created=%v err=%v", created, err)
+	}
+	got, err := GetBillFileByID(bill.ID)
+	if err != nil || string(got.Content) != "c1" {
+		t.Fatalf("expected original content preserved, got %+v err=%v", got, err)
+	}
+	list, err := ListBillFiles(tenant, "cfg-cov", 30)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list bills: %v %+v", err, list)
+	}
+	if list, err := ListBillFiles("no-such-tenant", "", 30); err != nil || len(list) != 0 {
+		t.Fatalf("tenant filter: %v %+v", err, list)
+	}
+}
+
+func TestHandlePayNotifyAmountMismatchWarnsButSucceeds(t *testing.T) {
+	const tenant = "wp-mismatch"
+	app := setupApp(t, tenant)
+	order, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 100,
+	})
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	fakeAPI.notify = &NotifyContent{
+		EventType: "TRANSACTION.SUCCESS", OutTradeNo: order.OutTradeNo,
+		TransactionID: "tx-mismatch", TradeState: "SUCCESS", AmountFen: 999, // 与订单金额不一致
+	}
+	req := httptest.NewRequest("POST", "/api/wechat/notify/pay/"+app, strings.NewReader("{}"))
+	if err := HandlePayNotify(req, app); err != nil {
+		t.Fatalf("amount mismatch should still mark paid: %v", err)
+	}
+	got, _ := GetPayOrderByOutTradeNo(order.OutTradeNo)
+	if got.Status != PayOrderPaid {
+		t.Fatalf("expected PAID despite mismatch, got %s", got.Status)
+	}
+}
+
+func TestBuildDailyReportPayloadUnknownDate(t *testing.T) {
+	payload, err := buildDailyReportPayload("", "1999-01-01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if payload != nil {
+		t.Fatalf("expected nil payload for missing date, got %+v", payload)
+	}
+}
