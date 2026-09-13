@@ -1457,3 +1457,60 @@ func TestRefundReasonCode(t *testing.T) {
 		t.Fatalf("expected reasonCode in audit detail: %+v", audits)
 	}
 }
+
+func TestQueryRefundReasonStats(t *testing.T) {
+	const tenant = "wp-reason-stats"
+	setupApp(t, tenant)
+	order := &PayOrder{TenantID: tenant, UserID: "u", WechatConfigID: "wc", AppID: "wx", MchID: "m",
+		OutTradeNo: "reason-stats-trade", Amount: 10000, Status: PayOrderPaid}
+	if _, err := CreatePayOrder(order); err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&PayOrder{}, "id = ?", order.ID).Error
+		_ = store.DB().Unscoped().Delete(&PayRefund{}, "tenant_id = ?", tenant).Error
+	})
+	mk := func(no, code string, amount int64, status string) {
+		t.Helper()
+		if _, err := CreatePayRefund(&PayRefund{TenantID: tenant, PayOrderID: order.ID,
+			OutTradeNo: order.OutTradeNo, OutRefundNo: no, Amount: amount, Total: 10000,
+			ReasonCode: code, Status: status}); err != nil {
+			t.Fatalf("create refund %s: %v", no, err)
+		}
+	}
+	mk("reason-stats-q1", RefundReasonQuality, 500, RefundSuccess)
+	mk("reason-stats-q2", RefundReasonQuality, 300, RefundPending)
+	mk("reason-stats-nr", RefundReasonNotReceived, 800, RefundProcessing)
+	mk("reason-stats-other", "", 50, RefundSuccess) // 空类别落库为空串,统计按原始值分组
+	mk("reason-stats-rejected", RefundReasonPrice, 999, RefundRejected)
+
+	stats, err := QueryRefundReasonStats(tenant, 30)
+	if err != nil {
+		t.Fatalf("QueryRefundReasonStats: %v", err)
+	}
+	if len(stats) != 3 {
+		t.Fatalf("expected 3 groups (rejected excluded), got %d: %+v", len(stats), stats)
+	}
+	// 金额降序:not_received(800) > quality(800) —— 同额时顺序不敏感,改断言集合
+	sum := map[string]*ReasonCodeStat{}
+	for _, s := range stats {
+		sum[s.ReasonCode] = s
+	}
+	if s := sum[RefundReasonNotReceived]; s == nil || s.Count != 1 || s.Amount != 800 {
+		t.Fatalf("unexpected not_received stat: %+v", s)
+	}
+	if s := sum[RefundReasonQuality]; s == nil || s.Count != 2 || s.Amount != 800 {
+		t.Fatalf("unexpected quality stat: %+v", s)
+	}
+	if s, ok := sum[""]; !ok || s.Count != 1 || s.Amount != 50 {
+		t.Fatalf("unexpected empty-code stat: %+v", s)
+	}
+	if _, ok := sum[RefundReasonPrice]; ok {
+		t.Fatal("rejected refund should be excluded from reason stats")
+	}
+	// 租户隔离
+	other, err := QueryRefundReasonStats("other-tenant", 30)
+	if err != nil || len(other) != 0 {
+		t.Fatalf("expected empty for foreign tenant: %v %+v", err, other)
+	}
+}

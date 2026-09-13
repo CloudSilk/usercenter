@@ -179,6 +179,7 @@ func RegisterWechatPayOrderRouter(r *gin.Engine) {
 	g.GET("export", ExportWechatPayOrders)
 	s := r.Group("/api/core/wechat/pay/stats")
 	s.GET("daily", AutoQueryHandler(QueryWechatPayDailyStats))
+	s.GET("refund-reason", AutoQueryHandler(QueryWechatRefundReasonStats))
 }
 
 // ApplyRefundRequest 管理端退款申请请求。
@@ -419,6 +420,41 @@ type PayDailyStatsResponse struct {
 func QueryWechatPayDailyStats(c *gin.Context, req *PayDailyStatsQueryRequest) (*PayDailyStatsResponse, error) {
 	resp := &PayDailyStatsResponse{Code: apipb.Code_Success}
 	stats, err := wechatpay.QueryDailyPayStats(req.TenantID, req.Days)
+	if err != nil {
+		resp.Code = apipb.Code_InternalServerError
+		resp.Message = err.Error()
+		return resp, nil
+	}
+	resp.Data = stats
+	return resp, nil
+}
+
+// RefundReasonStatsQueryRequest 退款原因统计查询请求。
+type RefundReasonStatsQueryRequest struct {
+	// Days 统计最近 N 天(含今日),默认 30,范围 1-365。
+	Days     int    `form:"days" binding:"omitempty,gt=0,lte=365"`
+	TenantID string `form:"tenantID"`
+}
+
+// RefundReasonStatsResponse 退款原因统计响应。
+type RefundReasonStatsResponse struct {
+	Code    apipb.Code                  `json:"code"`
+	Message string                      `json:"message,omitempty"`
+	Data    []*wechatpay.ReasonCodeStat `json:"data,omitempty"`
+}
+
+// QueryWechatRefundReasonStats 按退款原因类别聚合退款统计(金额降序)。
+//
+//	@Summary 退款原因类别统计
+//	@Tags 微信支付退款管理
+//	@Param authorization header string true "jwt token"
+//	@Param days query int false "统计最近 N 天(含今日),默认 30,范围 1-365"
+//	@Param tenantID query string false "租户ID,留空为全租户汇总"
+//	@Success 200 {object} RefundReasonStatsResponse
+//	@Router /api/core/wechat/pay/stats/refund-reason [get]
+func QueryWechatRefundReasonStats(c *gin.Context, req *RefundReasonStatsQueryRequest) (*RefundReasonStatsResponse, error) {
+	resp := &RefundReasonStatsResponse{Code: apipb.Code_Success}
+	stats, err := wechatpay.QueryRefundReasonStats(req.TenantID, req.Days)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()

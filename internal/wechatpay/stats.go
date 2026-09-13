@@ -196,3 +196,37 @@ func SetDailyReportConfig(enabled bool, hour int) {
 	DailyReportEnabled = enabled
 	DailyReportHour = hour
 }
+
+// ReasonCodeStat 按退款原因类别聚合的统计行。
+type ReasonCodeStat struct {
+	// ReasonCode 退款原因类别(见 ValidReasonCodes)。
+	ReasonCode string `json:"reasonCode"`
+	// Count 有效退款申请笔数(待审核+受理中+已成功)。
+	Count int64 `json:"count"`
+	// Amount 退款金额合计,单位:分。
+	Amount int64 `json:"amount"`
+}
+
+// QueryRefundReasonStats 按退款原因类别聚合最近 days 天(含今日)的有效退款申请,
+// 按金额降序。tenantID 为空表示全租户汇总(平台侧)。
+func QueryRefundReasonStats(tenantID string, days int) ([]*ReasonCodeStat, error) {
+	if days <= 0 {
+		days = 30
+	}
+	if days > 365 {
+		days = 365
+	}
+	start := time.Now().AddDate(0, 0, -(days - 1))
+	start = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
+
+	scope := store.DB().Model(&PayRefund{}).
+		Where("created_at >= ? AND status IN ?", start,
+			[]string{RefundPending, RefundProcessing, RefundSuccess})
+	if tenantID != "" {
+		scope = scope.Where("tenant_id = ?", tenantID)
+	}
+	var stats []*ReasonCodeStat
+	err := scope.Select("reason_code as reason_code, count(*) as count, coalesce(sum(amount),0) as amount").
+		Group("reason_code").Order("amount DESC").Find(&stats).Error
+	return stats, err
+}
