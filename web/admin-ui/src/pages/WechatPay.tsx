@@ -1,0 +1,490 @@
+import { useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
+import { Download, Pencil, Plus, Trash2, Wallet } from "lucide-react"
+
+import { api, getToken } from "@/lib/api"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+
+const CFG = "/api/core/wechat/pay/config"
+const ORDER = "/api/core/wechat/pay/order"
+const REFUND = "/api/core/wechat/pay/refund"
+
+interface PayConfigInfo {
+  id?: string
+  tenantID: string
+  wechatConfigID: string
+  appID: string
+  mchID: string
+  mchSerialNo: string
+  apiV3Key?: string
+  privateKey?: string
+  notifyURL?: string
+  refundNotifyURL?: string
+  refundApprovalRequired?: boolean
+  enable?: boolean
+  description?: string
+}
+
+interface PayOrderItem {
+  id: string
+  tenantID: string
+  userID: string
+  mchID: string
+  outTradeNo: string
+  transactionID?: string
+  description?: string
+  amount: number
+  status: string
+  tradeState?: string
+  createdAt: string
+  paidAt?: string
+}
+
+interface RefundItem {
+  id: string
+  outTradeNo: string
+  outRefundNo: string
+  amount: number
+  reasonCode?: string
+  reason?: string
+  status: string
+  approverID?: string
+  approveComment?: string
+}
+
+interface ListResp<T> {
+  data?: T[]
+  records?: number
+}
+
+const STATUS_BADGE: Record<string, string> = {
+  CREATED: "bg-blue-500/15 text-blue-600",
+  PAID: "bg-green-500/15 text-green-600",
+  CLOSED: "bg-gray-500/15 text-gray-600",
+  PENDING: "bg-amber-500/15 text-amber-600",
+  PROCESSING: "bg-blue-500/15 text-blue-600",
+  SUCCESS: "bg-green-500/15 text-green-600",
+  REJECTED: "bg-red-500/15 text-red-600",
+  ABNORMAL: "bg-red-500/15 text-red-600",
+}
+
+/** 带 token 的 CSV/blob 下载(api 客户端仅处理 JSON)。 */
+async function downloadBlob(url: string, fallbackName: string): Promise<void> {
+  const token = getToken()
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) {
+    toast.error(`下载失败 HTTP ${res.status}`)
+    return
+  }
+  const blob = await res.blob()
+  const cd = res.headers.get("Content-Disposition") || ""
+  const m = /filename="?([^";]+)"?/.exec(cd)
+  const a = document.createElement("a")
+  a.href = URL.createObjectURL(blob)
+  a.download = m ? m[1] : fallbackName
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+const emptyConfig: PayConfigInfo = {
+  tenantID: "",
+  wechatConfigID: "",
+  appID: "",
+  mchID: "",
+  mchSerialNo: "",
+  apiV3Key: "",
+  privateKey: "",
+  notifyURL: "",
+  refundNotifyURL: "",
+  refundApprovalRequired: false,
+  enable: true,
+  description: "",
+}
+
+function StatusBadge({ status }: { status: string }) {
+  return (
+    <Badge className={STATUS_BADGE[status] || ""} variant="secondary">
+      {status}
+    </Badge>
+  )
+}
+
+export default function WechatPay() {
+  const qc = useQueryClient()
+
+  // ---- 商户配置 ----
+  const [editing, setEditing] = useState<PayConfigInfo | null>(null)
+  const [isNew, setIsNew] = useState(false)
+
+  const configs = useQuery({
+    queryKey: ["pay-configs"],
+    queryFn: () => api.get<ListResp<PayConfigInfo>>(`${CFG}/query`),
+  })
+
+  const saveConfig = useMutation({
+    mutationFn: (c: PayConfigInfo) =>
+      c.id
+        ? api.put(`${CFG}/update`, c)
+        : api.post(`${CFG}/add`, c),
+    onSuccess: () => {
+      toast.success("已保存")
+      setEditing(null)
+      qc.invalidateQueries({ queryKey: ["pay-configs"] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const deleteConfig = useMutation({
+    mutationFn: (id: string) => api.del(`${CFG}/delete?id=${id}`),
+    onSuccess: () => {
+      toast.success("已删除")
+      qc.invalidateQueries({ queryKey: ["pay-configs"] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // ---- 订单 ----
+  const [orderStatus, setOrderStatus] = useState("PAID")
+  const orders = useQuery({
+    queryKey: ["pay-orders", orderStatus],
+    queryFn: () =>
+      api.get<ListResp<PayOrderItem>>(`${ORDER}/query`, {
+        status: orderStatus || undefined,
+        pageSize: 20,
+      }),
+  })
+
+  // ---- 退款审核 ----
+  const pendingRefunds = useQuery({
+    queryKey: ["pay-refunds-pending"],
+    queryFn: () => api.get<ListResp<RefundItem>>(`${REFUND}/query`, { status: "PENDING" }),
+  })
+  const approveRefund = useMutation({
+    mutationFn: (v: { outRefundNo: string; approved: boolean }) =>
+      api.post(`${REFUND}/approve`, v),
+    onSuccess: () => {
+      toast.success("已审核")
+      qc.invalidateQueries({ queryKey: ["pay-refunds-pending"] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  return (
+    <div className="space-y-6 p-6">
+      <div className="flex items-center gap-2">
+        <Wallet className="h-5 w-5" />
+        <h1 className="text-xl font-semibold">微信支付</h1>
+      </div>
+
+      {/* 商户配置 */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium">商户配置</h2>
+          <Button
+            size="sm"
+            onClick={() => {
+              setIsNew(true)
+              setEditing({ ...emptyConfig })
+            }}
+          >
+            <Plus className="mr-1 h-4 w-4" /> 新增
+          </Button>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>AppID</TableHead>
+              <TableHead>商户号</TableHead>
+              <TableHead>证书序列号</TableHead>
+              <TableHead>回调地址</TableHead>
+              <TableHead>审核流</TableHead>
+              <TableHead>启用</TableHead>
+              <TableHead className="w-24">操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(configs.data?.data || []).map((c) => (
+              <TableRow key={c.id}>
+                <TableCell>{c.appID}</TableCell>
+                <TableCell>{c.mchID}</TableCell>
+                <TableCell className="max-w-40 truncate">{c.mchSerialNo}</TableCell>
+                <TableCell className="max-w-64 truncate">{c.notifyURL}</TableCell>
+                <TableCell>
+                  <StatusBadge status={c.refundApprovalRequired ? "PENDING" : "OFF"} />
+                </TableCell>
+                <TableCell>{c.enable ? "是" : "否"}</TableCell>
+                <TableCell>
+                  <div className="flex gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => {
+                        setIsNew(false)
+                        setEditing({ ...c })
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => c.id && deleteConfig.mutate(c.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </section>
+
+      {/* 订单查询 */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium">支付订单</h2>
+          <div className="flex items-center gap-2">
+            <select
+              className="rounded border px-2 py-1 text-sm"
+              value={orderStatus}
+              onChange={(e) => setOrderStatus(e.target.value)}
+            >
+              <option value="">全部</option>
+              <option value="CREATED">已下单</option>
+              <option value="PAID">已支付</option>
+              <option value="CLOSED">已关闭</option>
+            </select>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                downloadBlob(
+                  `${ORDER}/export${orderStatus ? `?status=${orderStatus}` : ""}`,
+                  "pay_orders.csv",
+                )
+              }
+            >
+              <Download className="mr-1 h-4 w-4" /> 导出 CSV
+            </Button>
+          </div>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>订单号</TableHead>
+              <TableHead>描述</TableHead>
+              <TableHead>金额(分)</TableHead>
+              <TableHead>状态</TableHead>
+              <TableHead>微信状态</TableHead>
+              <TableHead>创建时间</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(orders.data?.data || []).map((o) => (
+              <TableRow key={o.id}>
+                <TableCell className="font-mono text-xs">{o.outTradeNo}</TableCell>
+                <TableCell>{o.description}</TableCell>
+                <TableCell>{o.amount}</TableCell>
+                <TableCell>
+                  <StatusBadge status={o.status} />
+                </TableCell>
+                <TableCell>{o.tradeState}</TableCell>
+                <TableCell>{o.createdAt}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </section>
+
+      {/* 退款审核 */}
+      <section className="space-y-2">
+        <h2 className="font-medium">待审核退款</h2>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>退款单号</TableHead>
+              <TableHead>订单号</TableHead>
+              <TableHead>金额(分)</TableHead>
+              <TableHead>原因类别</TableHead>
+              <TableHead>说明</TableHead>
+              <TableHead className="w-40">操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(pendingRefunds.data?.data || []).map((r) => (
+              <TableRow key={r.id}>
+                <TableCell className="font-mono text-xs">{r.outRefundNo}</TableCell>
+                <TableCell className="font-mono text-xs">{r.outTradeNo}</TableCell>
+                <TableCell>{r.amount}</TableCell>
+                <TableCell>{r.reasonCode}</TableCell>
+                <TableCell>{r.reason}</TableCell>
+                <TableCell>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        approveRefund.mutate({ outRefundNo: r.outRefundNo, approved: true })
+                      }
+                    >
+                      通过
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() =>
+                        approveRefund.mutate({ outRefundNo: r.outRefundNo, approved: false })
+                      }
+                    >
+                      拒绝
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </section>
+
+      {/* 商户配置编辑对话框 */}
+      <Dialog open={editing !== null} onOpenChange={(v) => !v && setEditing(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{isNew ? "新增商户配置" : "编辑商户配置"}</DialogTitle>
+          </DialogHeader>
+          {editing && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>租户ID</Label>
+                <Input
+                  value={editing.tenantID}
+                  onChange={(e) => setEditing({ ...editing, tenantID: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>微信应用配置ID</Label>
+                <Input
+                  value={editing.wechatConfigID}
+                  onChange={(e) => setEditing({ ...editing, wechatConfigID: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>AppID</Label>
+                <Input
+                  value={editing.appID}
+                  onChange={(e) => setEditing({ ...editing, appID: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>商户号</Label>
+                <Input
+                  value={editing.mchID}
+                  onChange={(e) => setEditing({ ...editing, mchID: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>API证书序列号</Label>
+                <Input
+                  value={editing.mchSerialNo}
+                  onChange={(e) => setEditing({ ...editing, mchSerialNo: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>APIv3密钥 {isNew ? "" : "(留空保持)"}</Label>
+                <Input
+                  value={editing.apiV3Key}
+                  onChange={(e) => setEditing({ ...editing, apiV3Key: e.target.value })}
+                />
+              </div>
+              <div className="col-span-2 space-y-1">
+                <Label>商户私钥PEM {isNew ? "" : "(留空保持)"}</Label>
+                <textarea
+                  className="h-20 w-full rounded border px-2 py-1 font-mono text-xs"
+                  value={editing.privateKey}
+                  onChange={(e) => setEditing({ ...editing, privateKey: e.target.value })}
+                />
+              </div>
+              <div className="col-span-2 space-y-1">
+                <Label>支付回调URL</Label>
+                <Input
+                  value={editing.notifyURL}
+                  onChange={(e) => setEditing({ ...editing, notifyURL: e.target.value })}
+                />
+              </div>
+              <div className="col-span-2 space-y-1">
+                <Label>退款回调URL(可选)</Label>
+                <Input
+                  value={editing.refundNotifyURL}
+                  onChange={(e) => setEditing({ ...editing, refundNotifyURL: e.target.value })}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={!!editing.refundApprovalRequired}
+                  onCheckedChange={(v) => setEditing({ ...editing, refundApprovalRequired: v })}
+                />
+                <Label>退款需要审核</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={!!editing.enable}
+                  onCheckedChange={(v) => setEditing({ ...editing, enable: v })}
+                />
+                <Label>启用</Label>
+              </div>
+              <div className="col-span-2 space-y-1">
+                <Label>描述</Label>
+                <Input
+                  value={editing.description}
+                  onChange={(e) => setEditing({ ...editing, description: e.target.value })}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>
+              取消
+            </Button>
+            <Button
+              disabled={saveConfig.isPending}
+              onClick={() =>
+                editing &&
+                (editing.id
+                  ? saveConfig.mutate({
+                      ...editing,
+                      apiV3Key: editing.apiV3Key || "",
+                      privateKey: editing.privateKey || "",
+                    })
+                  : saveConfig.mutate(editing))
+              }
+            >
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

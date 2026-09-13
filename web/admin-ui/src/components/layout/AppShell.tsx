@@ -85,6 +85,7 @@ const navGroups: NavGroup[] = [
       { label: "OAuth", path: "/oauth", icon: <Lock className="h-4 w-4" /> },
       { label: "SCIM", path: "/scim", icon: <Share2 className="h-4 w-4" /> },
       { label: "Webhooks", path: "/webhooks", icon: <Webhook className="h-4 w-4" /> },
+      { label: "微信支付", path: "/wechatpay", icon: <Wallet className="h-4 w-4" /> },
       { label: "Config", path: "/config", icon: <Settings className="h-4 w-4" /> },
       { label: "API Tester", path: "/tester", icon: <Play className="h-4 w-4" /> },
     ],
