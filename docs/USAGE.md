@@ -23,6 +23,7 @@
 14. [OIDC 身份提供者](#14-oidc-身份提供者)
 15. [可观测性与告警](#15-可观测性与告警)
 16. [可视化管理后台](#16-可视化管理后台)
+17. [微信支付（小程序 JSAPI）](#17-微信支付小程序-jsapi)
 
 ---
 
@@ -1153,3 +1154,156 @@ go build -o usercenter main.go
 | 安全审计 | 会话管理、审计日志、实时监控（SSE 大屏）、安全中心（风险评分 + MFA TOTP 注册） |
 | 系统集成 | OAuth 应用、SCIM 配置、系统配置、API 测试 |
 
+
+---
+
+## 17. 微信支付（小程序 JSAPI）
+
+基于微信支付 **APIv3**（官方 `wechatpay-apiv3/wechatpay-go` SDK）实现，支持多租户商户配置、
+JSAPI 下单、支付回调、查单对账、关单、退款（含可选审核流）。旧 APIv2（XML 统一下单）已废弃，不再支持。
+
+### 17.1 前置条件（微信商户平台）
+
+1. 申请 **商户号（mchID）** 并开通 **JSAPI 支付** 产品；
+2. 商户号与小程序 **AppID 完成绑定**（商户平台 → 产品中心 → AppID 账号管理）；
+3. 「账户中心 → API 安全」中：
+   - 申请 **API 证书**，得到 **证书序列号（mchSerialNo）** 与私钥文件 `apiclient_key.pem`；
+   - 设置 **APIv3 密钥（apiV3Key，32 位）**。
+
+### 17.2 商户配置（管理端）
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/core/wechat/pay/config/add` | POST | 新增商户配置 |
+| `/api/core/wechat/pay/config/update` | PUT | 更新（apiV3Key/privateKey 留空=保持原值） |
+| `/api/core/wechat/pay/config/query` | GET | 分页查询（密钥脱敏，永不下发） |
+| `/api/core/wechat/pay/config/detail` | GET | 明细（密钥脱敏） |
+| `/api/core/wechat/pay/config/delete` | DELETE | 删除 |
+
+```bash
+curl -X POST /api/core/wechat/pay/config/add -H "Authorization: Bearer <TOKEN>" -d '{
+  "tenantID": "<租户ID>",
+  "wechatConfigID": "<微信应用配置ID>",
+  "appID": "wx1234567890",
+  "mchID": "1900000000",
+  "mchSerialNo": "5157F09EFDC096DE15EBE81A47057A72XXXXXXXX",
+  "apiV3Key": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "privateKey": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
+  "notifyURL": "https://api.example.com/api/wechat/notify/pay/<appName>",
+  "refundNotifyURL": "",                # 可选,退款独立回调,留空复用 notifyURL
+  "refundApprovalRequired": false,      # 可选,退款人工审核流
+  "enable": true
+}'
+```
+
+**回调地址要求（notifyURL / refundNotifyURL）**：
+
+- 必须 **HTTPS**、外网可达、**不允许携带查询串**；
+- 推荐路径 `https://<域名>/api/wechat/notify/pay/<appName>`（`appName` 为微信应用配置的应用名），
+  该路径位于 `/api/wechat/notify/` 前缀下，自动免登录鉴权；
+- 同一回调端点同时处理支付（`TRANSACTION.*`）与退款（`REFUND.*`）事件，
+  回调体经 SDK 验签 + AES-256-GCM 解密，处理幂等。
+
+### 17.3 小程序端支付流程
+
+```javascript
+// 1. 登录(绑定 openid):POST /api/wechat/mini/login {jsCode, app}
+const { data: token } = await login()
+
+// 2. 下单(amount 单位:分)
+const res = await request('POST', '/api/wechat/pay/order', {
+  app: 'my-miniapp',
+  description: '会员月卡',
+  amount: 990,          // 9.90 元
+  expireMinutes: 30,    // 可选,默认 120,上限 1440
+  outTradeNo: '',       // 可选,6-32 位,留空自动生成
+})
+// res.data = { outTradeNo, status: "CREATED", payParams: {...} }
+
+// 3. 调起支付
+wx.requestPayment({
+  appId: res.data.payParams.appId,
+  timeStamp: res.data.payParams.timeStamp,
+  nonceStr: res.data.payParams.nonceStr,
+  package: res.data.payParams.package,
+  signType: res.data.payParams.signType,   // RSA
+  paySign: res.data.payParams.paySign,
+})
+
+// 4. 查单确认(GET,服务端会主动向微信侧对账)
+await request('GET', `/api/wechat/pay/order?outTradeNo=${res.data.outTradeNo}`)
+```
+
+### 17.4 端点一览
+
+| 端点 | 方法 | 鉴权 | 说明 |
+|------|------|------|------|
+| `/api/wechat/pay/order` | POST | 登录 | JSAPI 下单，返回 `wx.requestPayment` 签名参数 |
+| `/api/wechat/pay/order` | GET | 登录 | 查单（CREATED 订单先向微信侧对账，过期自动关单） |
+| `/api/wechat/pay/orders` | GET | 登录 | 我的订单分页列表（status 过滤） |
+| `/api/wechat/pay/order/close` | POST | 登录 | 关闭未支付订单 |
+| `/api/wechat/pay/refund` | GET | 登录 | 查询自己订单的退款记录 |
+| `/api/wechat/notify/pay/:app` | POST | 公开 | 支付/退款结果回调 |
+| `/api/core/wechat/pay/order/query` | GET | 管理端 | 订单分页查询（租户/用户/商户号/状态/订单号） |
+| `/api/core/wechat/pay/refund/apply` | POST | 管理端 | 退款申请 |
+| `/api/core/wechat/pay/refund/approve` | POST | 管理端 | 退款审核（通过=提交微信；拒绝=REJECTED） |
+| `/api/core/wechat/pay/refund/query` | GET | 管理端 | 退款单分页查询 |
+| `/api/core/wechat/pay/refund/detail` | GET | 管理端 | 退款单详情（默认向微信侧同步最新状态） |
+
+### 17.5 状态机
+
+**支付订单**：
+
+```
+CREATED ──回调/查单 SUCCESS──▶ PAID
+   │──回调/查单 CLOSED/REVOKED/PAYERROR──▶ CLOSED
+   └──超过 expireAt 且远端确认未付──▶ CLOSED(订单已过期)
+```
+
+**退款单**：
+
+```
+[审核流开启] PENDING ──审核通过──▶ PROCESSING ──REFUND.SUCCESS──▶ SUCCESS
+                └──审核拒绝──▶ REJECTED
+[审核流关闭] 直接进入 PROCESSING
+PROCESSING/ABNORMAL ──回调/查单──▶ SUCCESS / CLOSED / ABNORMAL
+```
+
+- 金额单位一律为 **分**（int64）；
+- `PENDING` 占用退款额度（同订单 待审核+受理中+已成功 ≤ 订单金额），拒绝后释放；
+- 回调处理幂等：重复通知返回 `SUCCESS` 应答，不会重复变更；金额不一致仅告警留痕。
+
+### 17.6 退款审核流
+
+商户配置 `refundApprovalRequired: true` 时启用：
+
+```bash
+# 1. 申请 → 退款单进入 PENDING,未调用微信
+curl -X POST /api/core/wechat/pay/refund/apply -d '{
+  "outTradeNo": "<订单号>", "refundAmount": 400, "reason": "部分退款"
+}'
+
+# 2. 审核(通过后提交微信;拒绝 approved=false 并记录审批人/意见)
+curl -X POST /api/core/wechat/pay/refund/approve -d '{
+  "outRefundNo": "<退款单号>", "approved": true, "comment": "已核实"
+}'
+```
+
+审核留痕（approverID/approveComment/approvedAt）随退款单查询接口返回。
+
+### 17.7 对账兜底
+
+回调可能因网络抖动丢失。后台每轮扫描创建超过 `reconcileScanAgeMinutes` 的 `CREATED` 订单，
+按商户复用 APIv3 客户端逐笔向微信侧查单同步状态，过期未付订单自动关单。
+单笔失败不中断整轮。参数经 Nacos 配置中心 `wechatPay` 段调整（详见 `docs/config.example.yaml`）：
+
+```yaml
+wechatPay:
+  reconcileEnabled: true           # 默认启用
+  reconcileIntervalSeconds: 60     # 轮询间隔,最小 10
+  reconcileScanAgeMinutes: 5       # 回调到达窗口
+  reconcileBatchSize: 200          # 单轮上限(≤1000)
+```
+
+> 运维提示：生产环境需保证出网可达 `api.mch.weixin.qq.com`；
+> 首次下单时 SDK 会自动下载微信平台证书并周期轮换。
