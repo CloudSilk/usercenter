@@ -2106,3 +2106,90 @@ func TestResetStatsConfigToBaseline(t *testing.T) {
 		t.Fatalf("expected snapshot deleted, got %v err=%v", snap, err)
 	}
 }
+
+func TestDerefString(t *testing.T) {
+	if derefString(nil) != "" {
+		t.Fatal("nil should map to empty string")
+	}
+	s := "x"
+	if derefString(&s) != "x" {
+		t.Fatal("pointer value should be returned")
+	}
+}
+
+// TestModelAndListCoverage 补齐模型层 CRUD 与列表函数的覆盖。
+func TestModelAndListCoverage(t *testing.T) {
+	const tenant = "wp-coverage"
+	app := setupApp(t, tenant)
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		t.Fatalf("get wechat config: %v", err)
+	}
+	if _, err := GetPayConfigByWechatConfigID(wc.ID); err != nil {
+		t.Fatalf("get pay config: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&PayOrder{}, "tenant_id = ?", tenant).Error
+		_ = store.DB().Unscoped().Delete(&PayRefund{}, "tenant_id = ?", tenant).Error
+	})
+
+	// QueryPayConfigs 各过滤分支
+	if r, err := QueryPayConfigs(&PayConfigQuery{TenantID: tenant, MchID: "mch-", PageIndex: 1, PageSize: 5}); err != nil || r.Total != 1 {
+		t.Fatalf("config query: %v %+v", err, r)
+	}
+	if r, err := QueryPayConfigs(&PayConfigQuery{WechatConfigID: wc.ID, PageSize: 0, PageIndex: 0}); err != nil || r.Total != 1 {
+		t.Fatalf("config query defaults: %v %+v", err, r)
+	}
+
+	// DeletePayConfig(对临时配置)
+	tmp := &PayConfig{TenantID: tenant, WechatConfigID: "tmp-wc", AppID: "tmp",
+		MchID: "tmp-mch", MchSerialNo: "s", APIV3Key: strings.Repeat("a", 32), PrivateKey: "k"}
+	if _, err := CreatePayConfig(tmp); err != nil {
+		t.Fatalf("create tmp config: %v", err)
+	}
+	if err := DeletePayConfig(tmp.ID); err != nil {
+		t.Fatalf("delete config: %v", err)
+	}
+	if _, err := GetPayConfigByID(tmp.ID); err == nil {
+		t.Fatal("expected deleted config to be gone")
+	}
+
+	// 订单 + UpdatePayOrderPrepay + ListPayOrdersForExport
+	order := &PayOrder{TenantID: tenant, UserID: "u", WechatConfigID: wc.ID, AppID: "wx",
+		MchID: "m", OutTradeNo: "coverage-trade-0001", Amount: 100, Status: PayOrderCreated, PrepayID: "p0"}
+	if _, err := CreatePayOrder(order); err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	if err := UpdatePayOrderPrepay(order.ID, "p1"); err != nil {
+		t.Fatalf("update prepay: %v", err)
+	}
+	list, err := ListPayOrdersForExport(&PayOrderQuery{TenantID: tenant})
+	if err != nil || len(list) != 1 || list[0].PrepayID != "p1" {
+		t.Fatalf("export list: %v %+v", err, list)
+	}
+
+	// 退款 + UpdatePayRefund + ListUserRefunds
+	r := &PayRefund{TenantID: tenant, UserID: "u", PayOrderID: order.ID,
+		OutTradeNo: order.OutTradeNo, OutRefundNo: "coverage-refund-1", Amount: 50, Total: 100, ReasonCode: RefundReasonOther, Status: RefundPending}
+	if _, err := CreatePayRefund(r); err != nil {
+		t.Fatalf("create refund: %v", err)
+	}
+	r.Reason = "审核备注"
+	if err := UpdatePayRefund(r); err != nil {
+		t.Fatalf("update refund: %v", err)
+	}
+	refunds, err := ListUserRefunds(tenant, "u", order.OutTradeNo)
+	if err != nil || len(refunds) != 1 || refunds[0].ReasonCode != RefundReasonOther {
+		t.Fatalf("list refunds default reason: %v %+v", err, refunds)
+	}
+	// 非本人订单被拒
+	if _, err := ListUserRefunds(tenant, "someone-else", order.OutTradeNo); err != ErrOrderNotOwned {
+		t.Fatalf("expected ownership error, got %v", err)
+	}
+
+	// ListCreatedTradeNosByAge + 过期前截止
+	nos, err := ListCreatedTradeNosByAge(tenant, time.Now().Add(time.Minute), 10)
+	if err != nil || len(nos) != 1 || nos[0] != order.OutTradeNo {
+		t.Fatalf("expected stale trade nos, got %v err=%v", nos, err)
+	}
+}
