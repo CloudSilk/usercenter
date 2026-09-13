@@ -1196,3 +1196,68 @@ func TestAlertSilenceWindow(t *testing.T) {
 
 // 编译期约束:确保 fakePayAPI 始终实现 PayAPI。
 var _ PayAPI = (*fakePayAPI)(nil)
+
+func TestApproveRefundAudit(t *testing.T) {
+	const tenant = "wp-approve-audit"
+	app := setupApp(t, tenant)
+	enableRefundApproval(t, app)
+	order := markOrderPaidDirect(t, tenant, app, CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 1000,
+	})
+	refund, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 300, Reason: "部分退款",
+	})
+	if err != nil {
+		t.Fatalf("ApplyRefund: %v", err)
+	}
+
+	getAudits, restore := collectAudits()
+	defer restore()
+
+	// 拒绝 → reject 审计
+	fakeAPI.refundResult = &RefundResult{RefundID: "re-a1", OutRefundNo: refund.OutRefundNo, Status: RefundProcessing}
+	if _, err := ApproveRefund(context.Background(), ApproveRefundInput{
+		TenantID: tenant, ApproverID: "admin-reject", OutRefundNo: refund.OutRefundNo,
+		Approved: false, Comment: "凭证不足",
+	}); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+
+	// 通过 → approve 审计
+	second, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 200,
+	})
+	if err != nil {
+		t.Fatalf("second ApplyRefund: %v", err)
+	}
+	if _, err := ApproveRefund(context.Background(), ApproveRefundInput{
+		TenantID: tenant, ApproverID: "admin-approve", OutRefundNo: second.OutRefundNo,
+		Approved: true, Comment: "已核实",
+	}); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+
+	audits := getAudits()
+	if len(audits) != 2 {
+		t.Fatalf("expected 2 audit records, got %d: %+v", len(audits), audits)
+	}
+	rejectAudit, approveAudit := audits[0], audits[1]
+	if rejectAudit.Action != AuditActionRefundReject || rejectAudit.UserID != "admin-reject" ||
+		rejectAudit.PrincipalKind != 0 || rejectAudit.TargetID != refund.ID {
+		t.Fatalf("unexpected reject audit: %+v", rejectAudit)
+	}
+	for _, s := range []string{refund.OutRefundNo, `"approved":false`, "凭证不足"} {
+		if !strings.Contains(rejectAudit.Detail, s) {
+			t.Fatalf("reject audit detail missing %q: %s", s, rejectAudit.Detail)
+		}
+	}
+	if approveAudit.Action != AuditActionRefundApprove || approveAudit.UserID != "admin-approve" ||
+		approveAudit.TargetID != second.ID {
+		t.Fatalf("unexpected approve audit: %+v", approveAudit)
+	}
+	for _, s := range []string{second.OutRefundNo, `"approved":true`, "re-a1"} {
+		if !strings.Contains(approveAudit.Detail, s) {
+			t.Fatalf("approve audit detail missing %q: %s", s, approveAudit.Detail)
+		}
+	}
+}

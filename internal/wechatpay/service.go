@@ -2,6 +2,7 @@ package wechatpay
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -405,6 +406,7 @@ func ApproveRefund(ctx context.Context, in ApproveRefundInput) (*PayRefund, erro
 		if _, err := MarkRefundApproved(refund.ID, in.ApproverID, in.Comment, false, "", "", time.Time{}); err != nil {
 			return nil, err
 		}
+		recordRefundAudit(in, refund, "")
 		log.Infof(ctx, "退款单 %s 审核拒绝(审核人 %s)", in.OutRefundNo, in.ApproverID)
 		return GetPayRefundByOutRefundNo(in.OutRefundNo)
 	}
@@ -440,8 +442,36 @@ func ApproveRefund(ctx context.Context, in ApproveRefundInput) (*PayRefund, erro
 	if _, err := MarkRefundApproved(refund.ID, in.ApproverID, in.Comment, true, result.Status, result.RefundID, result.SuccessTime); err != nil {
 		return nil, err
 	}
+	recordRefundAudit(in, refund, result.RefundID)
 	log.Infof(ctx, "退款单 %s 审核通过并已提交微信(审核人 %s)", in.OutRefundNo, in.ApproverID)
 	return GetPayRefundByOutRefundNo(in.OutRefundNo)
+}
+
+// 退款审核审计动作。
+const (
+	AuditActionRefundApprove = "pay_refund_approve"
+	AuditActionRefundReject  = "pay_refund_reject"
+)
+
+// recordRefundAudit 退款审核操作落审计日志:人工主体(PrincipalKind=0),
+// 不受对账告警静默窗口影响,每次人工审核均留痕。
+func recordRefundAudit(in ApproveRefundInput, refund *PayRefund, wxRefundID string) {
+	action := AuditActionRefundApprove
+	if !in.Approved {
+		action = AuditActionRefundReject
+	}
+	detail, err := json.Marshal(map[string]any{
+		"outRefundNo": refund.OutRefundNo,
+		"outTradeNo":  refund.OutTradeNo,
+		"amount":      refund.Amount,
+		"approved":    in.Approved,
+		"comment":     in.Comment,
+		"wxRefundID":  wxRefundID,
+	})
+	if err != nil {
+		detail = []byte("{}")
+	}
+	auditRecorder(store.DB(), in.ApproverID, "", 0, action, refund.ID, "", string(detail))
 }
 
 // SyncRefundStatus 向微信侧查退款单并对账更新本地状态。
