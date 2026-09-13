@@ -3226,6 +3226,45 @@
                 }
             }
         },
+        "/api/core/wechat/pay/order/trade-bill": {
+            "get": {
+                "tags": [
+                    "微信支付订单管理"
+                ],
+                "summary": "下载微信交易账单",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "商户配置ID",
+                        "name": "configID",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "账单日期(YYYY-MM-DD,仅昨日及更早)",
+                        "name": "billDate",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/core/wechat/pay/refund/apply": {
             "post": {
                 "tags": [

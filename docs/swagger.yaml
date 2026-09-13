@@ -3734,6 +3734,32 @@ paths:
       summary: 分页查询微信支付订单
       tags:
       - 微信支付订单管理
+  /api/core/wechat/pay/order/trade-bill:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 商户配置ID
+        in: query
+        name: configID
+        required: true
+        type: string
+      - description: 账单日期(YYYY-MM-DD,仅昨日及更早)
+        in: query
+        name: billDate
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: 下载微信交易账单
+      tags:
+      - 微信支付订单管理
   /api/core/wechat/pay/refund/apply:
     post:
       parameters:
