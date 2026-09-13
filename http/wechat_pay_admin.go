@@ -177,6 +177,7 @@ func RegisterWechatPayOrderRouter(r *gin.Engine) {
 	g := r.Group("/api/core/wechat/pay/order")
 	g.GET("query", AutoQueryHandler(QueryWechatPayOrders))
 	g.GET("export", ExportWechatPayOrders)
+	g.POST("batch-close", AutoHandler(BatchCloseWechatOrders))
 	s := r.Group("/api/core/wechat/pay/stats")
 	s.GET("daily", AutoQueryHandler(QueryWechatPayDailyStats))
 	s.GET("refund-reason", AutoQueryHandler(QueryWechatRefundReasonStats))
@@ -497,5 +498,62 @@ func QueryWechatRefundReasonTrend(c *gin.Context, req *RefundReasonTrendQueryReq
 		return resp, nil
 	}
 	resp.Data = stats
+	return resp, nil
+}
+
+// BatchCloseOrdersRequest 管理端批量关单请求。
+type BatchCloseOrdersRequest struct {
+	// OutTradeNos 显式订单号列表(上限100)。
+	OutTradeNos []string `json:"outTradeNos" binding:"omitempty,gt=0,max=100,dive,required,min=6,max=32"`
+	// 模式二:租户ID + 创建超过 OlderThanMinutes 的 CREATED 订单批量清理。
+	TenantID         string `json:"tenantID" binding:"omitempty,max=36"`
+	OlderThanMinutes int    `json:"olderThanMinutes" binding:"omitempty,gt=0,lte=43200"`
+}
+
+// BatchCloseOrdersResponse 批量关单响应。
+type BatchCloseOrdersResponse struct {
+	Code    apipb.Code                  `json:"code"`
+	Message string                      `json:"message,omitempty"`
+	Data    *wechatpay.BatchCloseResult `json:"data,omitempty"`
+}
+
+// BatchCloseWechatOrders 管理端批量关单:显式订单号列表,或按租户+滞留时长清理。
+//
+//	@Summary 微信支付订单批量关单
+//	@Tags 微信支付订单管理
+//	@Param authorization header string true "jwt token"
+//	@Param body body BatchCloseOrdersRequest true "批量关单请求(二选一:outTradeNos 或 tenantID+olderThanMinutes)"
+//	@Success 200 {object} BatchCloseOrdersResponse
+//	@Router /api/core/wechat/pay/order/batch-close [post]
+func BatchCloseWechatOrders(c *gin.Context, req *BatchCloseOrdersRequest) (*BatchCloseOrdersResponse, error) {
+	resp := &BatchCloseOrdersResponse{Code: apipb.Code_Success}
+	nos := req.OutTradeNos
+	if len(nos) == 0 {
+		// 模式二:租户 + 滞留时长
+		if req.TenantID == "" || req.OlderThanMinutes <= 0 {
+			resp.Code = apipb.Code_BadRequest
+			resp.Message = "请提供 outTradeNos 列表,或 tenantID+olderThanMinutes"
+			return resp, nil
+		}
+		before := time.Now().Add(-time.Duration(req.OlderThanMinutes) * time.Minute)
+		list, err := wechatpay.ListCreatedTradeNosByAge(req.TenantID, before, 500)
+		if err != nil {
+			resp.Code = apipb.Code_InternalServerError
+			resp.Message = err.Error()
+			return resp, nil
+		}
+		if len(list) == 0 {
+			resp.Data = &wechatpay.BatchCloseResult{Failures: []wechatpay.BatchCloseFailure{}}
+			return resp, nil
+		}
+		nos = list
+	}
+	result, err := wechatpay.BatchCloseOrders(c.Request.Context(), middleware.GetTenantID(c), nos)
+	if err != nil {
+		resp.Code = apipb.Code_BadRequest
+		resp.Message = err.Error()
+		return resp, nil
+	}
+	resp.Data = result
 	return resp, nil
 }

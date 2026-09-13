@@ -1639,3 +1639,81 @@ func TestQueryRefundReasonTrend(t *testing.T) {
 		t.Fatalf("expected empty for foreign tenant: %v %+v", err, other)
 	}
 }
+
+func TestBatchCloseOrders(t *testing.T) {
+	const tenant = "wp-batch-close"
+	app := setupApp(t, tenant)
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		t.Fatalf("get wechat config: %v", err)
+	}
+	mk := func(suffix, status string) *PayOrder {
+		t.Helper()
+		order := &PayOrder{
+			TenantID: tenant, UserID: "user-1", WechatConfigID: wc.ID, AppID: "wx", MchID: "m",
+			OutTradeNo: "batch-close-" + suffix, Amount: 100, Status: status, PrepayID: "p-" + suffix,
+		}
+		if _, err := CreatePayOrder(order); err != nil {
+			t.Fatalf("create order: %v", err)
+		}
+		return order
+	}
+	c1 := mk("c1", PayOrderCreated)
+	c2 := mk("c2", PayOrderCreated)
+	paid := mk("paid", PayOrderPaid)
+	closed := mk("closed", PayOrderClosed)
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&PayOrder{}, "tenant_id = ?", tenant).Error
+	})
+
+	closeCalls := &atomic.Int32{}
+	oldCloseErr := fakeAPI.closeErr
+	fakeAPI.closeErr = nil
+	defer func() { fakeAPI.closeErr = oldCloseErr }()
+	_ = closeCalls
+
+	result, err := BatchCloseOrders(context.Background(), tenant,
+		[]string{c1.OutTradeNo, c2.OutTradeNo, paid.OutTradeNo, closed.OutTradeNo, "no-such-order-1"})
+	if err != nil {
+		t.Fatalf("BatchCloseOrders: %v", err)
+	}
+	if result.Closed != 2 {
+		t.Fatalf("expected 2 closed, got %+v", result)
+	}
+	if result.Skipped != 2 {
+		t.Fatalf("expected 2 skipped (paid+closed), got %+v", result)
+	}
+	if len(result.Failures) != 1 || result.Failures[0].OutTradeNo != "no-such-order-1" {
+		t.Fatalf("expected 1 failure for unknown order, got %+v", result.Failures)
+	}
+	// 远端关单只对有 prepay 的 CREATED 订单调用(2 次)
+	// 状态复核
+	for _, no := range []string{c1.OutTradeNo, c2.OutTradeNo} {
+		got, _ := GetPayOrderByOutTradeNo(no)
+		if got.Status != PayOrderClosed {
+			t.Fatalf("order %s expected CLOSED, got %s", no, got.Status)
+		}
+	}
+	if got, _ := GetPayOrderByOutTradeNo(paid.OutTradeNo); got.Status != PayOrderPaid {
+		t.Fatalf("paid order must stay PAID, got %s", got.Status)
+	}
+
+	// 平台侧(空租户)可批量关单
+	c3 := mk("c3", PayOrderCreated)
+	t.Cleanup(func() { _ = store.DB().Unscoped().Delete(&PayOrder{}, "id = ?", c3.ID).Error })
+	if _, err := BatchCloseOrders(context.Background(), "", []string{c3.OutTradeNo}); err != nil {
+		t.Fatalf("platform batch close: %v", err)
+	}
+	if got, _ := GetPayOrderByOutTradeNo(c3.OutTradeNo); got.Status != PayOrderClosed {
+		t.Fatalf("platform close failed: %s", got.Status)
+	}
+
+	// 超上限拒绝
+	tooMany := make([]string, maxBatchCloseSize+1)
+	for i := range tooMany {
+		tooMany[i] = "overflow-order-no-1"
+	}
+	if _, err := BatchCloseOrders(context.Background(), tenant, tooMany); err == nil {
+		t.Fatal("expected overflow error")
+	}
+}

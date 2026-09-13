@@ -197,6 +197,7 @@ func applyTransaction(order *PayOrder, tx *TransactionResult) {
 }
 
 // loadOrderWithOwnership 校验归属并加载订单。
+// tenantID 为空表示平台侧操作,跳过租户校验;userID 为空表示管理端操作,跳过用户校验。
 func loadOrderWithOwnership(tenantID, userID, outTradeNo string) (*PayOrder, error) {
 	order, err := GetPayOrderByOutTradeNo(outTradeNo)
 	if err != nil {
@@ -205,7 +206,8 @@ func loadOrderWithOwnership(tenantID, userID, outTradeNo string) (*PayOrder, err
 	if order == nil {
 		return nil, errors.New("订单不存在")
 	}
-	if order.TenantID != tenantID || (userID != "" && order.UserID != userID) {
+	if (tenantID != "" && order.TenantID != tenantID) ||
+		(userID != "" && order.UserID != userID) {
 		return nil, ErrOrderNotOwned
 	}
 	return order, nil
@@ -627,4 +629,71 @@ func HandlePayNotify(req *http.Request, app string) error {
 	}
 	// 关闭等其他事件:仅留痕
 	return UpdatePayOrderEvent(order.ID, content.TradeState, content.TradeStateDesc, content.EventType)
+}
+
+// BatchCloseFailure 单笔关单失败记录。
+type BatchCloseFailure struct {
+	OutTradeNo string `json:"outTradeNo"`
+	Error      string `json:"error"`
+}
+
+// BatchCloseResult 批量关单结果。
+type BatchCloseResult struct {
+	Closed   int                 `json:"closed"`
+	Skipped  int                 `json:"skipped"`
+	Failures []BatchCloseFailure `json:"failures,omitempty"`
+}
+
+// maxBatchCloseSize 显式订单号批量关单的上限。
+const maxBatchCloseSize = 100
+
+// BatchCloseOrders 管理端批量关单:仅 CREATED 订单会被关闭;
+// 已支付/已关闭订单计入 skipped(非错误)。tenantID 用于租户隔离。
+func BatchCloseOrders(ctx context.Context, tenantID string, outTradeNos []string) (*BatchCloseResult, error) {
+	if len(outTradeNos) == 0 {
+		return nil, errors.New("订单号列表不能为空")
+	}
+	if len(outTradeNos) > maxBatchCloseSize {
+		return nil, fmt.Errorf("单次批量关单上限 %d 笔", maxBatchCloseSize)
+	}
+	result := &BatchCloseResult{Failures: []BatchCloseFailure{}}
+	for _, no := range outTradeNos {
+		// 先按状态分类:PAID/CLOSED 属于跳过而非错误;仅 CREATED 需要关单动作
+		order, err := GetPayOrderByOutTradeNo(no)
+		if err != nil {
+			result.Failures = append(result.Failures, BatchCloseFailure{OutTradeNo: no, Error: err.Error()})
+			continue
+		}
+		if order == nil {
+			result.Failures = append(result.Failures, BatchCloseFailure{OutTradeNo: no, Error: "订单不存在"})
+			continue
+		}
+		if order.TenantID != tenantID && tenantID != "" {
+			result.Failures = append(result.Failures, BatchCloseFailure{OutTradeNo: no, Error: ErrOrderNotOwned.Error()})
+			continue
+		}
+		switch order.Status {
+		case PayOrderPaid, PayOrderClosed:
+			result.Skipped++
+			continue
+		}
+		if err := ClosePayOrder(ctx, tenantID, "", no); err != nil {
+			result.Failures = append(result.Failures, BatchCloseFailure{OutTradeNo: no, Error: err.Error()})
+			continue
+		}
+		result.Closed++
+	}
+	log.Infof(ctx, "批量关单完成:关闭 %d,跳过 %d,失败 %d", result.Closed, result.Skipped, len(result.Failures))
+	return result, nil
+}
+
+// ListCreatedTradeNosByAge 取指定租户创建早于 before 的 CREATED 订单号(过期清理场景)。
+func ListCreatedTradeNosByAge(tenantID string, before time.Time, limit int) ([]string, error) {
+	var nos []string
+	db := store.DB().Model(&PayOrder{}).Where("status = ? AND created_at < ?", PayOrderCreated, before)
+	if tenantID != "" {
+		db = db.Where("tenant_id = ?", tenantID)
+	}
+	err := db.Limit(limit).Order("created_at ASC").Pluck("out_trade_no", &nos).Error
+	return nos, err
 }
