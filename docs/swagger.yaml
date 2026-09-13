@@ -378,6 +378,17 @@ definitions:
       message:
         type: string
     type: object
+  http.RefundReasonTrendResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      data:
+        items:
+          $ref: '#/definitions/wechatpay.RefundReasonTrendPoint'
+        type: array
+      message:
+        type: string
+    type: object
   user.CheckRegisterWithWechatResp:
     properties:
       code:
@@ -1573,6 +1584,21 @@ definitions:
         type: integer
       reasonCode:
         description: ReasonCode 退款原因类别(见 ValidReasonCodes)。
+        type: string
+    type: object
+  wechatpay.RefundReasonTrendPoint:
+    properties:
+      amount:
+        description: Amount 退款金额合计,单位:分。
+        type: integer
+      count:
+        description: Count 有效退款申请笔数。
+        type: integer
+      month:
+        description: Month 统计月份(YYYY-MM,本地时区)。
+        type: string
+      reasonCode:
+        description: ReasonCode 退款原因类别。
         type: string
     type: object
 info:
@@ -3796,6 +3822,30 @@ paths:
           schema:
             $ref: '#/definitions/http.RefundReasonStatsResponse'
       summary: 退款原因类别统计
+      tags:
+      - 微信支付退款管理
+  /api/core/wechat/pay/stats/refund-reason/trend:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 统计最近 N 个月(含当月),默认 6,范围 1-24
+        in: query
+        name: months
+        type: integer
+      - description: 租户ID,留空为全租户汇总
+        in: query
+        name: tenantID
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.RefundReasonTrendResponse'
+      summary: 退款原因月度趋势
       tags:
       - 微信支付退款管理
   /api/wechat/connect/qrconnect:

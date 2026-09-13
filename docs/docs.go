@@ -3444,6 +3444,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/core/wechat/pay/stats/refund-reason/trend": {
+            "get": {
+                "tags": [
+                    "微信支付退款管理"
+                ],
+                "summary": "退款原因月度趋势",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "统计最近 N 个月(含当月),默认 6,范围 1-24",
+                        "name": "months",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "租户ID,留空为全租户汇总",
+                        "name": "tenantID",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.RefundReasonTrendResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/wechat/connect/qrconnect": {
             "get": {
                 "tags": [
@@ -4498,6 +4535,23 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/wechatpay.ReasonCodeStat"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.RefundReasonTrendResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/wechatpay.RefundReasonTrendPoint"
                     }
                 },
                 "message": {
@@ -6254,6 +6308,27 @@ const docTemplate = `{
                 },
                 "reasonCode": {
                     "description": "ReasonCode 退款原因类别(见 ValidReasonCodes)。",
+                    "type": "string"
+                }
+            }
+        },
+        "wechatpay.RefundReasonTrendPoint": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "description": "Amount 退款金额合计,单位:分。",
+                    "type": "integer"
+                },
+                "count": {
+                    "description": "Count 有效退款申请笔数。",
+                    "type": "integer"
+                },
+                "month": {
+                    "description": "Month 统计月份(YYYY-MM,本地时区)。",
+                    "type": "string"
+                },
+                "reasonCode": {
+                    "description": "ReasonCode 退款原因类别。",
                     "type": "string"
                 }
             }
