@@ -1309,7 +1309,39 @@ wechatPay:
   reconcileIntervalSeconds: 60     # 轮询间隔,最小 10
   reconcileScanAgeMinutes: 5       # 回调到达窗口
   reconcileBatchSize: 200          # 单轮上限(≤1000)
+  reconcileAlertAgeHours: 24       # 滞留告警阈值(小时,最小 1)
+  reconcileAlertSilenceMinutes: 120 # 同类告警静默窗口(分钟,默认 120)
+  billRetentionDays: 90            # 归档账单保留天数(最小 7)
 ```
+
+#### 17.7.1 参数的三层体系与运行时管理
+
+对账参数生效优先级：**DB 覆盖值 > Nacos 基线 > 代码默认值**。
+
+| 层 | 来源 | 生效时机 |
+|----|------|----------|
+| Nacos 基线 | 配置中心 `wechatPay` 段 | 启动时应用,并在内存中保存为基线快照 |
+| DB 覆盖值 | 管理端设置对话框 / `PUT stats/config` | 即时生效,持久化在 SystemConfig(key=`wechatpay.stats_config`),**重启后仍优先于 Nacos** |
+| 运行时状态 | `GET stats/loop-status` | 只读快照:循环运行标志、最近对账时间/笔数、最近日报与账单任务日期 |
+
+管理端接口：
+
+```bash
+# 立即执行一轮对账(与循环 tick 相同逻辑,幂等),返回处理笔数
+curl -X POST /api/core/wechat/pay/stats/reconcile-now
+
+# 运行时更新参数(仅提交需修改的字段,即时生效并持久化)
+curl -X PUT /api/core/wechat/pay/stats/config -d '{
+  "intervalSeconds": 120, "scanAgeMinutes": 10, "batchSize": 100,
+  "alertAgeHours": 12, "alertSilenceMinutes": 60, "billRetentionDays": 45
+}'
+
+# 重置:删除 DB 覆盖快照,参数恢复为 Nacos 基线
+curl -X DELETE /api/core/wechat/pay/stats/config
+```
+
+各参数钳制边界：轮询间隔最小 10s、扫描窗口/告警阈值/静默窗口最小 1(分/时/分)、
+批次 1–1000、账单保留期最小 7 天。参数持久化失败时参数本身已生效,响应 `message` 会给出警告。
 
 > 运维提示：生产环境需保证出网可达 `api.mch.weixin.qq.com`；
 > 首次下单时 SDK 会自动下载微信平台证书并周期轮换。
