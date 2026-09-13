@@ -327,19 +327,28 @@ export default function WechatPay() {
   }
 
   // ---- 退款审核 ----
+  const [approving, setApproving] = useState<{ refund: RefundItem; approved: boolean } | null>(null)
+  const [approveComment, setApproveComment] = useState("")
   const pendingRefunds = useQuery({
     queryKey: ["pay-refunds-pending"],
     queryFn: () => api.get<ListResp<RefundItem>>(`${REFUND}/query`, { status: "PENDING" }),
   })
   const approveRefund = useMutation({
-    mutationFn: (v: { outRefundNo: string; approved: boolean }) =>
+    mutationFn: (v: { outRefundNo: string; approved: boolean; comment: string }) =>
       api.post(`${REFUND}/approve`, v),
-    onSuccess: () => {
-      toast.success("已审核")
+    onSuccess: (_r, v) => {
+      toast.success(v.approved ? "已通过并提交微信" : "已拒绝")
+      setApproving(null)
+      setApproveComment("")
       qc.invalidateQueries({ queryKey: ["pay-refunds-pending"] })
     },
     onError: (e: Error) => toast.error(e.message),
   })
+
+  function openApprove(r: RefundItem, approved: boolean) {
+    setApproveComment("")
+    setApproving({ refund: r, approved })
+  }
 
   return (
     <div className="space-y-6 p-6">
@@ -601,21 +610,10 @@ export default function WechatPay() {
                 <TableCell>{r.reason}</TableCell>
                 <TableCell>
                   <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      onClick={() =>
-                        approveRefund.mutate({ outRefundNo: r.outRefundNo, approved: true })
-                      }
-                    >
+                    <Button size="sm" onClick={() => openApprove(r, true)}>
                       通过
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() =>
-                        approveRefund.mutate({ outRefundNo: r.outRefundNo, approved: false })
-                      }
-                    >
+                    <Button size="sm" variant="destructive" onClick={() => openApprove(r, false)}>
                       拒绝
                     </Button>
                   </div>
@@ -840,6 +838,71 @@ export default function WechatPay() {
               }
             >
               保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 退款审核确认对话框 */}
+      <Dialog open={approving !== null} onOpenChange={(v) => !v && setApproving(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {approving?.approved ? "通过退款" : "拒绝退款"}
+            </DialogTitle>
+          </DialogHeader>
+          {approving && (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-muted-foreground">退款单号</div>
+                  <div className="font-mono text-xs">{approving.refund.outRefundNo}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">原订单号</div>
+                  <div className="font-mono text-xs">{approving.refund.outTradeNo}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">退款金额(分)</div>
+                  <div>{approving.refund.amount}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">原因类别</div>
+                  <div>{approving.refund.reasonCode || "other"}</div>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>审核意见 {approving.approved ? "(可选)" : "(建议填写拒绝理由)"}</Label>
+                <Input
+                  value={approveComment}
+                  onChange={(e) => setApproveComment(e.target.value)}
+                  placeholder="将记入审计日志"
+                />
+              </div>
+              {!approving.approved && (
+                <p className="text-xs text-muted-foreground">
+                  拒绝后退款单置为 REJECTED,资金不会退回用户,可重新发起退款。
+                </p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApproving(null)}>
+              取消
+            </Button>
+            <Button
+              variant={approving?.approved ? "default" : "destructive"}
+              disabled={approveRefund.isPending}
+              onClick={() =>
+                approving &&
+                approveRefund.mutate({
+                  outRefundNo: approving.refund.outRefundNo,
+                  approved: approving.approved,
+                  comment: approveComment,
+                })
+              }
+            >
+              确认{approving?.approved ? "通过" : "拒绝"}
             </Button>
           </DialogFooter>
         </DialogContent>
