@@ -184,6 +184,7 @@ func RegisterWechatPayOrderRouter(r *gin.Engine) {
 	s.GET("daily", AutoQueryHandler(QueryWechatPayDailyStats))
 	s.GET("loop-status", GetWechatPayLoopStatus)
 	s.PUT("config", AutoHandler(UpdateWechatPayStatsConfig))
+	s.DELETE("config", ResetWechatPayStatsConfig)
 	s.POST("reconcile-now", ReconcileNow)
 	s.GET("refund-reason", AutoQueryHandler(QueryWechatRefundReasonStats))
 	s.GET("refund-reason/trend", AutoQueryHandler(QueryWechatRefundReasonTrend))
@@ -828,4 +829,24 @@ func UpdateWechatPayStatsConfig(c *gin.Context, req *UpdatePayStatsConfigRequest
 		resp.Message = "参数已生效但持久化失败: " + err.Error()
 	}
 	return resp, nil
+}
+
+// ResetWechatPayStatsConfig 清除 DB 覆盖快照并把对账参数恢复为 Nacos 基线。
+//
+//	@Summary 重置对账参数为 Nacos 基线
+//	@Tags 微信支付订单管理
+//	@Param authorization header string true "jwt token"
+//	@Success 200 {object} LoopStatusResponse
+//	@Router /api/core/wechat/pay/stats/config [delete]
+func ResetWechatPayStatsConfig(c *gin.Context) {
+	resp := &LoopStatusResponse{Code: apipb.Code_Success}
+	if err := wechatpay.ResetStatsConfigToBaseline(); err != nil {
+		resp.Code = apipb.Code_InternalServerError
+		resp.Message = err.Error()
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+	status := wechatpay.GetLoopStatus()
+	resp.Data = &status
+	c.JSON(http.StatusOK, resp)
 }

@@ -306,6 +306,15 @@ export default function WechatPay() {
     },
     onError: (e: Error) => toast.error(e.message),
   })
+  const resetConfig = useMutation({
+    mutationFn: () => api.del("/api/core/wechat/pay/stats/config"),
+    onSuccess: () => {
+      toast.success("已恢复 Nacos 基线")
+      setSettingsOpen(false)
+      qc.invalidateQueries({ queryKey: ["pay-loop-status"] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
 
   function toggleOrder(no: string) {
     setSelectedOrders((prev) => {
@@ -465,17 +474,24 @@ export default function WechatPay() {
               </div>
             ))}
             <p className="col-span-2 text-xs text-muted-foreground">
-              参数即时生效但重启后恢复 Nacos 配置;轮询间隔最小 10s,批次上限 1000,账单保留期最小 7 天。
+              参数即时生效,持久化保存后重启仍优先于 Nacos 基线;轮询间隔最小 10s,批次上限 1000,账单保留期最小 7 天。
             </p>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSettingsOpen(false)}>
-              取消
-            </Button>
-            <Button disabled={saveSettings.isPending} onClick={() => saveSettings.mutate(settings)}>
-              保存
-            </Button>
-          </DialogFooter>
+          <DialogFooter className="gap-2">
+              <Button
+                variant="ghost"
+                disabled={resetConfig.isPending}
+                onClick={() => resetConfig.mutate()}
+              >
+                恢复 Nacos 基线
+              </Button>
+              <Button variant="outline" onClick={() => setSettingsOpen(false)}>
+                取消
+              </Button>
+              <Button disabled={saveSettings.isPending} onClick={() => saveSettings.mutate(settings)}>
+                保存
+              </Button>
+            </DialogFooter>
         </DialogContent>
       </Dialog>
 

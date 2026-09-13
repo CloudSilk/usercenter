@@ -4050,6 +4050,21 @@ paths:
       tags:
       - 微信支付退款管理
   /api/core/wechat/pay/stats/config:
+    delete:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.LoopStatusResponse'
+      summary: 重置对账参数为 Nacos 基线
+      tags:
+      - 微信支付订单管理
     put:
       parameters:
       - description: jwt token

@@ -3602,6 +3602,29 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "delete": {
+                "tags": [
+                    "微信支付订单管理"
+                ],
+                "summary": "重置对账参数为 Nacos 基线",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.LoopStatusResponse"
+                        }
+                    }
+                }
             }
         },
         "/api/core/wechat/pay/stats/daily": {

@@ -114,6 +114,7 @@ func main() {
 			time.Duration(wpCfg.ReconcileAlertSilenceMinutes)*time.Minute,
 		)
 		// 管理端运行时调整过的参数持久化在 DB,重启后优先于 Nacos 基线生效
+		wechatpay.SaveNacosBaseline(wechatpay.SnapshotFromLoopStatus(wechatpay.GetLoopStatus()))
 		if err := wechatpay.ApplyPersistedStatsConfig(); err != nil {
 			fmt.Printf("[main] 读取对账参数持久化快照失败: %v\n", err)
 		}

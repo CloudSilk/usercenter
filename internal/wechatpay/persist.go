@@ -93,3 +93,35 @@ func ApplyPersistedStatsConfig() error {
 	}
 	return nil
 }
+
+// nacosBaseline 启动时保存的 Nacos 基线快照,供重置操作恢复。
+var nacosBaseline *StatsConfigSnapshot
+
+// SaveNacosBaseline 记录 Nacos 基线(启动装配时,ApplyPersistedStatsConfig 之前调用)。
+func SaveNacosBaseline(s StatsConfigSnapshot) {
+	reconcileMu.Lock()
+	defer reconcileMu.Unlock()
+	nacosBaseline = &s
+}
+
+// ResetStatsConfigToBaseline 删除 DB 覆盖快照并把运行参数恢复为 Nacos 基线。
+// 无基线快照(如测试环境)时仅删除 DB 快照。
+func ResetStatsConfigToBaseline() error {
+	reconcileMu.Lock()
+	baseline := nacosBaseline
+	reconcileMu.Unlock()
+	if baseline != nil {
+		ConfigureReconcile(
+			time.Duration(baseline.IntervalSeconds)*time.Second,
+			time.Duration(baseline.ScanAgeMinutes)*time.Minute,
+			baseline.BatchSize,
+			time.Duration(baseline.AlertAgeHours)*time.Hour,
+			time.Duration(baseline.AlertSilenceMinutes)*time.Minute,
+		)
+		if baseline.BillRetentionDays > 0 {
+			SetBillRetentionDays(baseline.BillRetentionDays)
+		}
+	}
+	return store.DB().Where("`key` = ?", statsConfigKey).
+		Delete(&systemconfig.SystemConfig{}).Error
+}

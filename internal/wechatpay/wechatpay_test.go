@@ -2069,3 +2069,40 @@ func TestStatsConfigPersistence(t *testing.T) {
 		t.Fatalf("apply without snapshot should be no-op: %v", err)
 	}
 }
+
+func TestResetStatsConfigToBaseline(t *testing.T) {
+	old := GetLoopStatus()
+	defer func() {
+		SetReconcileScanAge(old.ScanAgeMinutes)
+		SetReconcileBatchSize(old.BatchSize)
+		SetReconcileAlertAge(old.AlertAgeHours)
+		SetReconcileAlertSilence(int(old.IntervalSeconds))
+		SetBillRetentionDays(old.BillRetentionDays)
+	}()
+
+	// 基线:间隔 300s / 窗口 10m / 批次 40 / 告警 48h / 静默 90m / 保留 120 天
+	SaveNacosBaseline(StatsConfigSnapshot{
+		IntervalSeconds: 300, ScanAgeMinutes: 10, BatchSize: 40,
+		AlertAgeHours: 48, AlertSilenceMinutes: 90, BillRetentionDays: 120,
+	})
+	// 管理端覆盖 + 持久化
+	ConfigureReconcile(600*time.Second, 20*time.Minute, 80, 6*time.Hour, 60*time.Minute)
+	SetBillRetentionDays(15)
+	if err := SaveStatsConfigSnapshot(SnapshotFromLoopStatus(GetLoopStatus())); err != nil {
+		t.Fatalf("save override snapshot: %v", err)
+	}
+
+	// 重置:参数回到基线,DB 快照被删除
+	if err := ResetStatsConfigToBaseline(); err != nil {
+		t.Fatalf("ResetStatsConfigToBaseline: %v", err)
+	}
+	status := GetLoopStatus()
+	if status.IntervalSeconds != 300 || status.ScanAgeMinutes != 10 || status.BatchSize != 40 ||
+		status.AlertAgeHours != 48 || status.BillRetentionDays != 120 {
+		t.Fatalf("parameters not restored to baseline: %+v", status)
+	}
+	snap, err := LoadStatsConfigSnapshot()
+	if err != nil || snap != nil {
+		t.Fatalf("expected snapshot deleted, got %v err=%v", snap, err)
+	}
+}
