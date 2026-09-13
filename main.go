@@ -115,6 +115,12 @@ func main() {
 		)
 		wechatpay.StartReconcileLoop()
 	}
+	// 每日对账日报推送(默认启用,随对账循环 tick 触发)
+	if wpCfg.DailyReportEnabled == nil || *wpCfg.DailyReportEnabled {
+		wechatpay.SetDailyReportConfig(true, wpCfg.DailyReportHour)
+	} else {
+		wechatpay.SetDailyReportConfig(false, 0)
+	}
 	// 社交登录配置（GitHub/Google 等）
 	socialCfgs := make([]userhttp.SocialLoginConfig, 0, len(ucconfig.DefaultConfig.SocialLogins))
 	for _, s := range ucconfig.DefaultConfig.SocialLogins {

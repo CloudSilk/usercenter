@@ -1,8 +1,10 @@
 package wechatpay
 
 import (
+	"context"
 	"time"
 
+	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/CloudSilk/usercenter/internal/store"
 )
 
@@ -124,4 +126,73 @@ func QueryDailyPayStats(tenantID string, days int) ([]*DailyPayStat, error) {
 		}
 	}
 	return stats, nil
+}
+
+// --- 昨日日报定时推送:复用对账循环的 tick,每日到达推送时刻后推送一次 ---
+
+var (
+	// DailyReportEnabled 是否启用每日对账日报推送,默认启用。
+	DailyReportEnabled = true
+	// DailyReportHour 每日推送时刻(本地时区小时,0-23),默认 8。
+	DailyReportHour = 8
+	// dailyReportLastDate 最近一次推送的基准日(YYYY-MM-DD),进程内去重。
+	dailyReportLastDate string
+)
+
+// buildDailyReportPayload 汇总 reportDate 当日的对账数据。
+func buildDailyReportPayload(reportDate string) (map[string]any, error) {
+	stats, err := QueryDailyPayStats("", 90)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range stats {
+		if s.Date == reportDate {
+			return map[string]any{
+				"date":         s.Date,
+				"createdCount": s.CreatedCount, "createdAmount": s.CreatedAmount,
+				"paidCount": s.PaidCount, "paidAmount": s.PaidAmount,
+				"closedCount": s.ClosedCount,
+				"refundCount": s.RefundCount, "refundAmount": s.RefundAmount,
+			}, nil
+		}
+	}
+	return nil, nil
+}
+
+// maybePushDailyReport 对账循环 tick 时调用:到达每日推送时刻且当日未推送,
+// 则推送昨日对账日报(webhook + 审计留痕,不受告警静默窗口影响)。
+func maybePushDailyReport(ctx context.Context, now time.Time) {
+	if !DailyReportEnabled || now.Hour() < DailyReportHour {
+		return
+	}
+	today := now.Format("2006-01-02")
+	if dailyReportLastDate == today {
+		return
+	}
+	dailyReportLastDate = today
+	reportDate := now.AddDate(0, 0, -1).Format("2006-01-02")
+	payload, err := buildDailyReportPayload(reportDate)
+	if err != nil {
+		log.Errorf(ctx, "支付对账日报汇总失败:%v", err)
+		return
+	}
+	if payload == nil {
+		return
+	}
+	alertFire("pay_daily_report", payload)
+	recordAlertAudit("pay_daily_report", payload)
+	log.Infof(ctx, "支付对账日报已推送(%s)", reportDate)
+}
+
+// SetDailyReportConfig 配置日报推送开关与推送时刻(启动时调用一次)。
+// hour 越界时钳制到 0-23;enabled=false 时禁用推送。
+func SetDailyReportConfig(enabled bool, hour int) {
+	if hour < 0 {
+		hour = 0
+	}
+	if hour > 23 {
+		hour = 23
+	}
+	DailyReportEnabled = enabled
+	DailyReportHour = hour
 }

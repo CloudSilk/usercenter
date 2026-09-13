@@ -81,3 +81,5 @@ wechatPay:
   reconcileBatchSize: 200          # 单轮对账最大订单数（默认 200，上限 1000）
   reconcileAlertAgeHours: 24       # 订单滞留 CREATED 超过该小时数触发告警（默认 24，最小 1）
   reconcileAlertSilenceMinutes: 120 # 同类告警静默窗口（分钟，默认 120；0 视为默认，最小 1）
+  dailyReportEnabled: true         # 每日对账日报 webhook 推送（默认启用，随对账循环触发）
+  dailyReportHour: 8               # 日报推送时刻（本地时区小时 0-23，默认 8）

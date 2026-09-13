@@ -165,6 +165,10 @@ type WechatPayConfig struct {
 	ReconcileAlertAgeHours int `yaml:"reconcileAlertAgeHours"`
 	// ReconcileAlertSilenceMinutes 同类告警静默窗口(分钟),默认 120,最小 1,0 视为默认。
 	ReconcileAlertSilenceMinutes int `yaml:"reconcileAlertSilenceMinutes"`
+	// DailyReportEnabled 是否启用每日对账日报 webhook 推送,默认启用。
+	DailyReportEnabled *bool `yaml:"dailyReportEnabled"`
+	// DailyReportHour 每日日报推送时刻(本地时区小时 0-23),默认 8。
+	DailyReportHour int `yaml:"dailyReportHour"`
 }
 
 // AICacheConfig AI 网关语义缓存配置。

@@ -1343,3 +1343,56 @@ func TestQueryDailyPayStats(t *testing.T) {
 		}
 	}
 }
+
+func TestMaybePushDailyReport(t *testing.T) {
+	const tenant = "wp-daily-report"
+	setupApp(t, tenant)
+	now := time.Now()
+
+	oldEnabled, oldHour := DailyReportEnabled, DailyReportHour
+	dailyReportLastDate = ""
+	defer func() {
+		DailyReportEnabled, DailyReportHour = oldEnabled, oldHour
+	}()
+	getEvents, restoreAlerts := collectAlerts()
+	defer restoreAlerts()
+	getAudits, restoreAudits := collectAudits()
+	defer restoreAudits()
+
+	// 禁用时不推送
+	DailyReportEnabled = false
+	maybePushDailyReport(context.Background(), now)
+	if len(getEvents()) != 0 {
+		t.Fatal("disabled report should not push")
+	}
+
+	// 未到推送时刻不推送
+	DailyReportEnabled = true
+	DailyReportHour = 23
+	maybePushDailyReport(context.Background(), now)
+	if len(getEvents()) != 0 {
+		t.Fatal("should not push before report hour")
+	}
+
+	// 到达时刻:推送昨日日报(webhook+审计各一条),payload 日期为昨日
+	DailyReportHour = 0
+	maybePushDailyReport(context.Background(), now)
+	events := getEvents()
+	if len(events) != 1 || events[0] != "pay_daily_report" {
+		t.Fatalf("expected daily report pushed once, got %v", events)
+	}
+	audits := getAudits()
+	if len(audits) != 1 || audits[0].Action != "pay_daily_report" {
+		t.Fatalf("expected daily report audit, got %+v", audits)
+	}
+	wantDate := now.AddDate(0, 0, -1).Format("2006-01-02")
+	if !strings.Contains(audits[0].Detail, wantDate) {
+		t.Fatalf("expected report date %s in detail: %s", wantDate, audits[0].Detail)
+	}
+
+	// 同日重复调用不推送(去重)
+	maybePushDailyReport(context.Background(), now)
+	if len(getEvents()) != 1 {
+		t.Fatal("duplicate push on same day should be suppressed")
+	}
+}
