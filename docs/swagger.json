@@ -3070,6 +3070,61 @@
                 }
             }
         },
+        "/api/core/wechat/pay/order/export": {
+            "get": {
+                "tags": [
+                    "微信支付订单管理"
+                ],
+                "summary": "导出微信支付订单 CSV",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "租户ID",
+                        "name": "tenantID",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "用户ID",
+                        "name": "userID",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "商户号",
+                        "name": "mchID",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "状态 INIT/CREATED/PAID/CLOSED",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "商户订单号",
+                        "name": "outTradeNo",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/core/wechat/pay/order/query": {
             "get": {
                 "tags": [

@@ -3493,6 +3493,42 @@ paths:
       summary: 更新微信支付商户配置
       tags:
       - 微信支付配置管理
+  /api/core/wechat/pay/order/export:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 租户ID
+        in: query
+        name: tenantID
+        type: string
+      - description: 用户ID
+        in: query
+        name: userID
+        type: string
+      - description: 商户号
+        in: query
+        name: mchID
+        type: string
+      - description: 状态 INIT/CREATED/PAID/CLOSED
+        in: query
+        name: status
+        type: string
+      - description: 商户订单号
+        in: query
+        name: outTradeNo
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: 导出微信支付订单 CSV
+      tags:
+      - 微信支付订单管理
   /api/core/wechat/pay/order/query:
     get:
       parameters:
