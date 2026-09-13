@@ -443,3 +443,13 @@ func maybeCleanupExpiredBills(ctx context.Context, now time.Time) {
 		log.Errorf(ctx, "归档账单清理失败:%v", err)
 	}
 }
+
+// SetBillRetentionDays 运行时更新归档账单保留期(最小 7 天),加锁保证并发安全。
+func SetBillRetentionDays(days int) {
+	reconcileMu.Lock()
+	defer reconcileMu.Unlock()
+	if days < 7 {
+		days = 7
+	}
+	BillRetentionDays = days
+}

@@ -183,6 +183,7 @@ func RegisterWechatPayOrderRouter(r *gin.Engine) {
 	s := r.Group("/api/core/wechat/pay/stats")
 	s.GET("daily", AutoQueryHandler(QueryWechatPayDailyStats))
 	s.GET("loop-status", GetWechatPayLoopStatus)
+	s.PUT("config", AutoHandler(UpdateWechatPayStatsConfig))
 	s.POST("reconcile-now", ReconcileNow)
 	s.GET("refund-reason", AutoQueryHandler(QueryWechatRefundReasonStats))
 	s.GET("refund-reason/trend", AutoQueryHandler(QueryWechatRefundReasonTrend))
@@ -771,4 +772,54 @@ func ReconcileNow(c *gin.Context) {
 		Code: apipb.Code_Success,
 		Data: &ReconcileNowResult{Processed: n, LoopStatus: &status},
 	})
+}
+
+// UpdatePayStatsConfigRequest 运行时更新对账参数请求(仅提交需要修改的字段)。
+type UpdatePayStatsConfigRequest struct {
+	// IntervalSeconds 对账轮询间隔(秒),最小 10。
+	IntervalSeconds *int `json:"intervalSeconds,omitempty" binding:"omitempty,gt=0"`
+	// ScanAgeMinutes 只扫描创建超过该分钟数的未决订单,最小 1。
+	ScanAgeMinutes *int `json:"scanAgeMinutes,omitempty" binding:"omitempty,gt=0"`
+	// BatchSize 单轮对账最大订单数,范围 1-1000。
+	BatchSize *int `json:"batchSize,omitempty" binding:"omitempty,gt=0,lte=1000"`
+	// AlertAgeHours 订单滞留告警阈值(小时),最小 1。
+	AlertAgeHours *int `json:"alertAgeHours,omitempty" binding:"omitempty,gt=0"`
+	// AlertSilenceMinutes 同类告警静默窗口(分钟),最小 1。
+	AlertSilenceMinutes *int `json:"alertSilenceMinutes,omitempty" binding:"omitempty,gt=0"`
+	// BillRetentionDays 归档账单保留天数,最小 7。
+	BillRetentionDays *int `json:"billRetentionDays,omitempty" binding:"omitempty,gt=0"`
+}
+
+// UpdateWechatPayStatsConfig 运行时更新对账参数并返回最新状态快照。
+//
+//	@Summary 更新对账参数(运行时生效)
+//	@Tags 微信支付订单管理
+//	@Param authorization header string true "jwt token"
+//	@Param body body UpdatePayStatsConfigRequest true "对账参数"
+//	@Success 200 {object} LoopStatusResponse
+//	@Router /api/core/wechat/pay/stats/config [put]
+func UpdateWechatPayStatsConfig(c *gin.Context, req *UpdatePayStatsConfigRequest) (*LoopStatusResponse, error) {
+	if req.IntervalSeconds != nil {
+		wechatpay.ConfigureReconcile(
+			time.Duration(*req.IntervalSeconds)*time.Second,
+			0, 0, 0, 0,
+		)
+	}
+	if req.ScanAgeMinutes != nil {
+		wechatpay.SetReconcileScanAge(*req.ScanAgeMinutes)
+	}
+	if req.BatchSize != nil {
+		wechatpay.SetReconcileBatchSize(*req.BatchSize)
+	}
+	if req.AlertAgeHours != nil {
+		wechatpay.SetReconcileAlertAge(*req.AlertAgeHours)
+	}
+	if req.AlertSilenceMinutes != nil {
+		wechatpay.SetReconcileAlertSilence(*req.AlertSilenceMinutes)
+	}
+	if req.BillRetentionDays != nil {
+		wechatpay.SetBillRetentionDays(*req.BillRetentionDays)
+	}
+	status := wechatpay.GetLoopStatus()
+	return &LoopStatusResponse{Code: apipb.Code_Success, Data: &status}, nil
 }

@@ -463,6 +463,28 @@ definitions:
       message:
         type: string
     type: object
+  http.UpdatePayStatsConfigRequest:
+    properties:
+      alertAgeHours:
+        description: AlertAgeHours 订单滞留告警阈值(小时),最小 1。
+        type: integer
+      alertSilenceMinutes:
+        description: AlertSilenceMinutes 同类告警静默窗口(分钟),最小 1。
+        type: integer
+      batchSize:
+        description: BatchSize 单轮对账最大订单数,范围 1-1000。
+        maximum: 1000
+        type: integer
+      billRetentionDays:
+        description: BillRetentionDays 归档账单保留天数,最小 7。
+        type: integer
+      intervalSeconds:
+        description: IntervalSeconds 对账轮询间隔(秒),最小 10。
+        type: integer
+      scanAgeMinutes:
+        description: ScanAgeMinutes 只扫描创建超过该分钟数的未决订单,最小 1。
+        type: integer
+    type: object
   user.CheckRegisterWithWechatResp:
     properties:
       code:
@@ -4025,6 +4047,28 @@ paths:
       summary: 分页查询微信支付退款单
       tags:
       - 微信支付退款管理
+  /api/core/wechat/pay/stats/config:
+    put:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 对账参数
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/http.UpdatePayStatsConfigRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.LoopStatusResponse'
+      summary: 更新对账参数(运行时生效)
+      tags:
+      - 微信支付订单管理
   /api/core/wechat/pay/stats/daily:
     get:
       parameters:

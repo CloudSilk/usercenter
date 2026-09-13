@@ -1992,3 +1992,35 @@ func TestGetLoopStatus(t *testing.T) {
 		t.Fatalf("expected config snapshot: %+v", status)
 	}
 }
+
+func TestReconcileSettersClamp(t *testing.T) {
+	old := GetLoopStatus()
+	defer func() {
+		SetReconcileScanAge(old.ScanAgeMinutes)
+		SetReconcileBatchSize(old.BatchSize)
+		SetReconcileAlertAge(old.AlertAgeHours)
+		SetReconcileAlertSilence(int(old.IntervalSeconds))
+		SetBillRetentionDays(old.BillRetentionDays)
+	}()
+
+	SetReconcileScanAge(0)
+	if ReconcileScanAge != time.Minute {
+		t.Fatalf("expected scan age clamped to 1m, got %v", ReconcileScanAge)
+	}
+	SetReconcileBatchSize(99999)
+	if ReconcileBatchSize != 1000 {
+		t.Fatalf("expected batch size clamped to 1000, got %d", ReconcileBatchSize)
+	}
+	SetReconcileAlertAge(0)
+	if ReconcileAlertAge != time.Hour {
+		t.Fatalf("expected alert age clamped to 1h, got %v", ReconcileAlertAge)
+	}
+	SetReconcileAlertSilence(0)
+	if ReconcileAlertSilence != time.Minute {
+		t.Fatalf("expected silence clamped to 1m, got %v", ReconcileAlertSilence)
+	}
+	SetBillRetentionDays(3)
+	if BillRetentionDays != 7 {
+		t.Fatalf("expected retention clamped to 7, got %d", BillRetentionDays)
+	}
+}

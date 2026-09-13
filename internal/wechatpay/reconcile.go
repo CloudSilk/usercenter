@@ -297,3 +297,46 @@ func ReconcileStaleOrders(ctx context.Context) (int, error) {
 	reconcileMu.Unlock()
 	return processed, nil
 }
+
+// SetReconcileScanAge 运行时更新扫描窗口(分钟,最小 1)。
+func SetReconcileScanAge(minutes int) {
+	reconcileMu.Lock()
+	defer reconcileMu.Unlock()
+	if minutes < 1 {
+		minutes = 1
+	}
+	ReconcileScanAge = time.Duration(minutes) * time.Minute
+}
+
+// SetReconcileBatchSize 运行时更新单轮对账批次上限(1-1000)。
+func SetReconcileBatchSize(size int) {
+	reconcileMu.Lock()
+	defer reconcileMu.Unlock()
+	if size < 1 {
+		size = 1
+	}
+	if size > 1000 {
+		size = 1000
+	}
+	ReconcileBatchSize = size
+}
+
+// SetReconcileAlertAge 运行时更新滞留告警阈值(小时,最小 1)。
+func SetReconcileAlertAge(hours int) {
+	reconcileMu.Lock()
+	defer reconcileMu.Unlock()
+	if hours < 1 {
+		hours = 1
+	}
+	ReconcileAlertAge = time.Duration(hours) * time.Hour
+}
+
+// SetReconcileAlertSilence 运行时更新告警静默窗口(分钟,最小 1)。
+func SetReconcileAlertSilence(minutes int) {
+	reconcileMu.Lock()
+	defer reconcileMu.Unlock()
+	if minutes < 1 {
+		minutes = 1
+	}
+	ReconcileAlertSilence = time.Duration(minutes) * time.Minute
+}
