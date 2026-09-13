@@ -796,5 +796,33 @@ func TestReconcileStaleOrders(t *testing.T) {
 	}
 }
 
+func TestApplyRefundUsesDedicatedRefundNotifyURL(t *testing.T) {
+	const tenant = "wp-refund-notify"
+	app := setupApp(t, tenant)
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		t.Fatalf("get wechat config: %v", err)
+	}
+	cfg, err := GetPayConfigByWechatConfigID(wc.ID)
+	if err != nil {
+		t.Fatalf("get pay config: %v", err)
+	}
+	cfg.RefundNotifyURL = "https://host.example/api/wechat/notify/refund/" + app
+	if err := UpdatePayConfig(cfg); err != nil {
+		t.Fatalf("update pay config: %v", err)
+	}
+	order := markOrderPaidDirect(t, tenant, app, CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 300,
+	})
+	if _, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 100,
+	}); err != nil {
+		t.Fatalf("ApplyRefund: %v", err)
+	}
+	if fakeAPI.lastRefund.NotifyURL != cfg.RefundNotifyURL {
+		t.Fatalf("expected dedicated refund notify URL, got %s", fakeAPI.lastRefund.NotifyURL)
+	}
+}
+
 // 编译期约束:确保 fakePayAPI 始终实现 PayAPI。
 var _ PayAPI = (*fakePayAPI)(nil)

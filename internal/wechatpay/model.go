@@ -24,16 +24,17 @@ const (
 // PayConfig 多租户微信支付商户配置,关联一个微信应用(小程序)。
 type PayConfig struct {
 	commonmodel.Model
-	TenantID       string `json:"tenantID" gorm:"size:36;index"`
-	WechatConfigID string `json:"wechatConfigID" gorm:"size:36;index;comment:关联微信应用配置ID"`
-	AppID          string `json:"appID" gorm:"size:36;comment:小程序AppID,需与商户号完成绑定"`
-	MchID          string `json:"mchID" gorm:"size:32;index;comment:微信支付商户号"`
-	MchSerialNo    string `json:"mchSerialNo" gorm:"size:64;comment:商户API证书序列号"`
-	APIV3Key       string `json:"apiV3Key" gorm:"size:64;comment:商户APIv3密钥"`
-	PrivateKey     string `json:"privateKey" gorm:"type:text;comment:商户私钥PEM内容(apiclient_key.pem)"`
-	NotifyURL      string `json:"notifyURL" gorm:"size:255;comment:支付结果回调完整URL(HTTPS)"`
-	Enable         bool   `json:"enable" gorm:"index;comment:是否启用"`
-	Description    string `json:"description" gorm:"size:255"`
+	TenantID        string `json:"tenantID" gorm:"size:36;index"`
+	WechatConfigID  string `json:"wechatConfigID" gorm:"size:36;index;comment:关联微信应用配置ID"`
+	AppID           string `json:"appID" gorm:"size:36;comment:小程序AppID,需与商户号完成绑定"`
+	MchID           string `json:"mchID" gorm:"size:32;index;comment:微信支付商户号"`
+	MchSerialNo     string `json:"mchSerialNo" gorm:"size:64;comment:商户API证书序列号"`
+	APIV3Key        string `json:"apiV3Key" gorm:"size:64;comment:商户APIv3密钥"`
+	PrivateKey      string `json:"privateKey" gorm:"type:text;comment:商户私钥PEM内容(apiclient_key.pem)"`
+	NotifyURL       string `json:"notifyURL" gorm:"size:255;comment:支付结果回调完整URL(HTTPS)"`
+	RefundNotifyURL string `json:"refundNotifyURL" gorm:"size:255;comment:退款结果回调完整URL(HTTPS),留空复用notifyURL"`
+	Enable          bool   `json:"enable" gorm:"index;comment:是否启用"`
+	Description     string `json:"description" gorm:"size:255"`
 }
 
 // PayOrder 支付订单记录,OutTradeNo 对微信侧全局唯一。

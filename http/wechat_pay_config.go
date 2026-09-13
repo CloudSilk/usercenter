@@ -12,17 +12,18 @@ import (
 
 // PayConfigInfo 商户配置请求/响应体,读写均不携带 APIv3Key 与私钥明文。
 type PayConfigInfo struct {
-	ID             string `json:"id"`
-	TenantID       string `json:"tenantID" binding:"required"`
-	WechatConfigID string `json:"wechatConfigID" binding:"required"`
-	AppID          string `json:"appID" binding:"required"`
-	MchID          string `json:"mchID" binding:"required"`
-	MchSerialNo    string `json:"mchSerialNo" binding:"required"`
-	APIV3Key       string `json:"apiV3Key" binding:"omitempty"`
-	PrivateKey     string `json:"privateKey" binding:"omitempty"`
-	NotifyURL      string `json:"notifyURL" binding:"omitempty,url,startswith=https"`
-	Enable         bool   `json:"enable"`
-	Description    string `json:"description" binding:"max=200"`
+	ID              string `json:"id"`
+	TenantID        string `json:"tenantID" binding:"required"`
+	WechatConfigID  string `json:"wechatConfigID" binding:"required"`
+	AppID           string `json:"appID" binding:"required"`
+	MchID           string `json:"mchID" binding:"required"`
+	MchSerialNo     string `json:"mchSerialNo" binding:"required"`
+	APIV3Key        string `json:"apiV3Key" binding:"omitempty"`
+	PrivateKey      string `json:"privateKey" binding:"omitempty"`
+	NotifyURL       string `json:"notifyURL" binding:"omitempty,url,startswith=https"`
+	RefundNotifyURL string `json:"refundNotifyURL" binding:"omitempty,url,startswith=https"`
+	Enable          bool   `json:"enable"`
+	Description     string `json:"description" binding:"max=200"`
 }
 
 // PayConfigResponse 管理端通用响应。
@@ -70,16 +71,17 @@ func AddWechatPayConfig(c *gin.Context, req *AddPayConfigRequest) (*PayConfigRes
 		return &PayConfigResponse{Code: apipb.Code_BadRequest, Message: err.Error()}, nil
 	}
 	id, err := wechatpay.CreatePayConfig(&wechatpay.PayConfig{
-		TenantID:       req.TenantID,
-		WechatConfigID: req.WechatConfigID,
-		AppID:          req.AppID,
-		MchID:          req.MchID,
-		MchSerialNo:    req.MchSerialNo,
-		APIV3Key:       req.APIV3Key,
-		PrivateKey:     req.PrivateKey,
-		NotifyURL:      strings.TrimRight(req.NotifyURL, "/"),
-		Enable:         req.Enable,
-		Description:    req.Description,
+		TenantID:        req.TenantID,
+		WechatConfigID:  req.WechatConfigID,
+		AppID:           req.AppID,
+		MchID:           req.MchID,
+		MchSerialNo:     req.MchSerialNo,
+		APIV3Key:        req.APIV3Key,
+		PrivateKey:      req.PrivateKey,
+		NotifyURL:       strings.TrimRight(req.NotifyURL, "/"),
+		RefundNotifyURL: strings.TrimRight(req.RefundNotifyURL, "/"),
+		Enable:          req.Enable,
+		Description:     req.Description,
 	})
 	if err != nil {
 		return &PayConfigResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
@@ -117,6 +119,7 @@ func UpdateWechatPayConfig(c *gin.Context, req *PayConfigInfo) (*PayConfigRespon
 	current.APIV3Key = req.APIV3Key
 	current.PrivateKey = req.PrivateKey
 	current.NotifyURL = strings.TrimRight(req.NotifyURL, "/")
+	current.RefundNotifyURL = strings.TrimRight(req.RefundNotifyURL, "/")
 	current.Enable = req.Enable
 	current.Description = req.Description
 	if err := wechatpay.UpdatePayConfig(current); err != nil {
@@ -220,15 +223,16 @@ func validatePayPrivateKey(pem string) error {
 // payConfigToInfo 模型转 VO,APIv3Key 与私钥永不回传前端。
 func payConfigToInfo(cfg *wechatpay.PayConfig) *PayConfigInfo {
 	return &PayConfigInfo{
-		ID:             cfg.ID,
-		TenantID:       cfg.TenantID,
-		WechatConfigID: cfg.WechatConfigID,
-		AppID:          cfg.AppID,
-		MchID:          cfg.MchID,
-		MchSerialNo:    cfg.MchSerialNo,
-		NotifyURL:      cfg.NotifyURL,
-		Enable:         cfg.Enable,
-		Description:    cfg.Description,
+		ID:              cfg.ID,
+		TenantID:        cfg.TenantID,
+		WechatConfigID:  cfg.WechatConfigID,
+		AppID:           cfg.AppID,
+		MchID:           cfg.MchID,
+		MchSerialNo:     cfg.MchSerialNo,
+		NotifyURL:       cfg.NotifyURL,
+		RefundNotifyURL: cfg.RefundNotifyURL,
+		Enable:          cfg.Enable,
+		Description:     cfg.Description,
 	}
 }
 

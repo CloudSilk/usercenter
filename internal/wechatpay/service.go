@@ -321,12 +321,16 @@ func ApplyRefund(ctx context.Context, in ApplyRefundInput) (*PayRefund, error) {
 	if err != nil {
 		return nil, err
 	}
+	refundNotifyURL := cfg.RefundNotifyURL
+	if refundNotifyURL == "" {
+		refundNotifyURL = cfg.NotifyURL // 未配置独立退款回调时复用支付回调
+	}
 	result, err := api.Refund(ctx, RefundInput{
 		MchID:           cfg.MchID,
 		OutTradeNo:      order.OutTradeNo,
 		OutRefundNo:     outRefundNo,
 		Reason:          in.Reason,
-		NotifyURL:       cfg.NotifyURL,
+		NotifyURL:       refundNotifyURL,
 		RefundAmountFen: in.RefundAmount,
 		TotalFen:        order.Amount,
 	})
