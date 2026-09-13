@@ -200,6 +200,8 @@ definitions:
         $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/wechatpay.LoopStatus'
+      message:
+        type: string
     type: object
   http.MiniLoginRequest:
     properties:

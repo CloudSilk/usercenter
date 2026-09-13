@@ -19,6 +19,7 @@ import (
 	"github.com/CloudSilk/pkg/db"
 	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/store"
+	"github.com/CloudSilk/usercenter/internal/systemconfig"
 	"github.com/CloudSilk/usercenter/internal/wechatconfig"
 	glebsqlite "github.com/glebarez/sqlite"
 	"github.com/wechatpay-apiv3/wechatpay-go/utils"
@@ -103,7 +104,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	if err := gdb.AutoMigrate(&wechatconfig.WechatConfig{}, &PayConfig{}, &PayOrder{}, &PayRefund{}, &BillFile{}); err != nil {
+	if err := gdb.AutoMigrate(&wechatconfig.WechatConfig{}, &PayConfig{}, &PayOrder{}, &PayRefund{}, &BillFile{}, &systemconfig.SystemConfig{}); err != nil {
 		panic(err)
 	}
 	store.SetDB(db.NewDBClient(gdb, false))
@@ -2022,5 +2023,49 @@ func TestReconcileSettersClamp(t *testing.T) {
 	SetBillRetentionDays(3)
 	if BillRetentionDays != 7 {
 		t.Fatalf("expected retention clamped to 7, got %d", BillRetentionDays)
+	}
+}
+
+func TestStatsConfigPersistence(t *testing.T) {
+	// 保存快照 → 修改运行时参数 → 应用快照 → 参数恢复
+	old := GetLoopStatus()
+	defer func() {
+		SetReconcileScanAge(old.ScanAgeMinutes)
+		SetReconcileBatchSize(old.BatchSize)
+		SetReconcileAlertAge(old.AlertAgeHours)
+		SetReconcileAlertSilence(int(old.IntervalSeconds))
+		SetBillRetentionDays(old.BillRetentionDays)
+	}()
+
+	snap := StatsConfigSnapshot{
+		IntervalSeconds: 120, ScanAgeMinutes: 15, BatchSize: 50,
+		AlertAgeHours: 12, AlertSilenceMinutes: 30, BillRetentionDays: 45,
+	}
+	if err := SaveStatsConfigSnapshot(snap); err != nil {
+		t.Fatalf("save snapshot: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&systemconfig.SystemConfig{}, "`key` = ?", statsConfigKey).Error
+	})
+
+	// 把运行参数改乱
+	SetReconcileScanAge(7)
+	SetReconcileBatchSize(999)
+	// 应用持久化快照 → 运行参数恢复
+	if err := ApplyPersistedStatsConfig(); err != nil {
+		t.Fatalf("ApplyPersistedStatsConfig: %v", err)
+	}
+	status := GetLoopStatus()
+	if status.IntervalSeconds != 120 || status.ScanAgeMinutes != 15 || status.BatchSize != 50 ||
+		status.AlertAgeHours != 12 || status.BillRetentionDays != 45 {
+		t.Fatalf("parameters not restored: %+v", status)
+	}
+
+	// 无快照场景:清库后 Apply 为无操作且不报错
+	if err := store.DB().Unscoped().Delete(&systemconfig.SystemConfig{}, "`key` = ?", statsConfigKey).Error; err != nil {
+		t.Fatalf("cleanup snapshot: %v", err)
+	}
+	if err := ApplyPersistedStatsConfig(); err != nil {
+		t.Fatalf("apply without snapshot should be no-op: %v", err)
 	}
 }

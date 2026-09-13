@@ -4554,6 +4554,9 @@ const docTemplate = `{
                 },
                 "data": {
                     "$ref": "#/definitions/wechatpay.LoopStatus"
+                },
+                "message": {
+                    "type": "string"
                 }
             }
         },

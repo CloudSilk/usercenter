@@ -725,8 +725,9 @@ func RegisterWechatBillRouter(r *gin.Engine) {
 
 // LoopStatusResponse 对账循环状态响应。
 type LoopStatusResponse struct {
-	Code apipb.Code            `json:"code"`
-	Data *wechatpay.LoopStatus `json:"data,omitempty"`
+	Code    apipb.Code            `json:"code"`
+	Message string                `json:"message,omitempty"`
+	Data    *wechatpay.LoopStatus `json:"data,omitempty"`
 }
 
 // GetWechatPayLoopStatus 查询对账循环运行状态与参数。
@@ -820,6 +821,11 @@ func UpdateWechatPayStatsConfig(c *gin.Context, req *UpdatePayStatsConfigRequest
 	if req.BillRetentionDays != nil {
 		wechatpay.SetBillRetentionDays(*req.BillRetentionDays)
 	}
+	// 持久化当前生效参数:重启后仍优先于 Nacos 基线生效
 	status := wechatpay.GetLoopStatus()
-	return &LoopStatusResponse{Code: apipb.Code_Success, Data: &status}, nil
+	resp := &LoopStatusResponse{Code: apipb.Code_Success, Data: &status}
+	if err := wechatpay.SaveStatsConfigSnapshot(wechatpay.SnapshotFromLoopStatus(status)); err != nil {
+		resp.Message = "参数已生效但持久化失败: " + err.Error()
+	}
+	return resp, nil
 }

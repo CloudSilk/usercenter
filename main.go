@@ -113,6 +113,10 @@ func main() {
 			time.Duration(wpCfg.ReconcileAlertAgeHours)*time.Hour,
 			time.Duration(wpCfg.ReconcileAlertSilenceMinutes)*time.Minute,
 		)
+		// 管理端运行时调整过的参数持久化在 DB,重启后优先于 Nacos 基线生效
+		if err := wechatpay.ApplyPersistedStatsConfig(); err != nil {
+			fmt.Printf("[main] 读取对账参数持久化快照失败: %v\n", err)
+		}
 		wechatpay.StartReconcileLoop()
 	}
 	// 每日对账日报推送(默认启用,随对账循环 tick 触发)
