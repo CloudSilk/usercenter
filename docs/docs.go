@@ -3264,6 +3264,12 @@ const docTemplate = `{
                         "name": "billDate",
                         "in": "query",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "账单类型 ALL/SUCCESS/REFUND,默认 ALL",
+                        "name": "billType",
+                        "in": "query"
                     }
                 ],
                 "responses": {

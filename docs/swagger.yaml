@@ -3752,6 +3752,10 @@ paths:
         name: billDate
         required: true
         type: string
+      - description: 账单类型 ALL/SUCCESS/REFUND,默认 ALL
+        in: query
+        name: billType
+        type: string
       responses:
         "200":
           description: OK

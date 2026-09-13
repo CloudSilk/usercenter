@@ -698,9 +698,33 @@ func ListCreatedTradeNosByAge(tenantID string, before time.Time, limit int) ([]s
 	return nos, err
 }
 
-// GetTradeBill 下载指定商户配置在 billDate(YYYY-MM-DD)的交易账单 CSV。
-// 微信侧账单 T+1 生成,当日/未来日期直接拒绝;tenantID 为空表示平台侧操作。
-func GetTradeBill(ctx context.Context, tenantID, configID, billDate string) ([]byte, error) {
+// 账单类型:所有流水/仅成功/仅退款。
+const (
+	BillTypeAll     = "ALL"
+	BillTypeSuccess = "SUCCESS"
+	BillTypeRefund  = "REFUND"
+)
+
+// normalizeBillType 归一化账单类型:空默认 ALL,非法值报错。
+func normalizeBillType(billType string) (string, error) {
+	if billType == "" {
+		return BillTypeAll, nil
+	}
+	switch billType {
+	case BillTypeAll, BillTypeSuccess, BillTypeRefund:
+		return billType, nil
+	}
+	return "", errors.New("非法账单类型: " + billType)
+}
+
+// GetTradeBill 下载指定商户配置在 billDate(YYYY-MM-DD)、指定类型(billType: ALL/SUCCESS/REFUND,
+// 留空 ALL)的交易账单 CSV。微信侧账单 T+1 生成,当日/未来日期直接拒绝;
+// tenantID 为空表示平台侧操作。
+func GetTradeBill(ctx context.Context, tenantID, configID, billDate, billType string) ([]byte, error) {
+	billType, err := normalizeBillType(billType)
+	if err != nil {
+		return nil, err
+	}
 	d, err := time.ParseInLocation("2006-01-02", billDate, time.Local)
 	if err != nil {
 		return nil, errors.New("账单日期格式应为 YYYY-MM-DD")
@@ -720,5 +744,5 @@ func GetTradeBill(ctx context.Context, tenantID, configID, billDate string) ([]b
 	if err != nil {
 		return nil, err
 	}
-	return api.DownloadTradeBill(ctx, billDate)
+	return api.DownloadTradeBill(ctx, billDate, billType)
 }

@@ -1379,3 +1379,22 @@ make gen-doc                   # 重新生成并提交 docs/
 原理:`cmd/doccheck` 就地运行 `swag init --parseDependency --parseInternal --parseDepth 2`,
 再用 `git diff --exit-code -- docs/` 检测再生成差异;有差异即文档过期,退出码 1。
 
+
+### 17.11 微信交易账单下载
+
+下载微信侧生成的交易账单(商户对账凭证),两步实现:
+先签名申请账单拿到 `download_url`,再下载 gzip 压缩包并解压,以 CSV 附件返回。
+
+```bash
+curl "/api/core/wechat/pay/order/trade-bill?configID=<商户配置ID>&billDate=2026-09-12&billType=ALL" \
+     -H "Authorization: Bearer <TOKEN>" -o trade_bill.csv
+```
+
+| 参数 | 说明 |
+|------|------|
+| `configID` | 商户配置ID(17.2 创建) |
+| `billDate` | 账单日期(YYYY-MM-DD),**仅可申请昨日及更早**(账单 T+1 生成) |
+| `billType` | `ALL` 所有流水(默认)/`SUCCESS` 仅成功订单/`REFUND` 仅退款 |
+
+错误(日期非法、越权、微信侧无账单等)以 `{"code":..., "message":...}` JSON 返回。
+账单为商户号粒度:同一商户配置下多应用共享账单。

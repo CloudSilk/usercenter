@@ -89,7 +89,7 @@ func (f *fakePayAPI) ParseNotify(req *http.Request) (*NotifyContent, error) { //
 	return f.notify, nil
 }
 
-func (f *fakePayAPI) DownloadTradeBill(ctx context.Context, billDate string) ([]byte, error) { // nolint:revive
+func (f *fakePayAPI) DownloadTradeBill(ctx context.Context, billDate, billType string) ([]byte, error) { // nolint:revive
 	if f.billErr != nil {
 		return nil, f.billErr
 	}
@@ -1743,7 +1743,7 @@ func TestGetTradeBill(t *testing.T) {
 	fakeAPI.billCSV = []byte("交易时间,交易金额\n2026-09-12 10:00:00,100\n总收款,100\n")
 
 	// 正常下载
-	csvData, err := GetTradeBill(context.Background(), tenant, cfg.ID, yesterday)
+	csvData, err := GetTradeBill(context.Background(), tenant, cfg.ID, yesterday, "")
 	if err != nil {
 		t.Fatalf("GetTradeBill: %v", err)
 	}
@@ -1752,18 +1752,23 @@ func TestGetTradeBill(t *testing.T) {
 	}
 
 	// 当日/未来日期拒绝
-	if _, err := GetTradeBill(context.Background(), tenant, cfg.ID, time.Now().Format("2006-01-02")); err == nil {
+	if _, err := GetTradeBill(context.Background(), tenant, cfg.ID, time.Now().Format("2006-01-02"), ""); err == nil {
 		t.Fatal("expected today rejection")
 	}
-	if _, err := GetTradeBill(context.Background(), tenant, cfg.ID, "not-a-date"); err == nil {
+	if _, err := GetTradeBill(context.Background(), tenant, cfg.ID, "not-a-date", ""); err == nil {
 		t.Fatal("expected invalid date rejection")
 	}
 	// 租户隔离
-	if _, err := GetTradeBill(context.Background(), "other-tenant", cfg.ID, yesterday); err != ErrOrderNotOwned {
+	if _, err := GetTradeBill(context.Background(), "other-tenant", cfg.ID, yesterday, ""); err != ErrOrderNotOwned {
 		t.Fatalf("expected ErrOrderNotOwned, got %v", err)
 	}
 	// 平台侧(空租户)可下载
-	if _, err := GetTradeBill(context.Background(), "", cfg.ID, yesterday); err != nil {
+	if _, err := GetTradeBill(context.Background(), "", cfg.ID, yesterday, BillTypeRefund); err != nil {
 		t.Fatalf("platform download: %v", err)
+	}
+	// 非法账单类型拒绝
+	if _, err := GetTradeBill(context.Background(), tenant, cfg.ID, yesterday, "HACKED"); err == nil ||
+		!strings.Contains(err.Error(), "非法账单类型") {
+		t.Fatalf("expected invalid billType rejection, got %v", err)
 	}
 }

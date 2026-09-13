@@ -565,6 +565,8 @@ type TradeBillQueryRequest struct {
 	ConfigID string `form:"configID" binding:"required"`
 	// BillDate 账单日期(YYYY-MM-DD),仅可申请昨日及更早。
 	BillDate string `form:"billDate" binding:"required"`
+	// BillType 账单类型 ALL(所有)/SUCCESS(成功)/REFUND(退款),留空 ALL。
+	BillType string `form:"billType" binding:"omitempty,oneof=ALL SUCCESS REFUND"`
 }
 
 // TradeBill 交易账单下载:申请微信侧交易账单并流式返回解压后的 CSV。
@@ -574,6 +576,7 @@ type TradeBillQueryRequest struct {
 //	@Param authorization header string true "jwt token"
 //	@Param configID query string true "商户配置ID"
 //	@Param billDate query string true "账单日期(YYYY-MM-DD,仅昨日及更早)"
+//	@Param billType query string false "账单类型 ALL/SUCCESS/REFUND,默认 ALL"
 //	@Success 200 {string} string
 //	@Router /api/core/wechat/pay/order/trade-bill [get]
 func TradeBill(c *gin.Context) {
@@ -583,7 +586,7 @@ func TradeBill(c *gin.Context) {
 		return
 	}
 	csvData, err := wechatpay.GetTradeBill(c.Request.Context(),
-		middleware.GetTenantID(c), req.ConfigID, req.BillDate)
+		middleware.GetTenantID(c), req.ConfigID, req.BillDate, req.BillType)
 	if err != nil {
 		c.JSON(http.StatusOK, &PayOrderAdminQueryResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
 		return

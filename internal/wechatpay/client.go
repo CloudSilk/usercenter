@@ -105,8 +105,9 @@ type PayAPI interface {
 	Refund(ctx context.Context, in RefundInput) (*RefundResult, error)
 	QueryRefund(ctx context.Context, outRefundNo string) (*RefundResult, error)
 	ParseNotify(req *http.Request) (*NotifyContent, error)
-	// DownloadTradeBill 下载指定日期(YYYY-MM-DD)的交易账单,返回解压后的 CSV 内容。
-	DownloadTradeBill(ctx context.Context, billDate string) ([]byte, error)
+	// DownloadTradeBill 下载指定日期(YYYY-MM-DD)、指定类型(billType: ALL/SUCCESS/REFUND)
+	// 的交易账单,返回解压后的 CSV 内容。
+	DownloadTradeBill(ctx context.Context, billDate, billType string) ([]byte, error)
 }
 
 func derefString(p *string) string {
@@ -244,9 +245,9 @@ var billHTTPClient = &http.Client{Timeout: 60 * time.Second}
 
 // DownloadTradeBill 交易账单两步下载:先申请账单拿到 download_url(请求自动签名),
 // 再下载 gzip 压缩包并解压,返回账单 CSV 内容(含汇总行)。
-func (p *sdkPayAPI) DownloadTradeBill(ctx context.Context, billDate string) ([]byte, error) {
+func (p *sdkPayAPI) DownloadTradeBill(ctx context.Context, billDate, billType string) ([]byte, error) {
 	requestURL := consts.WechatPayAPIServer + "/v3/bill/trade-bill?bill_date=" +
-		url.QueryEscape(billDate) + "&bill_type=ALL"
+		url.QueryEscape(billDate) + "&bill_type=" + url.QueryEscape(billType)
 	result, err := p.client.Get(ctx, requestURL)
 	if err != nil {
 		return nil, fmt.Errorf("申请交易账单失败: %w", err)
