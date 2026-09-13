@@ -109,7 +109,10 @@ func GetSocialProviders() []string {
 // state 短期缓存（防 CSRF，10 分钟）。
 var socialStates = newSocialStateCache()
 
-type stateEntry struct{ redirect string; expire time.Time }
+type stateEntry struct {
+	redirect string
+	expire   time.Time
+}
 
 type socialStateCache struct {
 	mu sync.Mutex

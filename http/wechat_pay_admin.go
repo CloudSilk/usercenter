@@ -636,3 +636,86 @@ func TradeBillRange(c *gin.Context) {
 	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
 	c.Data(http.StatusOK, "text/csv; charset=utf-8", csvData)
 }
+
+// BillFileQueryRequest 已归档账单查询请求。
+type BillFileQueryRequest struct {
+	// ConfigID 商户配置ID,留空查全部(平台侧)。
+	ConfigID string `form:"configID"`
+	// Days 查询最近 N 天,默认 30,范围 1-365。
+	Days     int    `form:"days" binding:"omitempty,gt=0,lte=365"`
+	TenantID string `form:"tenantID"`
+}
+
+// BillFileItem 账单元数据视图(不含内容)。
+type BillFileItem struct {
+	ID       string `json:"id"`
+	TenantID string `json:"tenantID"`
+	ConfigID string `json:"configID"`
+	BillDate string `json:"billDate"`
+	BillType string `json:"billType"`
+}
+
+// BillFileListResponse 已归档账单列表响应。
+type BillFileListResponse struct {
+	Code    apipb.Code      `json:"code"`
+	Message string          `json:"message,omitempty"`
+	Data    []*BillFileItem `json:"data,omitempty"`
+}
+
+// QueryWechatBillFiles 分页列出已归档的交易账单(元数据)。
+//
+//	@Summary 已归档交易账单列表
+//	@Tags 微信支付订单管理
+//	@Param authorization header string true "jwt token"
+//	@Param configID query string false "商户配置ID"
+//	@Param days query int false "最近 N 天,默认 30"
+//	@Success 200 {object} BillFileListResponse
+//	@Router /api/core/wechat/pay/bill/list [get]
+func QueryWechatBillFiles(c *gin.Context, req *BillFileQueryRequest) (*BillFileListResponse, error) {
+	resp := &BillFileListResponse{Code: apipb.Code_Success, Data: []*BillFileItem{}}
+	list, err := wechatpay.ListBillFiles(req.TenantID, req.ConfigID, req.Days)
+	if err != nil {
+		resp.Code = apipb.Code_InternalServerError
+		resp.Message = err.Error()
+		return resp, nil
+	}
+	for _, b := range list {
+		resp.Data = append(resp.Data, &BillFileItem{
+			ID: b.ID, TenantID: b.TenantID, ConfigID: b.ConfigID,
+			BillDate: b.BillDate, BillType: b.BillType,
+		})
+	}
+	return resp, nil
+}
+
+// DownloadWechatBillFile 下载已归档的交易账单 CSV。
+//
+//	@Summary 下载已归档交易账单
+//	@Tags 微信支付订单管理
+//	@Param authorization header string true "jwt token"
+//	@Param id query string true "账单ID"
+//	@Success 200 {string} string
+//	@Router /api/core/wechat/pay/bill/download [get]
+func DownloadWechatBillFile(c *gin.Context) {
+	id := c.Query("id")
+	if id == "" {
+		c.JSON(http.StatusOK, &BillFileListResponse{Code: apipb.Code_BadRequest, Message: "id不能为空"})
+		return
+	}
+	bill, err := wechatpay.GetBillFileByID(id)
+	if err != nil {
+		c.JSON(http.StatusOK, &BillFileListResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
+		return
+	}
+	filename := "trade_bill_" + bill.BillDate + "_" + bill.BillType + ".csv"
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", bill.Content)
+}
+
+// RegisterWechatBillRouter 挂载已归档账单端点。
+func RegisterWechatBillRouter(r *gin.Engine) {
+	g := r.Group("/api/core/wechat/pay/bill")
+	g.GET("list", AutoQueryHandler(QueryWechatBillFiles))
+	g.GET("download", DownloadWechatBillFile)
+}

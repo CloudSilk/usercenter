@@ -339,3 +339,69 @@ func QueryRefundReasonTrend(tenantID string, months int) ([]*RefundReasonTrendPo
 	}
 	return result, nil
 }
+
+// --- 每日账单任务化下载:自动拉取昨日账单入库,管理端可离线查询/下载 ---
+
+var (
+	// BillDownloadEnabled 是否启用每日账单自动下载,默认启用。
+	BillDownloadEnabled = true
+	// billDownloadLastDate 进程内按日去重。
+	billDownloadLastDate string
+)
+
+// maybeDownloadDailyBills 对账循环 tick 时调用:到达下载时刻(日报时刻+1 小时)且当日未执行,
+// 为每个启用中的商户配置下载昨日账单(ALL)入库;已存在的账单自动跳过。
+// 单配置失败推送告警并写审计,不中断其他配置。
+func maybeDownloadDailyBills(ctx context.Context, now time.Time) {
+	if !BillDownloadEnabled || now.Hour() < DailyReportHour+1 {
+		return
+	}
+	today := now.Format("2006-01-02")
+	if billDownloadLastDate == today {
+		return
+	}
+	billDownloadLastDate = today
+	billDate := now.AddDate(0, 0, -1).Format("2006-01-02")
+
+	configs, err := ListEnabledPayConfigs()
+	if err != nil {
+		log.Errorf(ctx, "账单任务化下载获取配置失败:%v", err)
+		return
+	}
+	failed := 0
+	for i := range configs {
+		cfg := configs[i]
+		api, err := GetPayAPI(cfg)
+		if err != nil {
+			failed++
+			log.Errorf(ctx, "账单下载初始化客户端失败(租户 %s):%v", cfg.TenantID, err)
+			continue
+		}
+		csvData, err := api.DownloadTradeBill(ctx, billDate, BillTypeAll)
+		if err != nil {
+			failed++
+			log.Errorf(ctx, "账单下载失败(租户 %s, %s):%v", cfg.TenantID, billDate, err)
+			continue
+		}
+		if _, err := UpsertBillFile(&BillFile{
+			TenantID: cfg.TenantID, ConfigID: cfg.ID,
+			BillDate: billDate, BillType: BillTypeAll, Content: csvData,
+		}); err != nil {
+			failed++
+			log.Errorf(ctx, "账单入库失败(租户 %s):%v", cfg.TenantID, err)
+		}
+	}
+	if failed > 0 {
+		payload := map[string]any{"date": billDate, "failed": failed}
+		alertFire("pay_bill_download_failed", payload)
+		recordAlertAudit("pay_bill_download_failed", payload)
+	}
+	log.Infof(ctx, "每日账单任务完成(%s):配置 %d 个,失败 %d", billDate, len(configs), failed)
+}
+
+// ListEnabledPayConfigs 取所有启用中的商户配置。
+func ListEnabledPayConfigs() ([]*PayConfig, error) {
+	var list []*PayConfig
+	err := store.DB().Where("enable = ?", true).Find(&list).Error
+	return list, err
+}

@@ -103,7 +103,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	if err := gdb.AutoMigrate(&wechatconfig.WechatConfig{}, &PayConfig{}, &PayOrder{}, &PayRefund{}); err != nil {
+	if err := gdb.AutoMigrate(&wechatconfig.WechatConfig{}, &PayConfig{}, &PayOrder{}, &PayRefund{}, &BillFile{}); err != nil {
 		panic(err)
 	}
 	store.SetDB(db.NewDBClient(gdb, false))
@@ -1836,5 +1836,70 @@ func TestGetTradeBillRange(t *testing.T) {
 	if _, err := GetTradeBillRange(context.Background(), "other-tenant", "admin-1", cfg.ID,
 		start.Format("2006-01-02"), end.Format("2006-01-02"), ""); err != ErrOrderNotOwned {
 		t.Fatalf("expected ErrOrderNotOwned, got %v", err)
+	}
+}
+
+func TestMaybeDownloadDailyBills(t *testing.T) {
+	const tenant = "wp-bill-task"
+	setupApp(t, tenant)
+	oldEnabled, oldHour := DailyReportEnabled, DailyReportHour
+	defer func() {
+		DailyReportEnabled, DailyReportHour = oldEnabled, oldHour
+	}()
+	billDownloadLastDate = ""
+	fakeAPI.billCSV = []byte("fake,bill\n1,100\n")
+	billErr := errors.New("bill api down")
+
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.Local) // 固定 12 点,越过任何下载时刻
+	DailyReportHour = 0                                    // 下载时刻 = 1 点,now 必然越过
+
+	// 触发下载:每个启用配置入库昨日账单
+	maybeDownloadDailyBills(context.Background(), now)
+	billDate := now.AddDate(0, 0, -1).Format("2006-01-02")
+	var stored BillFile
+	if err := store.DB().Where("tenant_id = ?", tenant).First(&stored).Error; err != nil {
+		t.Fatalf("expected archived bill, got %v", err)
+	}
+	if stored.BillDate != billDate || stored.BillType != BillTypeAll {
+		t.Fatalf("unexpected bill: %+v", stored)
+	}
+
+	// 同日去重:再触发不新增(即便此时改 billErr 也不产生新告警)
+	before := time.Now()
+	maybeDownloadDailyBills(context.Background(), now)
+	if got := time.Since(before); got > time.Second {
+		t.Fatalf("duplicate trigger took too long: %v", got)
+	}
+
+	// 失败场景:新的一天,下载报错 → 告警事件
+	billDownloadLastDate = ""
+	fakeAPI.billErr = billErr
+	defer func() { fakeAPI.billErr = nil }()
+	getEvents, restoreAlerts := collectAlerts()
+	defer restoreAlerts()
+	getAudits, restoreAudits := collectAudits()
+	defer restoreAudits()
+	DailyReportHour = 0
+	nextDay := now.AddDate(0, 0, 1)
+	maybeDownloadDailyBills(context.Background(), nextDay)
+	events := getEvents()
+	found := false
+	for _, e := range events {
+		if e == "pay_bill_download_failed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected bill download failed alert, got %v", events)
+	}
+	audits := getAudits()
+	found = false
+	for _, a := range audits {
+		if a.Action == "pay_bill_download_failed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected bill download failed audit")
 	}
 }

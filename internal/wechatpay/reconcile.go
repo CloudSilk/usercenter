@@ -133,6 +133,7 @@ func StartReconcileLoop() {
 					log.Infof(ctx, "支付订单对账完成:同步 %d 笔", n)
 				}
 				maybePushDailyReport(ctx, time.Now())
+				maybeDownloadDailyBills(ctx, time.Now())
 			case <-stop:
 				return
 			}

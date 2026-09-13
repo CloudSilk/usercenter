@@ -39,7 +39,7 @@ import (
 // 鉴权：由调用方中间件负责（已写入 Principal）；本 handler 仅消费 tenantID/principal。
 
 const (
-	gatewayCooldownOn429    = 5 * time.Minute
+	gatewayCooldownOn429     = 5 * time.Minute
 	defaultGatewayUpstreamTO = 120 * time.Second
 )
 

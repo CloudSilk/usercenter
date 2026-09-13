@@ -56,9 +56,9 @@ type authCode struct {
 }
 
 var (
-	authCodeMu      sync.Mutex
-	authCodeStore   = map[string]*authCode{}
-	refreshTokenMu  sync.Mutex
+	authCodeMu     sync.Mutex
+	authCodeStore  = map[string]*authCode{}
+	refreshTokenMu sync.Mutex
 )
 
 func issueAuthCode(clientID, redirectURI, scope string, user *apipb.CurrentUser, challenge, method, nonce string) string {

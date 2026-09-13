@@ -468,3 +468,58 @@ func ListRefundsByOutTradeNo(outTradeNo string) ([]*PayRefund, error) {
 	err := store.DB().Where("out_trade_no = ?", outTradeNo).Order("created_at DESC").Find(&list).Error
 	return list, err
 }
+
+// BillFile 已持久化的微信交易账单(按 配置+日期+类型 唯一)。
+type BillFile struct {
+	commonmodel.Model
+	TenantID string `json:"tenantID" gorm:"size:36;index"`
+	ConfigID string `json:"configID" gorm:"size:36;uniqueIndex:bill_uidx"`
+	BillDate string `json:"billDate" gorm:"size:10;uniqueIndex:bill_uidx"`
+	BillType string `gorm:"size:16;uniqueIndex:bill_uidx;comment:ALL/SUCCESS/REFUND"`
+	Content  []byte `gorm:"type:mediumblob;comment:账单CSV内容"`
+}
+
+// UpsertBillFile 幂等保存账单:同 配置+日期+类型 已存在则跳过,返回是否新写入。
+func UpsertBillFile(m *BillFile) (bool, error) {
+	var exist BillFile
+	err := store.DB().Where("config_id = ? AND bill_date = ? AND bill_type = ?",
+		m.ConfigID, m.BillDate, m.BillType).First(&exist).Error
+	if err == nil {
+		return false, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, err
+	}
+	if err := store.DB().Create(m).Error; err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// GetBillFileByID 按ID取账单(含内容)。
+func GetBillFileByID(id string) (*BillFile, error) {
+	m := &BillFile{}
+	err := store.DB().Where("id = ?", id).First(m).Error
+	return m, err
+}
+
+// ListBillFiles 列出某配置最近 days 天的账单元数据(不含内容)。
+func ListBillFiles(tenantID, configID string, days int) ([]*BillFile, error) {
+	if days <= 0 {
+		days = 30
+	}
+	if days > 365 {
+		days = 365
+	}
+	start := time.Now().AddDate(0, 0, -days)
+	db := store.DB().Model(&BillFile{}).Where("created_at >= ?", start)
+	if configID != "" {
+		db = db.Where("config_id = ?", configID)
+	}
+	if tenantID != "" {
+		db = db.Where("tenant_id = ?", tenantID)
+	}
+	var list []*BillFile
+	err := db.Omit("content").Order("bill_date DESC").Find(&list).Error
+	return list, err
+}
