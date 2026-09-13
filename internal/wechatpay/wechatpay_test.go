@@ -24,20 +24,21 @@ import (
 
 // fakePayAPI 可编程的上游接口测试替身。
 type fakePayAPI struct {
-	prepayCalls  int
-	prepayParams *PayParams
-	prepayErr    error
-	lastPrepay   *PrepayInput
-	queryResult  *TransactionResult
-	queryErr     error
-	closeCalls   int
-	closeErr     error
-	refundResult *RefundResult
-	refundErr    error
-	lastRefund   *RefundInput
-	refundStatus string // 查退款单返回的状态
-	notify       *NotifyContent
-	notifyErr    error
+	prepayCalls    int
+	prepayParams   *PayParams
+	prepayErr      error
+	lastPrepay     *PrepayInput
+	queryResult    *TransactionResult
+	queryErr       error
+	closeCalls     int
+	closeErr       error
+	refundResult   *RefundResult
+	refundErr      error
+	lastRefund     *RefundInput
+	refundStatus   string                        // 查退款单返回的状态
+	queryByTradeNo map[string]*TransactionResult // 按订单号定制的查单结果,优先于 queryResult
+	notify         *NotifyContent
+	notifyErr      error
 }
 
 func (f *fakePayAPI) Prepay(ctx context.Context, in PrepayInput) (*PayParams, error) {
@@ -50,6 +51,9 @@ func (f *fakePayAPI) Prepay(ctx context.Context, in PrepayInput) (*PayParams, er
 }
 
 func (f *fakePayAPI) Query(ctx context.Context, mchID, outTradeNo string) (*TransactionResult, error) {
+	if result, ok := f.queryByTradeNo[outTradeNo]; ok {
+		return result, nil
+	}
 	if f.queryErr != nil {
 		return nil, f.queryErr
 	}
@@ -706,6 +710,89 @@ func TestListUserOrders(t *testing.T) {
 	}
 	if _, err := ListUserOrders(tenant, "", "", 1, 10); err == nil {
 		t.Fatal("expected missing user error")
+	}
+}
+
+// ageOrder 把订单的 created_at 改旧,模拟"超时未收到回调"。
+func ageOrder(t *testing.T, id string) {
+	t.Helper()
+	if err := store.DB().Model(&PayOrder{}).Where("id = ?", id).
+		Update("created_at", time.Now().Add(-10*time.Minute)).Error; err != nil {
+		t.Fatalf("age order: %v", err)
+	}
+}
+
+func TestReconcileStaleOrders(t *testing.T) {
+	const tenant = "wp-reconcile-1"
+	app := setupApp(t, tenant)
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		t.Fatalf("get wechat config: %v", err)
+	}
+	makeOrder := func(suffix string) *PayOrder {
+		t.Helper()
+		order := &PayOrder{
+			TenantID: tenant, UserID: "user-1", WechatConfigID: wc.ID, AppID: "wx", MchID: "mch",
+			OutTradeNo: "reconcile-" + suffix, Amount: 100, Status: PayOrderCreated,
+		}
+		if _, err := CreatePayOrder(order); err != nil {
+			t.Fatalf("create order: %v", err)
+		}
+		return order
+	}
+	paid := makeOrder("paid")
+	closed := makeOrder("closed")
+	notpay := makeOrder("notpay")
+	expired := makeOrder("expired")
+	fresh := makeOrder("fresh")
+	for _, o := range []*PayOrder{paid, closed, notpay, expired} {
+		ageOrder(t, o.ID)
+	}
+	// expired 订单设置已过期的失效时间
+	expiredAt := time.Now().Add(-time.Minute)
+	if err := store.DB().Model(&PayOrder{}).Where("id = ?", expired.ID).
+		Update("expire_at", expiredAt).Error; err != nil {
+		t.Fatalf("set expire_at: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&PayOrder{}, "tenant_id = ?", tenant).Error
+	})
+
+	fakeAPI.queryByTradeNo = map[string]*TransactionResult{
+		paid.OutTradeNo:    {TradeState: "SUCCESS", TransactionID: "tx-paid"},
+		closed.OutTradeNo:  {TradeState: "CLOSED", TradeStateDesc: "已关闭"},
+		notpay.OutTradeNo:  {TradeState: "NOTPAY"},
+		expired.OutTradeNo: {TradeState: "NOTPAY"},
+		fresh.OutTradeNo:   {TradeState: "NOTPAY"},
+	}
+
+	processed, err := ReconcileStaleOrders(context.Background())
+	if err != nil {
+		t.Fatalf("ReconcileStaleOrders: %v", err)
+	}
+	if processed != 4 {
+		t.Fatalf("expected 4 stale orders processed (fresh excluded), got %d", processed)
+	}
+
+	gotPaid, _ := GetPayOrderByOutTradeNo(paid.OutTradeNo)
+	if gotPaid.Status != PayOrderPaid || gotPaid.TransactionID != "tx-paid" {
+		t.Fatalf("expected paid order synced, got %#v", gotPaid)
+	}
+	gotClosed, _ := GetPayOrderByOutTradeNo(closed.OutTradeNo)
+	if gotClosed.Status != PayOrderClosed {
+		t.Fatalf("expected closed order, got %s", gotClosed.Status)
+	}
+	gotNotpay, _ := GetPayOrderByOutTradeNo(notpay.OutTradeNo)
+	if gotNotpay.Status != PayOrderCreated {
+		t.Fatalf("expected notpay order kept CREATED, got %s", gotNotpay.Status)
+	}
+	gotExpired, _ := GetPayOrderByOutTradeNo(expired.OutTradeNo)
+	if gotExpired.Status != PayOrderClosed || gotExpired.TradeStateDesc != "订单已过期" {
+		t.Fatalf("expected expired order closed, got %#v", gotExpired)
+	}
+	gotFresh, _ := GetPayOrderByOutTradeNo(fresh.OutTradeNo)
+	if gotFresh.Status != PayOrderCreated {
+		t.Fatalf("fresh order should not be reconciled, got %s", gotFresh.Status)
 	}
 }
 

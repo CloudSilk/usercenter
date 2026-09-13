@@ -210,8 +210,8 @@ func loadOrderWithOwnership(tenantID, userID, outTradeNo string) (*PayOrder, err
 	return order, nil
 }
 
-// SyncOrderStatus 查询订单状态;CREATED 订单先向微信侧查单对账,
-// 仍未支付且已过失效时间的订单做关单兜底。
+// SyncOrderStatus 查询订单状态;CREATED 订单复用对账逻辑:
+// 先向微信侧查单对账,仍未支付且已过失效时间则关单兜底。
 func SyncOrderStatus(ctx context.Context, tenantID, userID, outTradeNo string) (*PayOrder, error) {
 	order, err := loadOrderWithOwnership(tenantID, userID, outTradeNo)
 	if err != nil {
@@ -228,19 +228,7 @@ func SyncOrderStatus(ctx context.Context, tenantID, userID, outTradeNo string) (
 	if err != nil {
 		return order, nil
 	}
-	if tx, err := api.Query(ctx, cfg.MchID, outTradeNo); err == nil && tx != nil {
-		applyTransaction(order, tx)
-	}
-	// 过期兜底:远端确认未支付后本地关单(远端关单尽力而为)
-	if order.Status == PayOrderCreated && order.ExpireAt != nil && time.Now().After(*order.ExpireAt) {
-		_ = api.Close(ctx, cfg.MchID, outTradeNo)
-		if err := MarkOrderClosed(order.ID, "订单已过期"); err != nil {
-			log.Errorf(ctx, "订单 %s 过期关单失败:%v", outTradeNo, err)
-			return order, nil
-		}
-		order.Status = PayOrderClosed
-		order.TradeStateDesc = "订单已过期"
-	}
+	reconcileOrder(ctx, cfg.MchID, api, order)
 	return order, nil
 }
 
