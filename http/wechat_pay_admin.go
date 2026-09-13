@@ -178,6 +178,7 @@ func RegisterWechatPayOrderRouter(r *gin.Engine) {
 	g.GET("query", AutoQueryHandler(QueryWechatPayOrders))
 	g.GET("export", ExportWechatPayOrders)
 	g.POST("batch-close", AutoHandler(BatchCloseWechatOrders))
+	g.GET("trade-bill", TradeBill)
 	s := r.Group("/api/core/wechat/pay/stats")
 	s.GET("daily", AutoQueryHandler(QueryWechatPayDailyStats))
 	s.GET("refund-reason", AutoQueryHandler(QueryWechatRefundReasonStats))
@@ -556,4 +557,39 @@ func BatchCloseWechatOrders(c *gin.Context, req *BatchCloseOrdersRequest) (*Batc
 	}
 	resp.Data = result
 	return resp, nil
+}
+
+// TradeBillQueryRequest 交易账单下载请求。
+type TradeBillQueryRequest struct {
+	// ConfigID 商户配置ID。
+	ConfigID string `form:"configID" binding:"required"`
+	// BillDate 账单日期(YYYY-MM-DD),仅可申请昨日及更早。
+	BillDate string `form:"billDate" binding:"required"`
+}
+
+// TradeBill 交易账单下载:申请微信侧交易账单并流式返回解压后的 CSV。
+//
+//	@Summary 下载微信交易账单
+//	@Tags 微信支付订单管理
+//	@Param authorization header string true "jwt token"
+//	@Param configID query string true "商户配置ID"
+//	@Param billDate query string true "账单日期(YYYY-MM-DD,仅昨日及更早)"
+//	@Success 200 {string} string
+//	@Router /api/core/wechat/pay/order/trade-bill [get]
+func TradeBill(c *gin.Context) {
+	req := &TradeBillQueryRequest{}
+	if err := c.ShouldBindQuery(req); err != nil {
+		c.JSON(http.StatusOK, &PayOrderAdminQueryResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
+		return
+	}
+	csvData, err := wechatpay.GetTradeBill(c.Request.Context(),
+		middleware.GetTenantID(c), req.ConfigID, req.BillDate)
+	if err != nil {
+		c.JSON(http.StatusOK, &PayOrderAdminQueryResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
+		return
+	}
+	filename := "trade_bill_" + req.BillDate + "_" + req.ConfigID + ".csv"
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", csvData)
 }

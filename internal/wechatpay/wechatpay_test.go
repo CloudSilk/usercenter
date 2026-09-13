@@ -42,6 +42,8 @@ type fakePayAPI struct {
 	queryByTradeNo map[string]*TransactionResult // 按订单号定制的查单结果,优先于 queryResult
 	notify         *NotifyContent
 	notifyErr      error
+	billCSV        []byte // 交易账单下载返回内容
+	billErr        error
 }
 
 func (f *fakePayAPI) Prepay(ctx context.Context, in PrepayInput) (*PayParams, error) {
@@ -85,6 +87,13 @@ func (f *fakePayAPI) ParseNotify(req *http.Request) (*NotifyContent, error) { //
 		return nil, f.notifyErr
 	}
 	return f.notify, nil
+}
+
+func (f *fakePayAPI) DownloadTradeBill(ctx context.Context, billDate string) ([]byte, error) { // nolint:revive
+	if f.billErr != nil {
+		return nil, f.billErr
+	}
+	return f.billCSV, nil
 }
 
 var fakeAPI *fakePayAPI
@@ -1715,5 +1724,46 @@ func TestBatchCloseOrders(t *testing.T) {
 	}
 	if _, err := BatchCloseOrders(context.Background(), tenant, tooMany); err == nil {
 		t.Fatal("expected overflow error")
+	}
+}
+
+func TestGetTradeBill(t *testing.T) {
+	const tenant = "wp-trade-bill"
+	app := setupApp(t, tenant)
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		t.Fatalf("get wechat config: %v", err)
+	}
+	cfg, err := GetPayConfigByWechatConfigID(wc.ID)
+	if err != nil {
+		t.Fatalf("get pay config: %v", err)
+	}
+
+	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	fakeAPI.billCSV = []byte("交易时间,交易金额\n2026-09-12 10:00:00,100\n总收款,100\n")
+
+	// 正常下载
+	csvData, err := GetTradeBill(context.Background(), tenant, cfg.ID, yesterday)
+	if err != nil {
+		t.Fatalf("GetTradeBill: %v", err)
+	}
+	if !strings.Contains(string(csvData), "总收款") {
+		t.Fatalf("unexpected csv: %s", csvData)
+	}
+
+	// 当日/未来日期拒绝
+	if _, err := GetTradeBill(context.Background(), tenant, cfg.ID, time.Now().Format("2006-01-02")); err == nil {
+		t.Fatal("expected today rejection")
+	}
+	if _, err := GetTradeBill(context.Background(), tenant, cfg.ID, "not-a-date"); err == nil {
+		t.Fatal("expected invalid date rejection")
+	}
+	// 租户隔离
+	if _, err := GetTradeBill(context.Background(), "other-tenant", cfg.ID, yesterday); err != ErrOrderNotOwned {
+		t.Fatalf("expected ErrOrderNotOwned, got %v", err)
+	}
+	// 平台侧(空租户)可下载
+	if _, err := GetTradeBill(context.Background(), "", cfg.ID, yesterday); err != nil {
+		t.Fatalf("platform download: %v", err)
 	}
 }

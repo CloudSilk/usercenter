@@ -697,3 +697,28 @@ func ListCreatedTradeNosByAge(tenantID string, before time.Time, limit int) ([]s
 	err := db.Limit(limit).Order("created_at ASC").Pluck("out_trade_no", &nos).Error
 	return nos, err
 }
+
+// GetTradeBill 下载指定商户配置在 billDate(YYYY-MM-DD)的交易账单 CSV。
+// 微信侧账单 T+1 生成,当日/未来日期直接拒绝;tenantID 为空表示平台侧操作。
+func GetTradeBill(ctx context.Context, tenantID, configID, billDate string) ([]byte, error) {
+	d, err := time.ParseInLocation("2006-01-02", billDate, time.Local)
+	if err != nil {
+		return nil, errors.New("账单日期格式应为 YYYY-MM-DD")
+	}
+	today := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.Local)
+	if !d.Before(today) {
+		return nil, errors.New("交易账单仅可申请昨日及更早日期")
+	}
+	cfg, err := GetPayConfigByID(configID)
+	if err != nil {
+		return nil, fmt.Errorf("支付配置不存在")
+	}
+	if tenantID != "" && cfg.TenantID != tenantID {
+		return nil, ErrOrderNotOwned
+	}
+	api, err := GetPayAPI(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return api.DownloadTradeBill(ctx, billDate)
+}

@@ -1,16 +1,21 @@
 package wechatpay
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/wechatpay-apiv3/wechatpay-go/core"
 	"github.com/wechatpay-apiv3/wechatpay-go/core/auth/verifiers"
+	"github.com/wechatpay-apiv3/wechatpay-go/core/consts"
 	"github.com/wechatpay-apiv3/wechatpay-go/core/downloader"
 	"github.com/wechatpay-apiv3/wechatpay-go/core/notify"
 	"github.com/wechatpay-apiv3/wechatpay-go/core/option"
@@ -100,6 +105,8 @@ type PayAPI interface {
 	Refund(ctx context.Context, in RefundInput) (*RefundResult, error)
 	QueryRefund(ctx context.Context, outRefundNo string) (*RefundResult, error)
 	ParseNotify(req *http.Request) (*NotifyContent, error)
+	// DownloadTradeBill 下载指定日期(YYYY-MM-DD)的交易账单,返回解压后的 CSV 内容。
+	DownloadTradeBill(ctx context.Context, billDate string) ([]byte, error)
 }
 
 func derefString(p *string) string {
@@ -223,6 +230,56 @@ type notifyTransactionContent struct {
 	OutRefundNo  *string `json:"out_refund_no"`
 	RefundID     *string `json:"refund_id"`
 	RefundStatus *string `json:"refund_status"`
+}
+
+// tradeBillResp 申请账单接口的响应体。
+type tradeBillResp struct {
+	DownloadURL string `json:"download_url"`
+	HashType    string `json:"hash_type"`
+	HashValue   string `json:"hash_value"`
+}
+
+// billClient 下载账单压缩包使用的 HTTP 客户端(download_url 无需签名,可直接 GET)。
+var billHTTPClient = &http.Client{Timeout: 60 * time.Second}
+
+// DownloadTradeBill 交易账单两步下载:先申请账单拿到 download_url(请求自动签名),
+// 再下载 gzip 压缩包并解压,返回账单 CSV 内容(含汇总行)。
+func (p *sdkPayAPI) DownloadTradeBill(ctx context.Context, billDate string) ([]byte, error) {
+	requestURL := consts.WechatPayAPIServer + "/v3/bill/trade-bill?bill_date=" +
+		url.QueryEscape(billDate) + "&bill_type=ALL"
+	result, err := p.client.Get(ctx, requestURL)
+	if err != nil {
+		return nil, fmt.Errorf("申请交易账单失败: %w", err)
+	}
+	var bill tradeBillResp
+	if err := json.NewDecoder(result.Response.Body).Decode(&bill); err != nil {
+		return nil, fmt.Errorf("解析账单申请响应失败: %w", err)
+	}
+	if bill.DownloadURL == "" {
+		return nil, fmt.Errorf("账单申请响应缺少 download_url")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bill.DownloadURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := billHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("下载账单失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("下载账单失败: HTTP %d", resp.StatusCode)
+	}
+	gz, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("账单压缩包解压失败: %w", err)
+	}
+	defer gz.Close()
+	csv, err := io.ReadAll(gz)
+	if err != nil {
+		return nil, fmt.Errorf("读取账单内容失败: %w", err)
+	}
+	return csv, nil
 }
 
 func (p *sdkPayAPI) ParseNotify(req *http.Request) (*NotifyContent, error) {
