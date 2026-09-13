@@ -1245,6 +1245,9 @@ await request('GET', `/api/wechat/pay/order?outTradeNo=${res.data.outTradeNo}`)
 | `/api/wechat/pay/refund` | GET | 登录 | 查询自己订单的退款记录 |
 | `/api/wechat/notify/pay/:app` | POST | 公开 | 支付/退款结果回调 |
 | `/api/core/wechat/pay/order/query` | GET | 管理端 | 订单分页查询（租户/用户/商户号/状态/订单号） |
+| `/api/core/wechat/pay/order/export` | GET | 管理端 | 订单 CSV 导出（复用过滤条件，单次上限 5 万行，UTF-8 BOM） |
+| `/api/core/wechat/pay/stats/daily` | GET | 管理端 | 对账日报：按日聚合下单/支付/关单/退款 |
+| `/api/core/wechat/pay/stats/refund-reason` | GET | 管理端 | 退款原因类别统计（金额降序） |
 | `/api/core/wechat/pay/refund/apply` | POST | 管理端 | 退款申请 |
 | `/api/core/wechat/pay/refund/approve` | POST | 管理端 | 退款审核（通过=提交微信；拒绝=REJECTED） |
 | `/api/core/wechat/pay/refund/query` | GET | 管理端 | 退款单分页查询 |
@@ -1307,3 +1310,57 @@ wechatPay:
 
 > 运维提示：生产环境需保证出网可达 `api.mch.weixin.qq.com`；
 > 首次下单时 SDK 会自动下载微信平台证书并周期轮换。
+
+### 17.8 对账日报推送
+
+对账循环每日到达推送时刻（默认 8 点本地时区）后自动推送昨日对账日报，两路输出：
+
+- `pay_daily_report` webhook 事件：JSON 载荷含 `date`、`scope`、下单/支付/关单/退款四组笔数与金额；
+- 审计日志留痕（系统主体，审计查询/实时大屏可见）。
+
+推送范围两级：
+
+| 范围 | scope | 说明 |
+|------|-------|------|
+| 平台汇总 | `platform` | 全租户合计，每日一条 |
+| 分租户 | `tenant`（携带 `tenantID`） | 最近 2 天有下单活动的租户各一条 |
+
+配置（Nacos `wechatPay` 段）：
+
+```yaml
+wechatPay:
+  dailyReportEnabled: true   # 默认启用
+  dailyReportHour: 8         # 推送时刻(本地时区小时 0-23)
+```
+
+进程内按日去重：同日不重复推送;日报为常规通知,不受告警静默窗口影响。
+管理端亦可随时主动查询(不等待推送):
+
+```bash
+curl "/api/core/wechat/pay/stats/daily?days=7&tenantID=<租户ID>"
+```
+
+### 17.9 退款原因类别与统计
+
+退款原因采用「类别枚举 + 补充说明」双层结构,类别白名单:
+
+| reasonCode | 含义 |
+|------------|------|
+| `quality` | 商品质量问题 |
+| `not_received` | 未收到商品 |
+| `wrong_order` | 错拍/误购 |
+| `price` | 价格因素 |
+| `duplicate` | 重复支付 |
+| `customer_service` | 客服协商 |
+| `other` | 其他(默认;留空归一化为此值) |
+
+退款申请时传 `reasonCode`(非法值拒绝),`reason` 文本作为补充说明。
+统计端点按类别聚合有效退款申请(待审核+受理中+已成功,已拒绝不计入):
+
+```bash
+curl "/api/core/wechat/pay/stats/refund-reason?days=30&tenantID=<租户ID>"
+# → {"code":20000,"data":[{"reasonCode":"quality","count":3,"amount":1500},...]}
+```
+
+审计联动:退款审核(通过/拒绝)与对账告警均写入审计日志,审核以审核人为操作主体,
+对账告警为系统主体(`principalKind=2`)。
