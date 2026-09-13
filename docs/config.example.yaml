@@ -79,3 +79,4 @@ wechatPay:
   reconcileIntervalSeconds: 60     # 对账轮询间隔（秒，最小 10，默认 60）
   reconcileScanAgeMinutes: 5       # 只扫描创建超过该分钟数的未决订单（默认 5）
   reconcileBatchSize: 200          # 单轮对账最大订单数（默认 200，上限 1000）
+  reconcileAlertAgeHours: 24       # 订单滞留 CREATED 超过该小时数触发告警（默认 24，最小 1）

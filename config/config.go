@@ -161,6 +161,8 @@ type WechatPayConfig struct {
 	ReconcileScanAgeMinutes int `yaml:"reconcileScanAgeMinutes"`
 	// ReconcileBatchSize 单轮对账最大订单数,默认 200,上限 1000。
 	ReconcileBatchSize int `yaml:"reconcileBatchSize"`
+	// ReconcileAlertAgeHours 订单滞留 CREATED 超过该小时数触发告警(webhook),默认 24,最小 1。
+	ReconcileAlertAgeHours int `yaml:"reconcileAlertAgeHours"`
 }
 
 // AICacheConfig AI 网关语义缓存配置。

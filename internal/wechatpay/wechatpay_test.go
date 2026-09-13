@@ -6,10 +6,12 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -962,13 +964,13 @@ func TestRefundApprovalTenantGuard(t *testing.T) {
 
 func TestReconcileConfigAndLoop(t *testing.T) {
 	// 参数应用与钳制
-	oldInterval, oldAge, oldBatch := ReconcileLoopInterval, ReconcileScanAge, ReconcileBatchSize
+	oldInterval, oldAge, oldBatch, oldAlert := ReconcileLoopInterval, ReconcileScanAge, ReconcileBatchSize, ReconcileAlertAge
 	defer func() {
 		reconcileMu.Lock()
-		ReconcileLoopInterval, ReconcileScanAge, ReconcileBatchSize = oldInterval, oldAge, oldBatch
+		ReconcileLoopInterval, ReconcileScanAge, ReconcileBatchSize, ReconcileAlertAge = oldInterval, oldAge, oldBatch, oldAlert
 		reconcileMu.Unlock()
 	}()
-	ConfigureReconcile(3*time.Second, 2*time.Minute, 5000)
+	ConfigureReconcile(3*time.Second, 2*time.Minute, 5000, 2*time.Hour)
 	if ReconcileLoopInterval != 10*time.Second {
 		t.Fatalf("expected interval clamped to 10s, got %v", ReconcileLoopInterval)
 	}
@@ -977,6 +979,9 @@ func TestReconcileConfigAndLoop(t *testing.T) {
 	}
 	if ReconcileBatchSize != 1000 {
 		t.Fatalf("expected batchSize clamped to 1000, got %d", ReconcileBatchSize)
+	}
+	if ReconcileAlertAge != 2*time.Hour {
+		t.Fatalf("expected alertAge applied, got %v", ReconcileAlertAge)
 	}
 
 	// 循环启停幂等
@@ -999,6 +1004,103 @@ func TestReconcileConfigAndLoop(t *testing.T) {
 		t.Fatal("expected loop running after restart")
 	}
 	StopReconcileLoop()
+}
+
+// collectAlerts 替换告警推送为内存收集器,返回还原函数与收集通道。
+func collectAlerts() (func() []string, func()) {
+	reconcileMu.Lock()
+	original := alertFire
+	reconcileMu.Unlock()
+	mu := &sync.Mutex{}
+	var events []string
+	alertFire = func(eventType string, payload map[string]any) {
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, eventType)
+	}
+	return func() []string {
+			mu.Lock()
+			defer mu.Unlock()
+			return append([]string(nil), events...)
+		}, func() {
+			reconcileMu.Lock()
+			alertFire = original
+			reconcileMu.Unlock()
+		}
+}
+
+func TestReconcileAlerts(t *testing.T) {
+	const tenant = "wp-alert-1"
+	app := setupApp(t, tenant)
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		t.Fatalf("get wechat config: %v", err)
+	}
+	makeOrder := func(suffix string) *PayOrder {
+		t.Helper()
+		order := &PayOrder{
+			TenantID: tenant, UserID: "user-1", WechatConfigID: wc.ID, AppID: "wx", MchID: "mch",
+			OutTradeNo: "alert-" + suffix, Amount: 100, Status: PayOrderCreated,
+		}
+		if _, err := CreatePayOrder(order); err != nil {
+			t.Fatalf("create order: %v", err)
+		}
+		return order
+	}
+	failing := makeOrder("query-fail")
+	stuck := makeOrder("stuck")
+	ageOrder(t, failing.ID)
+	ageOrder(t, stuck.ID)
+	// stuck 单改老到超过告警阈值(默认 24h)
+	if err := store.DB().Model(&PayOrder{}).Where("id = ?", stuck.ID).
+		Update("created_at", time.Now().Add(-25*time.Hour)).Error; err != nil {
+		t.Fatalf("age stuck order: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&PayOrder{}, "tenant_id = ?", tenant).Error
+	})
+
+	// 注入告警收集器与按单定制查单结果
+	getEvents, restore := collectAlerts()
+	defer restore()
+	oldAge := ReconcileAlertAge
+	ReconcileAlertAge = 24 * time.Hour
+	defer func() { ReconcileAlertAge = oldAge }()
+	fakeAPI.queryErr = errors.New("connection refused")
+	fakeAPI.queryByTradeNo = map[string]*TransactionResult{}
+
+	_, err = ReconcileStaleOrders(context.Background())
+	if err != nil {
+		t.Fatalf("ReconcileStaleOrders: %v", err)
+	}
+	events := getEvents()
+	found := func(event string) bool {
+		for _, e := range events {
+			if e == event {
+				return true
+			}
+		}
+		return false
+	}
+	if !found("pay_reconcile_query_failed") {
+		t.Fatalf("expected query_failed alert, got %v", events)
+	}
+	if !found("pay_order_stuck_created") {
+		t.Fatalf("expected stuck_created alert, got %v", events)
+	}
+
+	// 下一轮:查单恢复正常;滞留单会按设计重复告警,但不应再出现查单失败告警
+	fakeAPI.queryErr = nil
+	fakeAPI.queryResult = &TransactionResult{TradeState: "NOTPAY"}
+	base := len(getEvents())
+	if _, err := ReconcileStaleOrders(context.Background()); err != nil {
+		t.Fatalf("second ReconcileStaleOrders: %v", err)
+	}
+	for _, e := range getEvents()[base:] {
+		if e == "pay_reconcile_query_failed" {
+			t.Fatalf("unexpected query_failed alert after recovery: %v", getEvents())
+		}
+	}
 }
 
 // 编译期约束:确保 fakePayAPI 始终实现 PayAPI。

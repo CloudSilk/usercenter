@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/CloudSilk/pkg/utils/log"
+	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/store"
 )
 
@@ -20,6 +21,11 @@ var (
 	ReconcileBatchSize = 200
 	// ReconcileLoopInterval 对账轮询间隔。
 	ReconcileLoopInterval = time.Minute
+	// ReconcileAlertAge 订单滞留 CREATED 超过该时长触发告警。
+	ReconcileAlertAge = 24 * time.Hour
+
+	// alertFire 告警推送函数,测试可替换。未配置 webhook URL 时为空操作。
+	alertFire = alert.FireWebhook
 
 	reconcileMu      sync.Mutex
 	reconcileRunning bool
@@ -27,8 +33,8 @@ var (
 )
 
 // ConfigureReconcile 应用对账参数(须在 StartReconcileLoop 前调用)。
-// 非法值被钳制:interval 最小 10s,batchSize 范围 1-1000。
-func ConfigureReconcile(interval time.Duration, scanAge time.Duration, batchSize int) {
+// 非法值被钳制:interval 最小 10s,batchSize 范围 1-1000,alertAge 最小 1h。
+func ConfigureReconcile(interval time.Duration, scanAge time.Duration, batchSize int, alertAge time.Duration) {
 	reconcileMu.Lock()
 	defer reconcileMu.Unlock()
 	if interval < 10*time.Second {
@@ -45,6 +51,10 @@ func ConfigureReconcile(interval time.Duration, scanAge time.Duration, batchSize
 		batchSize = 1000
 	}
 	ReconcileBatchSize = batchSize
+	if alertAge < time.Hour {
+		alertAge = time.Hour
+	}
+	ReconcileAlertAge = alertAge
 }
 
 // ReconcileLoopRunning 对账循环是否在运行。
@@ -105,26 +115,31 @@ func ListStaleCreatedOrders(before time.Time, limit int) ([]*PayOrder, error) {
 }
 
 // reconcileOrder 对单笔订单查单同步;远端确认未支付且已过失效时间则关单兜底。
-func reconcileOrder(ctx context.Context, mchID string, api PayAPI, order *PayOrder) {
-	if tx, err := api.Query(ctx, mchID, order.OutTradeNo); err == nil && tx != nil {
+// 查单出错时返回错误供告警聚合(订单状态保持 CREATED,等待下一轮)。
+func reconcileOrder(ctx context.Context, mchID string, api PayAPI, order *PayOrder) error {
+	if tx, err := api.Query(ctx, mchID, order.OutTradeNo); err != nil {
+		return err
+	} else if tx != nil {
 		applyTransaction(order, tx)
 	}
 	if order.Status != PayOrderCreated {
-		return
+		return nil
 	}
 	if order.ExpireAt != nil && time.Now().After(*order.ExpireAt) {
 		// 远端关单尽力而为:订单实际已支付时微信会拒绝关单,此时以上一次查单结果为准
 		_ = api.Close(ctx, mchID, order.OutTradeNo)
 		if err := MarkOrderClosed(order.ID, "订单已过期"); err != nil {
 			log.Errorf(ctx, "对账关单失败 订单 %s:%v", order.OutTradeNo, err)
-			return
+			return nil
 		}
 		order.Status = PayOrderClosed
 		order.TradeStateDesc = "订单已过期"
 	}
+	return nil
 }
 
-// ReconcileStaleOrders 执行一轮对账,返回处理的订单数。单笔失败不中断整轮。
+// ReconcileStaleOrders 执行一轮对账,返回处理的订单数。单笔失败不中断整轮,
+// 异常(查单失败/客户端初始化失败/订单长期滞留)按轮聚合推送告警。
 func ReconcileStaleOrders(ctx context.Context) (int, error) {
 	before := time.Now().Add(-ReconcileScanAge)
 	orders, err := ListStaleCreatedOrders(before, ReconcileBatchSize)
@@ -133,7 +148,13 @@ func ReconcileStaleOrders(ctx context.Context) (int, error) {
 	}
 	// 按微信应用配置缓存客户端,避免同一商户重复构建
 	apis := make(map[string]PayAPI, 4)
-	processed := 0
+	var (
+		processed      int
+		queryFailures  []map[string]any // 查单失败
+		clientFailures []map[string]any // 客户端初始化失败
+		stuckOrders    []map[string]any // 长期滞留 CREATED
+	)
+	stuckBefore := time.Now().Add(-ReconcileAlertAge)
 	for _, order := range orders {
 		cfg, err := GetPayConfigByWechatConfigID(order.WechatConfigID)
 		if err != nil {
@@ -145,12 +166,37 @@ func ReconcileStaleOrders(ctx context.Context) (int, error) {
 			api, err = GetPayAPI(cfg)
 			if err != nil {
 				log.Errorf(ctx, "对账跳过订单 %s:初始化支付客户端失败(%v)", order.OutTradeNo, err)
+				clientFailures = append(clientFailures, map[string]any{
+					"mchID": cfg.MchID, "orderNo": order.OutTradeNo, "error": err.Error(),
+				})
 				continue
 			}
 			apis[cfg.ID] = api
 		}
-		reconcileOrder(ctx, cfg.MchID, api, order)
+		if qErr := reconcileOrder(ctx, cfg.MchID, api, order); qErr != nil {
+			queryFailures = append(queryFailures, map[string]any{
+				"orderNo": order.OutTradeNo, "error": qErr.Error(),
+			})
+		}
 		processed++
+		if order.Status == PayOrderCreated && order.CreatedAt.Before(stuckBefore) {
+			stuckOrders = append(stuckOrders, map[string]any{
+				"orderNo":    order.OutTradeNo,
+				"tenantID":   order.TenantID,
+				"ageMinutes": int(time.Since(order.CreatedAt).Minutes()),
+			})
+		}
+	}
+	if len(queryFailures) > 0 {
+		alertFire("pay_reconcile_query_failed", map[string]any{"count": len(queryFailures), "orders": queryFailures})
+	}
+	if len(clientFailures) > 0 {
+		alertFire("pay_reconcile_client_failed", map[string]any{"count": len(clientFailures), "failures": clientFailures})
+	}
+	if len(stuckOrders) > 0 {
+		alertFire("pay_order_stuck_created", map[string]any{
+			"count": len(stuckOrders), "orders": stuckOrders, "thresholdHours": int(ReconcileAlertAge.Hours()),
+		})
 	}
 	return processed, nil
 }
