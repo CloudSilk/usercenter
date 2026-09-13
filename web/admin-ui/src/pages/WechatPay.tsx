@@ -118,6 +118,8 @@ interface RefundItem {
 interface ListResp<T> {
   data?: T[]
   records?: number
+  pages?: number
+  total?: number
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -225,14 +227,17 @@ export default function WechatPay() {
 
   // ---- 订单 ----
   const [orderStatus, setOrderStatus] = useState("PAID")
+  const [orderPage, setOrderPage] = useState(1)
+  const orderPageSize = 20
   const [closeFailures, setCloseFailures] = useState<BatchCloseFailureItem[]>([])
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set())
   const orders = useQuery({
-    queryKey: ["pay-orders", orderStatus],
+    queryKey: ["pay-orders", orderStatus, orderPage],
     queryFn: () =>
       api.get<ListResp<PayOrderItem>>(`${ORDER}/query`, {
         status: orderStatus || undefined,
-        pageSize: 20,
+        pageIndex: orderPage,
+        pageSize: orderPageSize,
       }),
   })
 
@@ -454,6 +459,7 @@ export default function WechatPay() {
               value={orderStatus}
               onChange={(e) => {
                 setOrderStatus(e.target.value)
+                setOrderPage(1)
                 setSelectedOrders(new Set())
               }}
             >
@@ -518,6 +524,37 @@ export default function WechatPay() {
             ))}
           </TableBody>
         </Table>
+        {/* 分页条 */}
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <span>
+            共 {orders.data?.total ?? 0} 条 · 第 {orderPage} /{" "}
+            {Math.max(1, orders.data?.pages ?? 1)} 页
+          </span>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={orderPage <= 1}
+              onClick={() => {
+                setOrderPage(orderPage - 1)
+                setSelectedOrders(new Set())
+              }}
+            >
+              上一页
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={orderPage >= (orders.data?.pages ?? 1)}
+              onClick={() => {
+                setOrderPage(orderPage + 1)
+                setSelectedOrders(new Set())
+              }}
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
         {/* 批量关单失败明细 */}
         {closeFailures.length > 0 && (
           <div className="rounded border border-red-300 bg-red-500/5 p-2">
