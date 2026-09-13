@@ -3632,6 +3632,31 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/core/wechat/pay/stats/reconcile-now": {
+            "post": {
+                "tags": [
+                    "微信支付订单管理"
+                ],
+                "summary": "立即执行一轮对账",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.ReconcileNowResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/core/wechat/pay/stats/refund-reason": {
             "get": {
                 "tags": [
@@ -4755,6 +4780,31 @@ const docTemplate = `{
                 },
                 "message": {
                     "type": "string"
+                }
+            }
+        },
+        "http.ReconcileNowResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "$ref": "#/definitions/http.ReconcileNowResult"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.ReconcileNowResult": {
+            "type": "object",
+            "properties": {
+                "loopStatus": {
+                    "$ref": "#/definitions/wechatpay.LoopStatus"
+                },
+                "processed": {
+                    "type": "integer"
                 }
             }
         },

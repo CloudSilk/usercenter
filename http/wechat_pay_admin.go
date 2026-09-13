@@ -183,6 +183,7 @@ func RegisterWechatPayOrderRouter(r *gin.Engine) {
 	s := r.Group("/api/core/wechat/pay/stats")
 	s.GET("daily", AutoQueryHandler(QueryWechatPayDailyStats))
 	s.GET("loop-status", GetWechatPayLoopStatus)
+	s.POST("reconcile-now", ReconcileNow)
 	s.GET("refund-reason", AutoQueryHandler(QueryWechatRefundReasonStats))
 	s.GET("refund-reason/trend", AutoQueryHandler(QueryWechatRefundReasonTrend))
 }
@@ -737,4 +738,37 @@ type LoopStatusResponse struct {
 func GetWechatPayLoopStatus(c *gin.Context) {
 	status := wechatpay.GetLoopStatus()
 	c.JSON(http.StatusOK, &LoopStatusResponse{Code: apipb.Code_Success, Data: &status})
+}
+
+// ReconcileNowResult 手动触发对账的结果。
+type ReconcileNowResult struct {
+	Processed  int                   `json:"processed"`
+	LoopStatus *wechatpay.LoopStatus `json:"loopStatus"`
+}
+
+// ReconcileNowResponse 手动触发对账响应。
+type ReconcileNowResponse struct {
+	Code    apipb.Code          `json:"code"`
+	Message string              `json:"message,omitempty"`
+	Data    *ReconcileNowResult `json:"data,omitempty"`
+}
+
+// ReconcileNow 管理端立即执行一轮对账兜底(与循环 tick 相同逻辑,幂等)。
+//
+//	@Summary 立即执行一轮对账
+//	@Tags 微信支付订单管理
+//	@Param authorization header string true "jwt token"
+//	@Success 200 {object} ReconcileNowResponse
+//	@Router /api/core/wechat/pay/stats/reconcile-now [post]
+func ReconcileNow(c *gin.Context) {
+	n, err := wechatpay.ReconcileStaleOrders(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusOK, &ReconcileNowResponse{Code: apipb.Code_InternalServerError, Message: err.Error()})
+		return
+	}
+	status := wechatpay.GetLoopStatus()
+	c.JSON(http.StatusOK, &ReconcileNowResponse{
+		Code: apipb.Code_Success,
+		Data: &ReconcileNowResult{Processed: n, LoopStatus: &status},
+	})
 }

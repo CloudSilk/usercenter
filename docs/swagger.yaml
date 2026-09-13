@@ -373,6 +373,22 @@ definitions:
       message:
         type: string
     type: object
+  http.ReconcileNowResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      data:
+        $ref: '#/definitions/http.ReconcileNowResult'
+      message:
+        type: string
+    type: object
+  http.ReconcileNowResult:
+    properties:
+      loopStatus:
+        $ref: '#/definitions/wechatpay.LoopStatus'
+      processed:
+        type: integer
+    type: object
   http.RefundAdminItem:
     properties:
       amount:
@@ -4047,6 +4063,22 @@ paths:
           schema:
             $ref: '#/definitions/http.LoopStatusResponse'
       summary: 对账循环运行状态
+      tags:
+      - 微信支付订单管理
+  /api/core/wechat/pay/stats/reconcile-now:
+    post:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.ReconcileNowResponse'
+      summary: 立即执行一轮对账
       tags:
       - 微信支付订单管理
   /api/core/wechat/pay/stats/refund-reason:

@@ -257,6 +257,16 @@ export default function WechatPay() {
     queryFn: () => api.get<LoopStatus>("/api/core/wechat/pay/stats/loop-status"),
     refetchInterval: 30_000,
   })
+  const reconcileNow = useMutation({
+    mutationFn: () =>
+      api.post<{ processed: number }>("/api/core/wechat/pay/stats/reconcile-now"),
+    onSuccess: (r) => {
+      toast.success(`对账完成:本轮处理 ${r.processed} 笔`)
+      qc.invalidateQueries({ queryKey: ["pay-loop-status"] })
+      qc.invalidateQueries({ queryKey: ["pay-orders"] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
 
   function toggleOrder(no: string) {
     setSelectedOrders((prev) => {
@@ -359,6 +369,14 @@ export default function WechatPay() {
               日报 {loopStatus.data.lastDailyReport}
             </span>
           )}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={reconcileNow.isPending}
+            onClick={() => reconcileNow.mutate()}
+          >
+            {reconcileNow.isPending ? "对账中..." : "立即对账"}
+          </Button>
         </div>
       )}
 
