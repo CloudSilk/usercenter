@@ -445,6 +445,20 @@ func applyRefundEvent(order *PayOrder, content *NotifyContent) error {
 	}
 }
 
+// ListUserOrders 用户分页查询自己的支付订单(仅限当前租户)。
+func ListUserOrders(tenantID, userID, status string, pageIndex, pageSize int) (*PayOrderListResult, error) {
+	if userID == "" {
+		return nil, errors.New("缺少用户身份")
+	}
+	return QueryPayOrders(&PayOrderQuery{
+		TenantID:  tenantID,
+		UserID:    userID,
+		Status:    status,
+		PageIndex: pageIndex,
+		PageSize:  pageSize,
+	})
+}
+
 // ListUserRefunds 用户查询自己订单的退款记录(校验订单归属)。
 func ListUserRefunds(tenantID, userID, outTradeNo string) ([]*PayRefund, error) {
 	if _, err := loadOrderWithOwnership(tenantID, userID, outTradeNo); err != nil {

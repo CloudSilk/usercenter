@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -666,6 +667,45 @@ func TestCreateJSAPIPaymentExpire(t *testing.T) {
 	}
 	if got.Status != PayOrderClosed || got.TradeStateDesc != "订单已过期" {
 		t.Fatalf("expected expired close, got %#v", got)
+	}
+}
+
+func TestListUserOrders(t *testing.T) {
+	const tenant = "wp-mylist-1"
+	setupApp(t, tenant)
+	for i := 0; i < 3; i++ {
+		order := &PayOrder{
+			TenantID: tenant, UserID: "my-user", WechatConfigID: "wc", AppID: "wx", MchID: "mch",
+			OutTradeNo: fmt.Sprintf("my-list-trade-%04d", i), Amount: 100, Status: PayOrderCreated,
+		}
+		if _, err := CreatePayOrder(order); err != nil {
+			t.Fatalf("create order: %v", err)
+		}
+	}
+	// 其他用户的订单不应出现
+	if _, err := CreatePayOrder(&PayOrder{
+		TenantID: tenant, UserID: "another-user", OutTradeNo: "my-list-trade-other",
+		Amount: 1, Status: PayOrderCreated,
+	}); err != nil {
+		t.Fatalf("create other order: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&PayOrder{}, "tenant_id = ?", tenant).Error
+	})
+
+	result, err := ListUserOrders(tenant, "my-user", "", 1, 10)
+	if err != nil {
+		t.Fatalf("ListUserOrders: %v", err)
+	}
+	if result.Total != 3 {
+		t.Fatalf("expected 3 own orders, got %d", result.Total)
+	}
+	paidOnly, err := ListUserOrders(tenant, "my-user", PayOrderPaid, 1, 10)
+	if err != nil || paidOnly.Total != 0 {
+		t.Fatalf("expected empty paid filter, got %v err=%v", paidOnly, err)
+	}
+	if _, err := ListUserOrders(tenant, "", "", 1, 10); err == nil {
+		t.Fatal("expected missing user error")
 	}
 }
 

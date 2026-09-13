@@ -172,11 +172,50 @@ func GetPayRefunds(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// ListMyPayOrders 用户分页查询自己的支付订单。
+//
+//	@Summary 我的微信支付订单列表
+//	@Tags 微信支付
+//	@Param authorization header string true "jwt token"
+//	@Param pageIndex query int false "从1开始"
+//	@Param pageSize query int false "默认每页10条"
+//	@Param status query string false "状态 CREATED/PAID/CLOSED"
+//	@Success 200 {object} PayOrderAdminQueryResponse
+//	@Router /api/wechat/pay/orders [get]
+func ListMyPayOrders(c *gin.Context) {
+	req := &PayOrderAdminQueryRequest{}
+	if err := c.ShouldBindQuery(req); err != nil {
+		c.JSON(http.StatusOK, &PayOrderAdminQueryResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
+		return
+	}
+	resp := &PayOrderAdminQueryResponse{Code: apipb.Code_Success, Data: []*PayOrderAdminItem{}}
+	result, err := wechatpay.ListUserOrders(middleware.GetTenantID(c), middleware.GetUserID(c),
+		req.Status, req.PageIndex, req.PageSize)
+	if err != nil {
+		resp.Code = apipb.Code_BadRequest
+		resp.Message = err.Error()
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+	for _, o := range result.Records {
+		resp.Data = append(resp.Data, &PayOrderAdminItem{
+			ID: o.ID, TenantID: o.TenantID, UserID: o.UserID, AppID: o.AppID, MchID: o.MchID,
+			OutTradeNo: o.OutTradeNo, TransactionID: o.TransactionID, Description: o.Description,
+			Attach: o.Attach, Amount: o.Amount, Status: o.Status, TradeState: o.TradeState,
+			TradeStateDesc: o.TradeStateDesc, LastEvent: o.LastEvent,
+			CreatedAt: o.CreatedAt.Format(time.RFC3339), PaidAt: o.PaidAt, ClosedAt: o.ClosedAt,
+		})
+	}
+	resp.Records, resp.Pages, resp.Total = result.Total, result.Pages, result.Total
+	c.JSON(http.StatusOK, resp)
+}
+
 // RegisterWechatPayRouter 挂载微信支付端点。
 func RegisterWechatPayRouter(r *gin.Engine) {
 	g := r.Group("/api/wechat")
 	g.POST("pay/order", AutoHandler(CreatePayOrder))
 	g.GET("pay/order", GetPayOrder)
+	g.GET("pay/orders", ListMyPayOrders)
 	g.POST("pay/order/close", AutoHandler(ClosePayOrder))
 	g.GET("pay/refund", GetPayRefunds)
 	g.POST("notify/pay/:app", WechatPayNotify)
