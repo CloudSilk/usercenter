@@ -21,12 +21,13 @@ import (
 	ucconfig "github.com/CloudSilk/usercenter/config"
 	"github.com/CloudSilk/usercenter/docs"
 	userhttp "github.com/CloudSilk/usercenter/http"
-	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/alert"
 	"github.com/CloudSilk/usercenter/internal/auth"
 	"github.com/CloudSilk/usercenter/internal/bootstrap"
 	"github.com/CloudSilk/usercenter/internal/permission"
 	"github.com/CloudSilk/usercenter/internal/scim"
+	"github.com/CloudSilk/usercenter/internal/store"
+	"github.com/CloudSilk/usercenter/internal/wechatpay"
 	"github.com/CloudSilk/usercenter/provider"
 	"github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/CloudSilk/usercenter/web"
@@ -101,6 +102,17 @@ func main() {
 
 	// 告警 Webhook（可选）
 	alert.SetWebhookURL(ucconfig.DefaultConfig.AlertWebhookURL)
+
+	// 微信支付订单对账兜底（默认启用,参数可经配置中心覆盖）
+	wpCfg := ucconfig.DefaultConfig.WechatPay
+	if wpCfg.ReconcileEnabled == nil || *wpCfg.ReconcileEnabled {
+		wechatpay.ConfigureReconcile(
+			time.Duration(wpCfg.ReconcileIntervalSeconds)*time.Second,
+			time.Duration(wpCfg.ReconcileScanAgeMinutes)*time.Minute,
+			wpCfg.ReconcileBatchSize,
+		)
+		wechatpay.StartReconcileLoop()
+	}
 	// 社交登录配置（GitHub/Google 等）
 	socialCfgs := make([]userhttp.SocialLoginConfig, 0, len(ucconfig.DefaultConfig.SocialLogins))
 	for _, s := range ucconfig.DefaultConfig.SocialLogins {
@@ -192,16 +204,16 @@ func Start(port int) {
 
 	r := gin.Default()
 	r.Use(middleware.RequestIDMiddleware()) // X-Request-ID trace 注入（最优先，确保后续中间件/panic 均有 trace_id）
-	r.Use(userhttp.MetricsMiddleware())    // Prometheus 指标采集（HTTP 量/延迟）
+	r.Use(userhttp.MetricsMiddleware())     // Prometheus 指标采集（HTTP 量/延迟）
 	r.Use(middleware.AuthRequired)
 	r.Use(utils.Cors())
 	userhttp.RegisterAuthRouter(r)
 	userhttp.RegisterAdminRouter(r)
-	userhttp.RegisterAIGatewayRouter(r)  // OpenAI 兼容 AI 网关：/v1/chat/completions、/v1/models
-	userhttp.RegisterOIDCRouter(r)       // OIDC/OAuth2 Provider：/.well-known/* /oauth/*
-	userhttp.RegisterSocialLoginRouter(r) // 社交登录画廊：/api/oauth/:provider/{login,callback}
+	userhttp.RegisterAIGatewayRouter(r)                          // OpenAI 兼容 AI 网关：/v1/chat/completions、/v1/models
+	userhttp.RegisterOIDCRouter(r)                               // OIDC/OAuth2 Provider：/.well-known/* /oauth/*
+	userhttp.RegisterSocialLoginRouter(r)                        // 社交登录画廊：/api/oauth/:provider/{login,callback}
 	scim.RegisterSCIMRouter(r, ucconfig.DefaultConfig.SCIMToken) // SCIM 2.0 用户/组同步
-	userhttp.RegisterMetricsRouter(r)    // /metrics Prometheus 抓取端点
+	userhttp.RegisterMetricsRouter(r)                            // /metrics Prometheus 抓取端点
 
 	// 管理后台单页应用（React + Vite 构建产物，go:embed 打包进二进制）。
 	// /web/ 前缀已在 middleware.AuthRequired 中放行，无需鉴权即可加载页面；

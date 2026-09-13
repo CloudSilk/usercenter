@@ -147,6 +147,20 @@ type Config struct {
 	PwdExpiredDays int `yaml:"pwdExpiredDays"`
 	// SCIMToken SCIM 2.0 同步使用的 Bearer token（空=不启用 SCIM）。
 	SCIMToken string `yaml:"scimToken"`
+	// WechatPay 微信支付全局配置（对账兜底参数）。全部留空 = 启用默认值。
+	WechatPay WechatPayConfig `yaml:"wechatPay"`
+}
+
+// WechatPayConfig 微信支付全局配置。
+type WechatPayConfig struct {
+	// ReconcileEnabled 是否启用支付订单定时对账兜底,默认启用。
+	ReconcileEnabled *bool `yaml:"reconcileEnabled"`
+	// ReconcileIntervalSeconds 对账轮询间隔(秒),默认 60,最小 10。
+	ReconcileIntervalSeconds int `yaml:"reconcileIntervalSeconds"`
+	// ReconcileScanAgeMinutes 只扫描创建超过该分钟数的未决订单(给回调留到达窗口),默认 5。
+	ReconcileScanAgeMinutes int `yaml:"reconcileScanAgeMinutes"`
+	// ReconcileBatchSize 单轮对账最大订单数,默认 200,上限 1000。
+	ReconcileBatchSize int `yaml:"reconcileBatchSize"`
 }
 
 // AICacheConfig AI 网关语义缓存配置。

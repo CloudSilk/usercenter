@@ -960,5 +960,46 @@ func TestRefundApprovalTenantGuard(t *testing.T) {
 	}
 }
 
+func TestReconcileConfigAndLoop(t *testing.T) {
+	// 参数应用与钳制
+	oldInterval, oldAge, oldBatch := ReconcileLoopInterval, ReconcileScanAge, ReconcileBatchSize
+	defer func() {
+		reconcileMu.Lock()
+		ReconcileLoopInterval, ReconcileScanAge, ReconcileBatchSize = oldInterval, oldAge, oldBatch
+		reconcileMu.Unlock()
+	}()
+	ConfigureReconcile(3*time.Second, 2*time.Minute, 5000)
+	if ReconcileLoopInterval != 10*time.Second {
+		t.Fatalf("expected interval clamped to 10s, got %v", ReconcileLoopInterval)
+	}
+	if ReconcileScanAge != 2*time.Minute {
+		t.Fatalf("expected scanAge applied, got %v", ReconcileScanAge)
+	}
+	if ReconcileBatchSize != 1000 {
+		t.Fatalf("expected batchSize clamped to 1000, got %d", ReconcileBatchSize)
+	}
+
+	// 循环启停幂等
+	if ReconcileLoopRunning() {
+		t.Fatal("loop should not be running initially")
+	}
+	StartReconcileLoop()
+	StartReconcileLoop() // 幂等
+	if !ReconcileLoopRunning() {
+		t.Fatal("expected loop running after start")
+	}
+	StopReconcileLoop()
+	StopReconcileLoop() // 幂等
+	if ReconcileLoopRunning() {
+		t.Fatal("expected loop stopped")
+	}
+	// 停止后可重启
+	StartReconcileLoop()
+	if !ReconcileLoopRunning() {
+		t.Fatal("expected loop running after restart")
+	}
+	StopReconcileLoop()
+}
+
 // 编译期约束:确保 fakePayAPI 始终实现 PayAPI。
 var _ PayAPI = (*fakePayAPI)(nil)
