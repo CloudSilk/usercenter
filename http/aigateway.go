@@ -163,9 +163,11 @@ func ChatCompletions(c *gin.Context) {
 	}
 
 	// --- 语义缓存检查（仅非流式）---
-	// cacheKey 含完整对话上下文（system+历史+user），避免"相同最后一句但上下文不同"误命中缓存；
+	// cacheKey 含租户与完整对话上下文（system+历史+user）：
+	// 含租户避免跨租户缓存命中（相同 prompt 泄露他租户上游响应）；
+	// 含完整上下文避免"相同最后一句但上下文不同"误命中缓存。
 	// userContent 仅取最后一条 user 消息，用于会话持久化。
-	cacheKey := buildCachePrompt(cleanBody)
+	cacheKey := tenantID + "\x00" + buildCachePrompt(cleanBody)
 	userContent := extractLastUserMessage(cleanBody)
 	if !stream && !enh.CacheBypass && cacheKey != "" {
 		if entry, hit := aicache.Get(cacheKey, model); hit {

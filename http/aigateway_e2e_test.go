@@ -147,7 +147,9 @@ func TestChatCompletionsRoutesSameAliasByTenantAndRewritesUpstreamModel(t *testi
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			engine := newAIGatewayEngine("gateway-user-"+tc.tenantID, tc.tenantID)
-			body := []byte(`{"model":"` + alias + `","messages":[{"role":"user","content":"ping"}]}`)
+			// cache_bypass:本测试验证路由与上游模型改写,必须真实转发;
+			// 否则语义缓存命中后会跳过转发,重复运行(-count>1)时 captured 断言失效
+			body := []byte(`{"model":"` + alias + `","messages":[{"role":"user","content":"ping"}],"cache_bypass":true}`)
 			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 			request.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
