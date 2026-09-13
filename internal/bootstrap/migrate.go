@@ -34,6 +34,7 @@ import (
 	"github.com/CloudSilk/usercenter/internal/webhook"
 	"github.com/CloudSilk/usercenter/internal/website"
 	"github.com/CloudSilk/usercenter/internal/wechatconfig"
+	"github.com/CloudSilk/usercenter/internal/wechatpay"
 )
 
 // AutoMigrate builds the schema for every domain table in one shot.
@@ -62,6 +63,8 @@ func AutoMigrate() error {
 		// misc domains
 		&dictionaries.Dictionaries{}, &language.Language{}, &systemconfig.SystemConfig{},
 		&website.WebSite{}, &wechatconfig.WechatConfig{}, &audit.AuditLog{},
+		// 微信支付:商户配置与支付订单。
+		&wechatpay.PayConfig{}, &wechatpay.PayOrder{},
 
 		// REDESIGN 新增域表：AI Key/路由、用量计量、会话、MFA、OAuth、Prompt 模板。
 		// 此前这些表不在迁移清单内，全新部署的库访问对应功能会报 Table doesn't exist。

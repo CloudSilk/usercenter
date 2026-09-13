@@ -1,0 +1,210 @@
+// Package wechatpay 微信支付（APIv3）域：多租户商户配置、支付订单记录，
+// 以及 JSAPI 下单、订单查询、关单、支付结果回调的业务逻辑。
+package wechatpay
+
+import (
+	"errors"
+	"time"
+
+	commonmodel "github.com/CloudSilk/pkg/model"
+	"github.com/CloudSilk/usercenter/internal/store"
+	"github.com/CloudSilk/usercenter/internal/wechatconfig"
+	"gorm.io/gorm"
+)
+
+// 支付订单状态机:INIT(已创建待预支付) -> CREATED(已拿到 prepay_id)
+// -> PAID(回调/查单确认支付成功) / CLOSED(已关单或上游关闭)。
+const (
+	PayOrderInit    = "INIT"
+	PayOrderCreated = "CREATED"
+	PayOrderPaid    = "PAID"
+	PayOrderClosed  = "CLOSED"
+)
+
+// PayConfig 多租户微信支付商户配置,关联一个微信应用(小程序)。
+type PayConfig struct {
+	commonmodel.Model
+	TenantID       string `json:"tenantID" gorm:"size:36;index"`
+	WechatConfigID string `json:"wechatConfigID" gorm:"size:36;index;comment:关联微信应用配置ID"`
+	AppID          string `json:"appID" gorm:"size:36;comment:小程序AppID,需与商户号完成绑定"`
+	MchID          string `json:"mchID" gorm:"size:32;index;comment:微信支付商户号"`
+	MchSerialNo    string `json:"mchSerialNo" gorm:"size:64;comment:商户API证书序列号"`
+	APIV3Key       string `json:"apiV3Key" gorm:"size:64;comment:商户APIv3密钥"`
+	PrivateKey     string `json:"privateKey" gorm:"type:text;comment:商户私钥PEM内容(apiclient_key.pem)"`
+	NotifyURL      string `json:"notifyURL" gorm:"size:255;comment:支付结果回调完整URL(HTTPS)"`
+	Enable         bool   `json:"enable" gorm:"index;comment:是否启用"`
+	Description    string `json:"description" gorm:"size:255"`
+}
+
+// PayOrder 支付订单记录,OutTradeNo 对微信侧全局唯一。
+type PayOrder struct {
+	commonmodel.Model
+	TenantID       string     `json:"tenantID" gorm:"size:36;index"`
+	UserID         string     `json:"userID" gorm:"size:36;index"`
+	WechatConfigID string     `json:"wechatConfigID" gorm:"size:36;index"`
+	AppID          string     `json:"appID" gorm:"size:36"`
+	MchID          string     `json:"mchID" gorm:"size:32;index"`
+	OutTradeNo     string     `json:"outTradeNo" gorm:"size:32;uniqueIndex"`
+	TransactionID  string     `json:"transactionID" gorm:"size:64;index"`
+	OpenID         string     `json:"openID" gorm:"size:64"`
+	Description    string     `json:"description" gorm:"size:128"`
+	Attach         string     `json:"attach" gorm:"size:128"`
+	Amount         int64      `json:"amount" gorm:"comment:订单金额,单位:分"`
+	Currency       string     `json:"currency" gorm:"size:8;default:CNY"`
+	Status         string     `json:"status" gorm:"size:16;index"`
+	PrepayID       string     `json:"prepayID" gorm:"size:64"`
+	TradeState     string     `json:"tradeState" gorm:"size:32;comment:微信侧最近一次交易状态"`
+	TradeStateDesc string     `json:"tradeStateDesc" gorm:"size:128"`
+	LastEvent      string     `json:"lastEvent" gorm:"size:64;comment:最近一次回调事件类型"`
+	PaidAt         *time.Time `json:"paidAt"`
+	ClosedAt       *time.Time `json:"closedAt"`
+}
+
+func CreatePayConfig(m *PayConfig) (string, error) {
+	err := store.DB().Create(m).Error
+	return m.ID, err
+}
+
+func UpdatePayConfig(m *PayConfig) error {
+	return store.DB().Omit("created_at").Save(m).Error
+}
+
+func DeletePayConfig(id string) error {
+	return store.DB().Delete(&PayConfig{}, "id=?", id).Error
+}
+
+func GetPayConfigByID(id string) (*PayConfig, error) {
+	m := &PayConfig{}
+	err := store.DB().Where("id = ?", id).First(m).Error
+	return m, err
+}
+
+// GetEnabledPayConfigByWechatConfigID 取应用下唯一启用中的商户配置。
+func GetEnabledPayConfigByWechatConfigID(wechatConfigID string) (*PayConfig, error) {
+	m := &PayConfig{}
+	err := store.DB().Where("wechat_config_id = ? AND enable = ?", wechatConfigID, true).First(m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errors.New("该微信应用未启用支付配置")
+	}
+	return m, err
+}
+
+// GetPayConfigByWechatConfigID 按微信应用ID取商户配置(不要求启用中),
+// 供存量订单的查单/关单回溯使用。
+func GetPayConfigByWechatConfigID(wechatConfigID string) (*PayConfig, error) {
+	m := &PayConfig{}
+	err := store.DB().Where("wechat_config_id = ?", wechatConfigID).First(m).Error
+	return m, err
+}
+
+// GetEnabledPayConfigByApp 按微信应用 appName 解析商户配置,小程序支付入口使用。
+func GetEnabledPayConfigByApp(app string) (*PayConfig, *wechatconfig.WechatConfig, error) {
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, errors.New("微信应用不存在: " + app)
+		}
+		return nil, nil, err
+	}
+	cfg, err := GetEnabledPayConfigByWechatConfigID(wc.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cfg, wc, nil
+}
+
+// PayConfigQuery 管理端分页查询条件。
+type PayConfigQuery struct {
+	PageIndex      int
+	PageSize       int
+	TenantID       string
+	MchID          string
+	WechatConfigID string
+}
+
+type PayConfigListResult struct {
+	Records []*PayConfig
+	Total   int64
+	Pages   int64
+}
+
+func QueryPayConfigs(q *PayConfigQuery) (*PayConfigListResult, error) {
+	db := store.DB().Model(&PayConfig{})
+	if q.TenantID != "" {
+		db = db.Where("tenant_id = ?", q.TenantID)
+	}
+	if q.MchID != "" {
+		db = db.Where("mch_id LIKE ?", "%"+q.MchID+"%")
+	}
+	if q.WechatConfigID != "" {
+		db = db.Where("wechat_config_id = ?", q.WechatConfigID)
+	}
+	if q.PageSize <= 0 {
+		q.PageSize = 10
+	}
+	if q.PageIndex <= 0 {
+		q.PageIndex = 1
+	}
+	result := &PayConfigListResult{}
+	if err := db.Count(&result.Total).Error; err != nil {
+		return nil, err
+	}
+	result.Pages = (result.Total + int64(q.PageSize) - 1) / int64(q.PageSize)
+	err := db.Order("created_at DESC").Offset((q.PageIndex - 1) * q.PageSize).Limit(q.PageSize).Find(&result.Records).Error
+	return result, err
+}
+
+func CreatePayOrder(m *PayOrder) (string, error) {
+	err := store.DB().Create(m).Error
+	return m.ID, err
+}
+
+func GetPayOrderByOutTradeNo(outTradeNo string) (*PayOrder, error) {
+	m := &PayOrder{}
+	err := store.DB().Where("out_trade_no = ?", outTradeNo).First(m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return m, err
+}
+
+// MarkOrderPaid 将订单置为已支付,带状态守卫保证回调幂等:已支付的订单不会被重复更新。
+// 返回本次是否发生了状态变更。
+func MarkOrderPaid(id, transactionID string, paidAt time.Time) (bool, error) {
+	res := store.DB().Model(&PayOrder{}).
+		Where("id = ? AND status <> ?", id, PayOrderPaid).
+		Updates(map[string]any{
+			"status":           PayOrderPaid,
+			"trade_state":      "SUCCESS",
+			"trade_state_desc": "支付成功",
+			"transaction_id":   transactionID,
+			"paid_at":          paidAt,
+		})
+	return res.RowsAffected > 0, res.Error
+}
+
+func MarkOrderClosed(id string, desc string) error {
+	now := time.Now()
+	return store.DB().Model(&PayOrder{}).
+		Where("id = ? AND status <> ?", id, PayOrderPaid).
+		Updates(map[string]any{
+			"status":           PayOrderClosed,
+			"trade_state_desc": desc,
+			"closed_at":        now,
+		}).Error
+}
+
+// UpdatePayOrderEvent 记录最近一次回调事件(不改变支付状态),用于退款等事件的留痕。
+func UpdatePayOrderEvent(id, tradeState, tradeStateDesc, lastEvent string) error {
+	return store.DB().Model(&PayOrder{}).Where("id = ?", id).
+		Updates(map[string]any{
+			"trade_state":      tradeState,
+			"trade_state_desc": tradeStateDesc,
+			"last_event":       lastEvent,
+		}).Error
+}
+
+func UpdatePayOrderPrepay(id, prepayID string) error {
+	return store.DB().Model(&PayOrder{}).Where("id = ?", id).
+		Update("prepay_id", prepayID).Error
+}

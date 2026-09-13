@@ -294,6 +294,7 @@ func RegisterWechatRouter(r *gin.Engine) {
 	g.POST("web/login", wechatWebLogin)
 	g.GET("qrcode", getQRCode)
 	g.GET("qrcode/result", checkQRScannResult)
+	RegisterWechatPayRouter(r)
 	wechat.InitWechat()
 }
 

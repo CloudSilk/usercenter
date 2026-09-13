@@ -74,6 +74,12 @@ func QueryWechatConfig(req *apipb.QueryWechatConfigRequest, resp *apipb.QueryWec
 	resp.Total = resp.Records
 }
 
+func GetWechatConfigByAppName(appName string) (*WechatConfig, error) {
+	m := &WechatConfig{}
+	err := store.DB().Where("app_name = ?", appName).First(m).Error
+	return m, err
+}
+
 func GetWechatConfigByID(id string) (*WechatConfig, error) {
 	m := &WechatConfig{}
 	err := store.DB().Preload(clause.Associations).Where("id = ?", id).First(m).Error
