@@ -2193,3 +2193,70 @@ func TestModelAndListCoverage(t *testing.T) {
 		t.Fatalf("expected stale trade nos, got %v err=%v", nos, err)
 	}
 }
+
+// TestEdgeBranches 集中覆盖错误分支:缺失配置/应用、回调解析失败、
+// 批量空列表、远端关单失败、账单范围倒置等。
+func TestEdgeBranches(t *testing.T) {
+	const tenant = "wp-edge"
+	app := setupApp(t, tenant)
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		t.Fatalf("get wechat config: %v", err)
+	}
+	cfg, err := GetPayConfigByWechatConfigID(wc.ID)
+	if err != nil {
+		t.Fatalf("get pay config: %v", err)
+	}
+
+	// GetEnabledPayConfigByWechatConfigID:不存在 → 友好错误
+	if _, err := GetEnabledPayConfigByWechatConfigID("no-such-wc"); err == nil ||
+		!strings.Contains(err.Error(), "未启用支付配置") {
+		t.Fatalf("expected friendly missing-config error, got %v", err)
+	}
+	// GetEnabledPayConfigByApp:应用不存在
+	if _, _, err := GetEnabledPayConfigByApp("ghost-app"); err == nil ||
+		!strings.Contains(err.Error(), "微信应用不存在") {
+		t.Fatalf("expected missing app error, got %v", err)
+	}
+
+	// HandlePayNotify:应用不存在 / 解析失败
+	if err := HandlePayNotify(httptest.NewRequest("POST", "/x", nil), "ghost-app"); err == nil {
+		t.Fatal("expected error for unknown app")
+	}
+	oldNotify := fakeAPI.notify
+	fakeAPI.notify = nil
+	fakeAPI.notifyErr = errors.New("bad signature")
+	if err := HandlePayNotify(httptest.NewRequest("POST", "/x", nil), app); err == nil {
+		t.Fatal("expected parse error")
+	}
+	fakeAPI.notifyErr = nil
+	fakeAPI.notify = oldNotify
+
+	// BatchCloseOrders:空列表
+	if _, err := BatchCloseOrders(context.Background(), tenant, nil); err == nil {
+		t.Fatal("expected empty list error")
+	}
+
+	// GetTradeBillRange:起止倒置 / 非法格式
+	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	if _, err := GetTradeBillRange(context.Background(), tenant, "op", cfg.ID, "2026-01-10", "2026-01-01", ""); err == nil {
+		t.Fatal("expected inverted range error")
+	}
+	if _, err := GetTradeBillRange(context.Background(), tenant, "op", cfg.ID, "bad", yesterday, ""); err == nil {
+		t.Fatal("expected invalid start date error")
+	}
+
+	// ClosePayOrder:微信关单失败透传
+	created, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 100,
+	})
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	fakeAPI.closeErr = errors.New("SYSTEM_ERROR")
+	if err := ClosePayOrder(context.Background(), tenant, "user-1", created.OutTradeNo); err == nil ||
+		!strings.Contains(err.Error(), "微信关单失败") {
+		t.Fatalf("expected remote close error, got %v", err)
+	}
+	fakeAPI.closeErr = nil
+}
