@@ -50,6 +50,12 @@ definitions:
       reason:
         maxLength: 120
         type: string
+      reasonCode:
+        description: |-
+          ReasonCode 退款原因类别(quality/not_received/wrong_order/price/duplicate/customer_service/other),
+          留空默认 other。
+        maxLength: 32
+        type: string
       refundAmount:
         type: integer
     required:
@@ -329,6 +335,8 @@ definitions:
         type: string
       reason:
         type: string
+      reasonCode:
+        type: string
       refundID:
         type: string
       status:
@@ -358,6 +366,17 @@ definitions:
         type: integer
       total:
         type: integer
+    type: object
+  http.RefundReasonStatsResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      data:
+        items:
+          $ref: '#/definitions/wechatpay.ReasonCodeStat'
+        type: array
+      message:
+        type: string
     type: object
   user.CheckRegisterWithWechatResp:
     properties:
@@ -1542,6 +1561,18 @@ definitions:
       signType:
         type: string
       timeStamp:
+        type: string
+    type: object
+  wechatpay.ReasonCodeStat:
+    properties:
+      amount:
+        description: Amount 退款金额合计,单位:分。
+        type: integer
+      count:
+        description: Count 有效退款申请笔数(待审核+受理中+已成功)。
+        type: integer
+      reasonCode:
+        description: ReasonCode 退款原因类别(见 ValidReasonCodes)。
         type: string
     type: object
 info:
@@ -3743,6 +3774,30 @@ paths:
       summary: 微信支付对账日报
       tags:
       - 微信支付订单管理
+  /api/core/wechat/pay/stats/refund-reason:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 统计最近 N 天(含今日),默认 30,范围 1-365
+        in: query
+        name: days
+        type: integer
+      - description: 租户ID,留空为全租户汇总
+        in: query
+        name: tenantID
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.RefundReasonStatsResponse'
+      summary: 退款原因类别统计
+      tags:
+      - 微信支付退款管理
   /api/wechat/connect/qrconnect:
     get:
       parameters:

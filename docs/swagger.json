@@ -3396,6 +3396,43 @@
                 }
             }
         },
+        "/api/core/wechat/pay/stats/refund-reason": {
+            "get": {
+                "tags": [
+                    "微信支付退款管理"
+                ],
+                "summary": "退款原因类别统计",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "统计最近 N 天(含今日),默认 30,范围 1-365",
+                        "name": "days",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "租户ID,留空为全租户汇总",
+                        "name": "tenantID",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.RefundReasonStatsResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/wechat/connect/qrconnect": {
             "get": {
                 "tags": [
@@ -3970,6 +4007,11 @@
                     "type": "string",
                     "maxLength": 120
                 },
+                "reasonCode": {
+                    "description": "ReasonCode 退款原因类别(quality/not_received/wrong_order/price/duplicate/customer_service/other),\n留空默认 other。",
+                    "type": "string",
+                    "maxLength": 32
+                },
                 "refundAmount": {
                     "type": "integer"
                 }
@@ -4386,6 +4428,9 @@
                 "reason": {
                     "type": "string"
                 },
+                "reasonCode": {
+                    "type": "string"
+                },
                 "refundID": {
                     "type": "string"
                 },
@@ -4429,6 +4474,23 @@
                 },
                 "total": {
                     "type": "integer"
+                }
+            }
+        },
+        "http.RefundReasonStatsResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/wechatpay.ReasonCodeStat"
+                    }
+                },
+                "message": {
+                    "type": "string"
                 }
             }
         },
@@ -6164,6 +6226,23 @@
                     "type": "string"
                 },
                 "timeStamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "wechatpay.ReasonCodeStat": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "description": "Amount 退款金额合计,单位:分。",
+                    "type": "integer"
+                },
+                "count": {
+                    "description": "Count 有效退款申请笔数(待审核+受理中+已成功)。",
+                    "type": "integer"
+                },
+                "reasonCode": {
+                    "description": "ReasonCode 退款原因类别(见 ValidReasonCodes)。",
                     "type": "string"
                 }
             }
