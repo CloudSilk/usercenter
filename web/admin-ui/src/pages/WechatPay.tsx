@@ -1,7 +1,15 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Download, Pencil, Plus, Trash2, Wallet } from "lucide-react"
+import { Download, Pencil, Plus, Trash2, Wallet, XCircle } from "lucide-react"
+import {
+  Bar,
+  BarChart,
+  ResponsiveContainer,
+  Tooltip as ChartTooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 
 import { api, getToken } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
@@ -28,6 +36,22 @@ import {
 const CFG = "/api/core/wechat/pay/config"
 const ORDER = "/api/core/wechat/pay/order"
 const REFUND = "/api/core/wechat/pay/refund"
+const BILL = "/api/core/wechat/pay/bill"
+
+interface BillFileItem {
+  id: string
+  tenantID: string
+  configID: string
+  billDate: string
+  billType: string
+}
+
+interface RefundReasonTrendPoint {
+  month: string
+  reasonCode: string
+  count: number
+  amount: number
+}
 
 interface PayConfigInfo {
   id?: string
@@ -167,12 +191,56 @@ export default function WechatPay() {
 
   // ---- 订单 ----
   const [orderStatus, setOrderStatus] = useState("PAID")
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set())
   const orders = useQuery({
     queryKey: ["pay-orders", orderStatus],
     queryFn: () =>
       api.get<ListResp<PayOrderItem>>(`${ORDER}/query`, {
         status: orderStatus || undefined,
         pageSize: 20,
+      }),
+  })
+
+  const batchClose = useMutation({
+    mutationFn: (outTradeNos: string[]) =>
+      api.post<{ closed: number; skipped: number }>(`${ORDER}/batch-close`, {
+        outTradeNos,
+      }),
+    onSuccess: (r) => {
+      toast.success(`批量关单完成:关闭 ${r.closed},跳过 ${r.skipped}`)
+      setSelectedOrders(new Set())
+      qc.invalidateQueries({ queryKey: ["pay-orders"] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  function toggleOrder(no: string) {
+    setSelectedOrders((prev) => {
+      const next = new Set(prev)
+      if (next.has(no)) next.delete(no)
+      else next.add(no)
+      return next
+    })
+  }
+
+  // ---- 退款原因趋势(近6个月) ----
+  const trend = useQuery({
+    queryKey: ["pay-reason-trend"],
+    queryFn: () =>
+      api.get<RefundReasonTrendPoint[]>(
+        "/api/core/wechat/pay/stats/refund-reason/trend",
+        { months: 6 },
+      ),
+  })
+
+  // ---- 账单归档 ----
+  const [billConfigID, setBillConfigID] = useState("")
+  const bills = useQuery({
+    queryKey: ["pay-bills", billConfigID],
+    queryFn: () =>
+      api.get<ListResp<BillFileItem>>(`${BILL}/list`, {
+        configID: billConfigID || undefined,
+        days: 30,
       }),
   })
 
@@ -270,13 +338,24 @@ export default function WechatPay() {
             <select
               className="rounded border px-2 py-1 text-sm"
               value={orderStatus}
-              onChange={(e) => setOrderStatus(e.target.value)}
+              onChange={(e) => {
+                setOrderStatus(e.target.value)
+                setSelectedOrders(new Set())
+              }}
             >
               <option value="">全部</option>
               <option value="CREATED">已下单</option>
               <option value="PAID">已支付</option>
               <option value="CLOSED">已关闭</option>
             </select>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={selectedOrders.size === 0 || batchClose.isPending}
+              onClick={() => batchClose.mutate([...selectedOrders])}
+            >
+              <XCircle className="mr-1 h-4 w-4" /> 批量关单({selectedOrders.size})
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -294,6 +373,7 @@ export default function WechatPay() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10" />
               <TableHead>订单号</TableHead>
               <TableHead>描述</TableHead>
               <TableHead>金额(分)</TableHead>
@@ -305,6 +385,13 @@ export default function WechatPay() {
           <TableBody>
             {(orders.data?.data || []).map((o) => (
               <TableRow key={o.id}>
+                <TableCell>
+                  <input
+                    type="checkbox"
+                    checked={selectedOrders.has(o.outTradeNo)}
+                    onChange={() => toggleOrder(o.outTradeNo)}
+                  />
+                </TableCell>
                 <TableCell className="font-mono text-xs">{o.outTradeNo}</TableCell>
                 <TableCell>{o.description}</TableCell>
                 <TableCell>{o.amount}</TableCell>
@@ -361,6 +448,70 @@ export default function WechatPay() {
                       拒绝
                     </Button>
                   </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </section>
+
+      {/* 退款原因趋势 */}
+      <section className="space-y-2">
+        <h2 className="font-medium">退款原因趋势(近6个月)</h2>
+        {(trend.data || []).length === 0 ? (
+          <div className="py-6 text-center text-sm text-muted-foreground">暂无数据</div>
+        ) : (
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={(trend.data || []).map((p) => ({
+                  ...p,
+                  label: `${p.month} ${p.reasonCode}`,
+                }))}
+                margin={{ left: 8, right: 16 }}
+              >
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={60} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <ChartTooltip formatter={(v: unknown) => Number(v).toLocaleString() + " 分"} />
+                <Bar dataKey="amount" fill="#f59e0b" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </section>
+
+      {/* 账单归档 */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium">已归档交易账单(近30天)</h2>
+          <Input
+            placeholder="按商户配置ID过滤(可空)"
+            className="w-64"
+            value={billConfigID}
+            onChange={(e) => setBillConfigID(e.target.value)}
+          />
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>账单日期</TableHead>
+              <TableHead>类型</TableHead>
+              <TableHead>租户ID</TableHead>
+              <TableHead className="w-24">操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(bills.data?.data || []).map((b) => (
+              <TableRow key={b.id}>
+                <TableCell>{b.billDate}</TableCell>
+                <TableCell>
+                  <Badge variant="secondary">{b.billType}</Badge>
+                </TableCell>
+                <TableCell className="font-mono text-xs">{b.tenantID}</TableCell>
+                <TableCell>
+                  <Button size="sm" variant="outline" onClick={() => downloadBlob(`${BILL}/download?id=${b.id}`, `trade_bill_${b.billDate}.csv`)}>
+                    <Download className="mr-1 h-4 w-4" /> 下载
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}
