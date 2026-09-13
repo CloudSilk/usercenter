@@ -257,3 +257,124 @@ func QueryPayOrders(q *PayOrderQuery) (*PayOrderListResult, error) {
 	err := db.Order("created_at DESC").Offset((q.PageIndex - 1) * q.PageSize).Limit(q.PageSize).Find(&result.Records).Error
 	return result, err
 }
+
+// 退款单状态:受理中/成功/关闭/异常,与微信侧 RefundStatus 枚举对齐。
+const (
+	RefundProcessing = "PROCESSING"
+	RefundSuccess    = "SUCCESS"
+	RefundClosed     = "CLOSED"
+	RefundAbnormal   = "ABNORMAL"
+)
+
+// PayRefund 退款单记录,OutRefundNo 商户侧唯一。
+type PayRefund struct {
+	commonmodel.Model
+	TenantID    string     `json:"tenantID" gorm:"size:36;index"`
+	UserID      string     `json:"userID" gorm:"size:36;index;comment:原订单归属用户"`
+	PayOrderID  string     `json:"payOrderID" gorm:"size:36;index"`
+	OutTradeNo  string     `json:"outTradeNo" gorm:"size:32;index"`
+	OutRefundNo string     `json:"outRefundNo" gorm:"size:64;uniqueIndex"`
+	RefundID    string     `json:"refundID" gorm:"size:64;index"`
+	Amount      int64      `json:"amount" gorm:"comment:退款金额,单位:分"`
+	Total       int64      `json:"total" gorm:"comment:原订单金额,单位:分"`
+	Reason      string     `json:"reason" gorm:"size:128"`
+	Status      string     `json:"status" gorm:"size:16;index"`
+	SuccessTime *time.Time `json:"successTime"`
+}
+
+func CreatePayRefund(m *PayRefund) (string, error) {
+	err := store.DB().Create(m).Error
+	return m.ID, err
+}
+
+func UpdatePayRefund(m *PayRefund) error {
+	return store.DB().Omit("created_at").Save(m).Error
+}
+
+// GetPayRefundByOutRefundNo 不存在时返回 (nil, nil)。
+func GetPayRefundByOutRefundNo(outRefundNo string) (*PayRefund, error) {
+	m := &PayRefund{}
+	err := store.DB().Where("out_refund_no = ?", outRefundNo).First(m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return m, err
+}
+
+// SumActiveRefundAmount 统计订单仍在处理中或已成功的退款总额,用于可退余额校验。
+func SumActiveRefundAmount(payOrderID string) (int64, error) {
+	var total int64
+	err := store.DB().Model(&PayRefund{}).
+		Where("pay_order_id = ? AND status IN ?", payOrderID, []string{RefundProcessing, RefundSuccess}).
+		Select("COALESCE(SUM(amount),0)").
+		Scan(&total).Error
+	return total, err
+}
+
+// MarkRefundStatus 幂等推进退款单状态;已终态(SUCCESS)不再变更。返回是否发生变更。
+// refundID 非空时同步回写微信退款号。
+func MarkRefundStatus(id, refundID, status string, successTime time.Time) (bool, error) {
+	updates := map[string]any{"status": status}
+	if refundID != "" {
+		updates["refund_id"] = refundID
+	}
+	if status == RefundSuccess && !successTime.IsZero() {
+		updates["success_time"] = successTime
+	}
+	res := store.DB().Model(&PayRefund{}).
+		Where("id = ? AND status <> ?", id, RefundSuccess).
+		Updates(updates)
+	return res.RowsAffected > 0, res.Error
+}
+
+// PayRefundQuery 管理端退款单分页查询条件。
+type PayRefundQuery struct {
+	PageIndex   int
+	PageSize    int
+	TenantID    string
+	Status      string
+	OutTradeNo  string
+	OutRefundNo string
+}
+
+type PayRefundListResult struct {
+	Records []*PayRefund
+	Total   int64
+	Pages   int64
+}
+
+func QueryPayRefunds(q *PayRefundQuery) (*PayRefundListResult, error) {
+	db := store.DB().Model(&PayRefund{})
+	if q.TenantID != "" {
+		db = db.Where("tenant_id = ?", q.TenantID)
+	}
+	if q.Status != "" {
+		db = db.Where("status = ?", q.Status)
+	}
+	if q.OutTradeNo != "" {
+		db = db.Where("out_trade_no = ?", q.OutTradeNo)
+	}
+	if q.OutRefundNo != "" {
+		db = db.Where("out_refund_no = ?", q.OutRefundNo)
+	}
+	if q.PageSize <= 0 {
+		q.PageSize = 10
+	}
+	if q.PageIndex <= 0 {
+		q.PageIndex = 1
+	}
+	result := &PayRefundListResult{}
+	if err := db.Count(&result.Total).Error; err != nil {
+		return nil, err
+	}
+	result.Pages = (result.Total + int64(q.PageSize) - 1) / int64(q.PageSize)
+	err := db.Order("created_at DESC").Offset((q.PageIndex - 1) * q.PageSize).Limit(q.PageSize).Find(&result.Records).Error
+	return result, err
+}
+
+// ListRefundsByOutTradeNo 用户查询自己订单的退款记录。
+func ListRefundsByOutTradeNo(outTradeNo string) ([]*PayRefund, error) {
+	var list []*PayRefund
+	err := store.DB().Where("out_trade_no = ?", outTradeNo).Order("created_at DESC").Find(&list).Error
+	return list, err
+}

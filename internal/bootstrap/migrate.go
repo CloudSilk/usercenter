@@ -63,8 +63,8 @@ func AutoMigrate() error {
 		// misc domains
 		&dictionaries.Dictionaries{}, &language.Language{}, &systemconfig.SystemConfig{},
 		&website.WebSite{}, &wechatconfig.WechatConfig{}, &audit.AuditLog{},
-		// 微信支付:商户配置与支付订单。
-		&wechatpay.PayConfig{}, &wechatpay.PayOrder{},
+		// 微信支付:商户配置、支付订单与退款单。
+		&wechatpay.PayConfig{}, &wechatpay.PayOrder{}, &wechatpay.PayRefund{},
 
 		// REDESIGN 新增域表：AI Key/路由、用量计量、会话、MFA、OAuth、Prompt 模板。
 		// 此前这些表不在迁移清单内，全新部署的库访问对应功能会报 Table doesn't exist。

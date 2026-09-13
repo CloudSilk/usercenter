@@ -15,6 +15,7 @@ import (
 	"github.com/wechatpay-apiv3/wechatpay-go/core/notify"
 	"github.com/wechatpay-apiv3/wechatpay-go/core/option"
 	"github.com/wechatpay-apiv3/wechatpay-go/services/payments/jsapi"
+	"github.com/wechatpay-apiv3/wechatpay-go/services/refunddomestic"
 	"github.com/wechatpay-apiv3/wechatpay-go/utils"
 )
 
@@ -51,7 +52,7 @@ type TransactionResult struct {
 	SuccessTime    time.Time
 }
 
-// NotifyContent 回调通知验签解密后的交易内容。
+// NotifyContent 回调通知验签解密后的内容(交易或退款事件)。
 type NotifyContent struct {
 	EventType      string
 	OutTradeNo     string
@@ -61,6 +62,32 @@ type NotifyContent struct {
 	SuccessTime    time.Time
 	Attach         string
 	AmountFen      int64
+	// 退款事件专有字段
+	OutRefundNo       string
+	RefundID          string
+	RefundStatus      string
+	RefundSuccessTime time.Time
+	RefundAmountFen   int64
+}
+
+// RefundInput 申请退款参数。
+type RefundInput struct {
+	MchID           string
+	OutTradeNo      string
+	OutRefundNo     string
+	Reason          string
+	NotifyURL       string
+	RefundAmountFen int64
+	TotalFen        int64
+	Currency        string
+}
+
+// RefundResult 退款申请/查单结果。
+type RefundResult struct {
+	RefundID    string
+	OutRefundNo string
+	Status      string
+	SuccessTime time.Time
 }
 
 // PayAPI 微信支付上游接口抽象,生产实现基于官方 APIv3 SDK,测试可注入 fake。
@@ -68,6 +95,8 @@ type PayAPI interface {
 	Prepay(ctx context.Context, in PrepayInput) (*PayParams, error)
 	Query(ctx context.Context, mchID, outTradeNo string) (*TransactionResult, error)
 	Close(ctx context.Context, mchID, outTradeNo string) error
+	Refund(ctx context.Context, in RefundInput) (*RefundResult, error)
+	QueryRefund(ctx context.Context, outRefundNo string) (*RefundResult, error)
 	ParseNotify(req *http.Request) (*NotifyContent, error)
 }
 
@@ -169,7 +198,8 @@ func (p *sdkPayAPI) Close(ctx context.Context, mchID, outTradeNo string) error {
 	return err
 }
 
-// notifyTransactionContent 交易通知(支付成功/关闭等)解密后的资源体。
+// notifyTransactionContent 交易/退款通知解密后的资源体。
+// 支付事件与退款事件的资源结构不同,按 EventType 取用对应字段。
 type notifyTransactionContent struct {
 	OutTradeNo     *string `json:"out_trade_no"`
 	TransactionID  *string `json:"transaction_id"`
@@ -178,8 +208,13 @@ type notifyTransactionContent struct {
 	SuccessTime    *string `json:"success_time"`
 	Attach         *string `json:"attach"`
 	Amount         struct {
-		Total *int64 `json:"total"`
+		Total  *int64 `json:"total"`
+		Refund *int64 `json:"refund"`
 	} `json:"amount"`
+	// 退款事件字段
+	OutRefundNo  *string `json:"out_refund_no"`
+	RefundID     *string `json:"refund_id"`
+	RefundStatus *string `json:"refund_status"`
 }
 
 func (p *sdkPayAPI) ParseNotify(req *http.Request) (*NotifyContent, error) {
@@ -199,10 +234,71 @@ func (p *sdkPayAPI) ParseNotify(req *http.Request) (*NotifyContent, error) {
 	if content.Amount.Total != nil {
 		result.AmountFen = *content.Amount.Total
 	}
+	if content.Amount.Refund != nil {
+		result.RefundAmountFen = *content.Amount.Refund
+	}
+	if content.OutRefundNo != nil {
+		result.OutRefundNo = derefString(content.OutRefundNo)
+		result.RefundID = derefString(content.RefundID)
+		result.RefundStatus = derefString(content.RefundStatus)
+	}
 	if t := derefString(content.SuccessTime); t != "" {
 		if parsed, err := time.Parse(time.RFC3339, t); err == nil {
 			result.SuccessTime = parsed
+			result.RefundSuccessTime = parsed
 		}
+	}
+	return result, nil
+}
+
+func (p *sdkPayAPI) Refund(ctx context.Context, in RefundInput) (*RefundResult, error) {
+	currency := in.Currency
+	if currency == "" {
+		currency = "CNY"
+	}
+	refund := in.RefundAmountFen
+	total := in.TotalFen
+	svc := refunddomestic.RefundsApiService{Client: p.client}
+	resp, _, err := svc.Create(ctx, refunddomestic.CreateRequest{
+		OutTradeNo:  core.String(in.OutTradeNo),
+		OutRefundNo: core.String(in.OutRefundNo),
+		Reason:      core.String(in.Reason),
+		NotifyUrl:   core.String(in.NotifyURL),
+		Amount: &refunddomestic.AmountReq{
+			Refund:   &refund,
+			Total:    &total,
+			Currency: &currency,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := &RefundResult{
+		RefundID:    derefString(resp.RefundId),
+		OutRefundNo: derefString(resp.OutRefundNo),
+		Status:      derefString((*string)(resp.Status)),
+	}
+	if resp.SuccessTime != nil {
+		result.SuccessTime = resp.SuccessTime.Local()
+	}
+	return result, nil
+}
+
+func (p *sdkPayAPI) QueryRefund(ctx context.Context, outRefundNo string) (*RefundResult, error) {
+	svc := refunddomestic.RefundsApiService{Client: p.client}
+	resp, _, err := svc.QueryByOutRefundNo(ctx, refunddomestic.QueryByOutRefundNoRequest{
+		OutRefundNo: core.String(outRefundNo),
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := &RefundResult{
+		RefundID:    derefString(resp.RefundId),
+		OutRefundNo: derefString(resp.OutRefundNo),
+		Status:      derefString((*string)(resp.Status)),
+	}
+	if resp.SuccessTime != nil {
+		result.SuccessTime = resp.SuccessTime.Local()
 	}
 	return result, nil
 }

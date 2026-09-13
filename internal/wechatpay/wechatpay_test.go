@@ -31,6 +31,10 @@ type fakePayAPI struct {
 	queryErr     error
 	closeCalls   int
 	closeErr     error
+	refundResult *RefundResult
+	refundErr    error
+	lastRefund   *RefundInput
+	refundStatus string // 查退款单返回的状态
 	notify       *NotifyContent
 	notifyErr    error
 }
@@ -56,6 +60,18 @@ func (f *fakePayAPI) Close(ctx context.Context, mchID, outTradeNo string) error 
 	return f.closeErr
 }
 
+func (f *fakePayAPI) Refund(ctx context.Context, in RefundInput) (*RefundResult, error) {
+	f.lastRefund = &in
+	if f.refundErr != nil {
+		return nil, f.refundErr
+	}
+	return f.refundResult, nil
+}
+
+func (f *fakePayAPI) QueryRefund(ctx context.Context, outRefundNo string) (*RefundResult, error) {
+	return &RefundResult{OutRefundNo: outRefundNo, Status: f.refundStatus}, nil
+}
+
 func (f *fakePayAPI) ParseNotify(req *http.Request) (*NotifyContent, error) { // nolint:revive
 	if f.notifyErr != nil {
 		return nil, f.notifyErr
@@ -70,14 +86,14 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	if err := gdb.AutoMigrate(&wechatconfig.WechatConfig{}, &PayConfig{}, &PayOrder{}); err != nil {
+	if err := gdb.AutoMigrate(&wechatconfig.WechatConfig{}, &PayConfig{}, &PayOrder{}, &PayRefund{}); err != nil {
 		panic(err)
 	}
 	store.SetDB(db.NewDBClient(gdb, false))
 	fakeAPI = &fakePayAPI{prepayParams: &PayParams{
 		AppID: "wx123", TimeStamp: "1700000000", NonceStr: "nonce",
 		Package: "prepay_id=wx1", SignType: "RSA", PaySign: "sig", PrepayID: "wx1",
-	}}
+	}, refundResult: &RefundResult{RefundID: "re-1", OutRefundNo: "", Status: RefundProcessing}}
 	SetPayAPIFactory(func(cfg *PayConfig) (PayAPI, error) { return fakeAPI, nil })
 	OpenIDResolver = func(userID, wechatConfigID string) (string, error) {
 		return "openid-" + userID, nil
@@ -271,8 +287,8 @@ func TestHandlePayNotifyRecordEventsWithoutStatusChange(t *testing.T) {
 		t.Fatalf("create order: %v", err)
 	}
 	fakeAPI.notify = &NotifyContent{
-		EventType: "REFUND.SUCCESS", OutTradeNo: order.OutTradeNo,
-		TradeState: "REFUND", TradeStateDesc: "退款成功",
+		EventType: "TRANSACTION.CLOSED", OutTradeNo: order.OutTradeNo,
+		TradeState: "CLOSED", TradeStateDesc: "订单已关闭",
 	}
 	req := httptest.NewRequest("POST", "/api/wechat/notify/pay/"+app, strings.NewReader("{}"))
 	if err := HandlePayNotify(req, app); err != nil {
@@ -282,7 +298,7 @@ func TestHandlePayNotifyRecordEventsWithoutStatusChange(t *testing.T) {
 	if stored.Status != PayOrderCreated {
 		t.Fatalf("non-payment event should not change status, got %s", stored.Status)
 	}
-	if stored.LastEvent != "REFUND.SUCCESS" {
+	if stored.LastEvent != "TRANSACTION.CLOSED" {
 		t.Fatalf("expected last event recorded, got %q", stored.LastEvent)
 	}
 }
@@ -457,6 +473,165 @@ func TestQueryPayOrders(t *testing.T) {
 	none, err := QueryPayOrders(&PayOrderQuery{TenantID: "no-such-tenant"})
 	if err != nil || none.Total != 0 {
 		t.Fatalf("expected empty result for foreign tenant: %v %+v", err, none)
+	}
+}
+
+// markOrderPaidDirect 直接将订单置为已支付(测试辅助,模拟回调后的状态)。
+func markOrderPaidDirect(t *testing.T, tenant, app string, in CreateOrderInput) *PayOrder {
+	t.Helper()
+	order, _, err := CreateJSAPIPayment(context.Background(), in)
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	fakeAPI.queryResult = &TransactionResult{TradeState: "SUCCESS", TransactionID: "tx-" + order.ID}
+	got, err := SyncOrderStatus(context.Background(), tenant, in.UserID, order.OutTradeNo)
+	if err != nil || got.Status != PayOrderPaid {
+		t.Fatalf("expected paid order, got %v err=%v", got, err)
+	}
+	return got
+}
+
+func TestApplyRefundHappyPath(t *testing.T) {
+	const tenant = "wp-refund-1"
+	app := setupApp(t, tenant)
+	order := markOrderPaidDirect(t, tenant, app, CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 1000,
+	})
+
+	refund, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 400, Reason: "部分退款",
+	})
+	if err != nil {
+		t.Fatalf("ApplyRefund: %v", err)
+	}
+	if refund.Status != RefundProcessing || refund.Amount != 400 || refund.Total != 1000 {
+		t.Fatalf("unexpected refund: %#v", refund)
+	}
+	if fakeAPI.lastRefund.RefundAmountFen != 400 || fakeAPI.lastRefund.TotalFen != 1000 ||
+		fakeAPI.lastRefund.NotifyURL == "" || fakeAPI.lastRefund.OutRefundNo == "" {
+		t.Fatalf("unexpected refund input: %#v", fakeAPI.lastRefund)
+	}
+
+	// 幂等:同 outRefundNo 重复申请返回已有退款单
+	again, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 400, OutRefundNo: refund.OutRefundNo,
+	})
+	if err != nil || again.ID != refund.ID {
+		t.Fatalf("expected idempotent refund, got %v err=%v", again, err)
+	}
+
+	// 剩余可退 600,超退应被拒绝
+	if _, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 601,
+	}); err == nil {
+		t.Fatal("expected over-refund error")
+	}
+}
+
+func TestApplyRefundGuards(t *testing.T) {
+	const tenant = "wp-refund-2"
+	app := setupApp(t, tenant)
+	unpaid, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 500,
+	})
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	if _, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: unpaid.OutTradeNo, RefundAmount: 100,
+	}); err == nil || !strings.Contains(err.Error(), "已支付") {
+		t.Fatalf("expected unpaid order error, got %v", err)
+	}
+	paid := markOrderPaidDirect(t, tenant, app, CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "y", AmountFen: 500,
+	})
+	if _, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: paid.OutTradeNo, RefundAmount: 0,
+	}); err == nil {
+		t.Fatal("expected zero amount error")
+	}
+	if _, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: "other-tenant", OutTradeNo: paid.OutTradeNo, RefundAmount: 100,
+	}); err != ErrOrderNotOwned {
+		t.Fatalf("expected ErrOrderNotOwned, got %v", err)
+	}
+}
+
+func TestRefundNotifyUpdatesStatusIdempotently(t *testing.T) {
+	const tenant = "wp-refund-3"
+	app := setupApp(t, tenant)
+	order := markOrderPaidDirect(t, tenant, app, CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 900,
+	})
+	refund, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 900,
+	})
+	if err != nil {
+		t.Fatalf("ApplyRefund: %v", err)
+	}
+
+	successAt := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	fakeAPI.notify = &NotifyContent{
+		EventType: "REFUND.SUCCESS", OutTradeNo: order.OutTradeNo,
+		OutRefundNo: refund.OutRefundNo, RefundID: "re-9", RefundStatus: RefundSuccess,
+		RefundSuccessTime: successAt, RefundAmountFen: 900,
+	}
+	req := httptest.NewRequest("POST", "/api/wechat/notify/pay/"+app, strings.NewReader("{}"))
+	if err := HandlePayNotify(req, app); err != nil {
+		t.Fatalf("HandlePayNotify refund: %v", err)
+	}
+	stored, err := GetPayRefundByOutRefundNo(refund.OutRefundNo)
+	if err != nil {
+		t.Fatalf("get refund: %v", err)
+	}
+	if stored.Status != RefundSuccess || stored.RefundID != "re-9" {
+		t.Fatalf("unexpected refund: %#v", stored)
+	}
+
+	// 重复回调幂等
+	if err := HandlePayNotify(req, app); err != nil {
+		t.Fatalf("repeat HandlePayNotify: %v", err)
+	}
+
+	// 原订单支付状态不受退款事件影响
+	paid, _ := GetPayOrderByOutTradeNo(order.OutTradeNo)
+	if paid.Status != PayOrderPaid {
+		t.Fatalf("order status changed by refund event: %s", paid.Status)
+	}
+
+	// 未知退款单号应报错
+	fakeAPI.notify = &NotifyContent{
+		EventType: "REFUND.SUCCESS", OutTradeNo: order.OutTradeNo,
+		OutRefundNo: "no-such-refund-no", RefundStatus: RefundSuccess,
+	}
+	if err := HandlePayNotify(req, app); err != ErrUnknownNotifyOrder {
+		t.Fatalf("expected ErrUnknownNotifyOrder, got %v", err)
+	}
+}
+
+func TestSyncRefundStatus(t *testing.T) {
+	const tenant = "wp-refund-4"
+	app := setupApp(t, tenant)
+	order := markOrderPaidDirect(t, tenant, app, CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 700,
+	})
+	refund, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 200,
+	})
+	if err != nil {
+		t.Fatalf("ApplyRefund: %v", err)
+	}
+	fakeAPI.refundStatus = RefundSuccess
+	got, err := SyncRefundStatus(context.Background(), tenant, refund.OutRefundNo)
+	if err != nil {
+		t.Fatalf("SyncRefundStatus: %v", err)
+	}
+	if got.Status != RefundSuccess {
+		t.Fatalf("expected SUCCESS, got %s", got.Status)
+	}
+	// 他租户不可见
+	if _, err := SyncRefundStatus(context.Background(), "other-tenant", refund.OutRefundNo); err != ErrOrderNotOwned {
+		t.Fatalf("expected ErrOrderNotOwned, got %v", err)
 	}
 }
 

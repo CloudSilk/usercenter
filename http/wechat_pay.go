@@ -134,11 +134,44 @@ func WechatPayNotify(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": "SUCCESS", "message": "成功"})
 }
 
+// GetPayRefunds 用户查询自己订单的退款记录。
+//
+//	@Summary 微信支付退款记录查询
+//	@Tags 微信支付
+//	@Param authorization header string true "jwt token"
+//	@Param outTradeNo query string true "商户订单号"
+//	@Success 200 {object} RefundAdminQueryResponse
+//	@Router /api/wechat/pay/refund [get]
+func GetPayRefunds(c *gin.Context) {
+	resp := &RefundAdminQueryResponse{Code: apipb.Code_Success, Data: []*RefundAdminItem{}}
+	outTradeNo := c.Query("outTradeNo")
+	if outTradeNo == "" {
+		resp.Code = apipb.Code_BadRequest
+		resp.Message = "outTradeNo不能为空"
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+	list, err := wechatpay.ListUserRefunds(middleware.GetTenantID(c), middleware.GetUserID(c), outTradeNo)
+	if err != nil {
+		resp.Code = apipb.Code_BadRequest
+		resp.Message = err.Error()
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+	for _, m := range list {
+		resp.Data = append(resp.Data, refundToAdminItem(m))
+	}
+	resp.Records = int64(len(list))
+	resp.Total = int64(len(list))
+	c.JSON(http.StatusOK, resp)
+}
+
 // RegisterWechatPayRouter 挂载微信支付端点。
 func RegisterWechatPayRouter(r *gin.Engine) {
 	g := r.Group("/api/wechat")
 	g.POST("pay/order", AutoHandler(CreatePayOrder))
 	g.GET("pay/order", GetPayOrder)
 	g.POST("pay/order/close", AutoHandler(ClosePayOrder))
+	g.GET("pay/refund", GetPayRefunds)
 	g.POST("notify/pay/:app", WechatPayNotify)
 }

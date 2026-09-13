@@ -28,8 +28,9 @@ var (
 // OpenIDResolver 通过用户ID+微信配置ID解析支付 openID,测试可替换。
 var OpenIDResolver = user.GetOpenIDByUserIDAndConfigID
 
-// wechat 商户订单号规则:6-32位数字/字母/-_。
+// wechat 商户订单号规则:6-32位数字/字母/-_;退款单号允许更长(上限64)。
 var tradeNoPattern = regexp.MustCompile(`^[0-9A-Za-z_-]{6,32}$`)
+var refundNoPattern = regexp.MustCompile(`^[0-9A-Za-z_-]{6,64}$`)
 
 // CreateOrderInput JSAPI 下单业务入参。
 type CreateOrderInput struct {
@@ -241,7 +242,187 @@ func ClosePayOrder(ctx context.Context, tenantID, userID, outTradeNo string) err
 	return MarkOrderClosed(order.ID, "商户关单")
 }
 
-// HandlePayNotify 支付结果回调:验签+解密+幂等更新订单。
+// ApplyRefundInput 申请退款业务入参(管理端操作)。
+type ApplyRefundInput struct {
+	TenantID     string
+	OutTradeNo   string
+	RefundAmount int64  // 退款金额,单位:分
+	OutRefundNo  string // 可选,留空自动生成
+	Reason       string
+}
+
+// ApplyRefund 对已支付订单发起退款:校验可退余额后调微信侧申请退款并落库。
+// 同一 outRefundNo 重复申请直接返回已有退款单(幂等)。
+func ApplyRefund(ctx context.Context, in ApplyRefundInput) (*PayRefund, error) {
+	if in.RefundAmount <= 0 {
+		return nil, errors.New("退款金额必须大于0")
+	}
+	order, err := GetPayOrderByOutTradeNo(in.OutTradeNo)
+	if err != nil {
+		return nil, err
+	}
+	if order == nil {
+		return nil, errors.New("订单不存在")
+	}
+	if order.TenantID != in.TenantID {
+		return nil, ErrOrderNotOwned
+	}
+	if order.Status != PayOrderPaid {
+		return nil, errors.New("仅已支付订单可退款")
+	}
+
+	outRefundNo := in.OutRefundNo
+	if outRefundNo == "" {
+		outRefundNo = "rf" + newOutTradeNo()
+	} else if !refundNoPattern.MatchString(outRefundNo) {
+		return nil, errors.New("退款单号需为6-64位数字/字母/-_")
+	}
+	if existing, err := GetPayRefundByOutRefundNo(outRefundNo); err != nil {
+		return nil, err
+	} else if existing != nil {
+		if existing.PayOrderID != order.ID {
+			return nil, errors.New("退款单号已被其他订单使用")
+		}
+		return existing, nil // 幂等:同一退款单号重复申请
+	}
+
+	refunded, err := SumActiveRefundAmount(order.ID)
+	if err != nil {
+		return nil, err
+	}
+	if in.RefundAmount > order.Amount-refunded {
+		return nil, fmt.Errorf("退款金额超过可退余额(已退/退款中 %d 分)", refunded)
+	}
+
+	cfg, err := GetPayConfigByWechatConfigID(order.WechatConfigID)
+	if err != nil {
+		return nil, fmt.Errorf("支付配置不可用: %w", err)
+	}
+	api, err := GetPayAPI(cfg)
+	if err != nil {
+		return nil, err
+	}
+	result, err := api.Refund(ctx, RefundInput{
+		MchID:           cfg.MchID,
+		OutTradeNo:      order.OutTradeNo,
+		OutRefundNo:     outRefundNo,
+		Reason:          in.Reason,
+		NotifyURL:       cfg.NotifyURL,
+		RefundAmountFen: in.RefundAmount,
+		TotalFen:        order.Amount,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("微信退款申请失败: %w", err)
+	}
+	status := result.Status
+	if status == "" {
+		status = RefundProcessing
+	}
+	refund := &PayRefund{
+		TenantID:    order.TenantID,
+		UserID:      order.UserID,
+		PayOrderID:  order.ID,
+		OutTradeNo:  order.OutTradeNo,
+		OutRefundNo: outRefundNo,
+		RefundID:    result.RefundID,
+		Amount:      in.RefundAmount,
+		Total:       order.Amount,
+		Reason:      in.Reason,
+		Status:      status,
+	}
+	if status == RefundSuccess && !result.SuccessTime.IsZero() {
+		refund.SuccessTime = &result.SuccessTime
+	}
+	if _, err := CreatePayRefund(refund); err != nil {
+		return nil, err
+	}
+	log.Infof(ctx, "订单 %s 退款申请受理(退款单 %s, %d 分)", order.OutTradeNo, outRefundNo, in.RefundAmount)
+	return refund, nil
+}
+
+// SyncRefundStatus 向微信侧查退款单并对账更新本地状态。
+func SyncRefundStatus(ctx context.Context, tenantID, outRefundNo string) (*PayRefund, error) {
+	refund, err := GetPayRefundByOutRefundNo(outRefundNo)
+	if err != nil {
+		return nil, err
+	}
+	if refund == nil {
+		return nil, errors.New("退款单不存在")
+	}
+	if refund.TenantID != tenantID {
+		return nil, ErrOrderNotOwned
+	}
+	if refund.Status == RefundSuccess || refund.Status == RefundClosed {
+		return refund, nil // 终态不再查单
+	}
+	cfg, err := GetPayConfigByWechatConfigID(refundOrderConfigID(refund))
+	if err != nil {
+		return refund, nil
+	}
+	api, err := GetPayAPI(cfg)
+	if err != nil {
+		return refund, nil
+	}
+	if result, err := api.QueryRefund(ctx, outRefundNo); err == nil && result.Status != "" {
+		updated, err := MarkRefundStatus(refund.ID, result.RefundID, result.Status, result.SuccessTime)
+		if err != nil {
+			log.Errorf(ctx, "同步退款单 %s 状态失败:%v", outRefundNo, err)
+			return refund, nil
+		}
+		if updated {
+			refund.Status = result.Status
+			if result.Status == RefundSuccess && !result.SuccessTime.IsZero() {
+				refund.SuccessTime = &result.SuccessTime
+			}
+		}
+	}
+	return refund, nil
+}
+
+// refundOrderConfigID 退款单关联的微信应用配置ID(通过原支付订单)。
+func refundOrderConfigID(refund *PayRefund) string {
+	order, err := GetPayOrderByOutTradeNo(refund.OutTradeNo)
+	if err != nil || order == nil {
+		return ""
+	}
+	return order.WechatConfigID
+}
+
+// applyRefundEvent 用退款回调/查单结果推进退款单状态。
+func applyRefundEvent(order *PayOrder, content *NotifyContent) error {
+	refund, err := GetPayRefundByOutRefundNo(content.OutRefundNo)
+	if err != nil {
+		return err
+	}
+	if refund == nil || refund.PayOrderID != order.ID {
+		return ErrUnknownNotifyOrder
+	}
+	switch content.RefundStatus {
+	case RefundSuccess, RefundClosed, RefundAbnormal:
+		successTime := content.RefundSuccessTime
+		updated, err := MarkRefundStatus(refund.ID, content.RefundID, content.RefundStatus, successTime)
+		if err != nil {
+			return err
+		}
+		if updated {
+			log.Infof(context.Background(), "退款单 %s 状态更新为 %s", content.OutRefundNo, content.RefundStatus)
+		}
+		return nil
+	default:
+		// PROCESSING 等中间态:仅留痕到原订单
+		return UpdatePayOrderEvent(order.ID, "", content.EventType, content.EventType)
+	}
+}
+
+// ListUserRefunds 用户查询自己订单的退款记录(校验订单归属)。
+func ListUserRefunds(tenantID, userID, outTradeNo string) ([]*PayRefund, error) {
+	if _, err := loadOrderWithOwnership(tenantID, userID, outTradeNo); err != nil {
+		return nil, err
+	}
+	return ListRefundsByOutTradeNo(outTradeNo)
+}
+
+// HandlePayNotify 微信支付/退款结果回调:验签+解密+幂等更新订单或退款单。
 // 返回 nil 表示处理成功(应答微信 SUCCESS);返回错误时调用方应答 FAIL,微信会重试。
 func HandlePayNotify(req *http.Request, app string) error {
 	cfg, _, err := GetEnabledPayConfigByApp(app)
@@ -264,6 +445,11 @@ func HandlePayNotify(req *http.Request, app string) error {
 		return ErrUnknownNotifyOrder
 	}
 
+	// 退款事件:推进退款单状态(幂等),不影响原订单支付状态
+	if strings.HasPrefix(content.EventType, "REFUND.") {
+		return applyRefundEvent(order, content)
+	}
+
 	if content.AmountFen > 0 && content.AmountFen != order.Amount {
 		log.Warnf(req.Context(), "订单 %s 回调金额(%d分)与订单金额(%d分)不一致", order.OutTradeNo, content.AmountFen, order.Amount)
 	}
@@ -282,6 +468,6 @@ func HandlePayNotify(req *http.Request, app string) error {
 		}
 		return nil
 	}
-	// 退款/关闭等其他事件:仅留痕,退款单管理为后续迭代。
+	// 关闭等其他事件:仅留痕
 	return UpdatePayOrderEvent(order.ID, content.TradeState, content.TradeStateDesc, content.EventType)
 }
