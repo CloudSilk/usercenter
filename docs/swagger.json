@@ -6,13 +6,6 @@
     "paths": {
         "/api/auth/tenant/export": {
             "get": {
-                "description": "导出",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "租户管理"
                 ],
@@ -24,45 +17,6 @@
                         "name": "authorization",
                         "in": "header",
                         "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "从1开始",
-                        "name": "pageIndex",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "默认每页10条",
-                        "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "租户名称",
-                        "name": "name",
-                        "in": "query"
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "description": "IDs",
-                        "name": "ids",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -77,13 +31,6 @@
         },
         "/api/auth/tenant/import": {
             "post": {
-                "description": "导入",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "租户管理"
                 ],
@@ -116,71 +63,10 @@
         },
         "/api/auth/user/export": {
             "get": {
-                "description": "导出",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "用户管理"
                 ],
                 "summary": "导出",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "从1开始",
-                        "name": "pageIndex",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "默认每页10条",
-                        "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Nickname",
-                        "name": "nickname",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "UserName",
-                        "name": "userName",
-                        "in": "query"
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "description": "IDs",
-                        "name": "ids",
-                        "in": "query"
-                    }
-                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -193,25 +79,11 @@
         },
         "/api/auth/user/import": {
             "post": {
-                "description": "导入",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "用户管理"
                 ],
                 "summary": "导入",
                 "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bearer+空格+Token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
                     {
                         "type": "file",
                         "description": "要上传的文件",
@@ -232,13 +104,6 @@
         },
         "/api/core/auth/api/add": {
             "post": {
-                "description": "新增API",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "API管理"
                 ],
@@ -273,13 +138,6 @@
         },
         "/api/core/auth/api/all": {
             "get": {
-                "description": "查询所有API",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "API管理"
                 ],
@@ -305,13 +163,6 @@
         },
         "/api/core/auth/api/delete": {
             "delete": {
-                "description": "软删除API",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "API管理"
                 ],
@@ -346,13 +197,6 @@
         },
         "/api/core/auth/api/detail": {
             "get": {
-                "description": "查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "API管理"
                 ],
@@ -385,13 +229,6 @@
         },
         "/api/core/auth/api/enable": {
             "post": {
-                "description": "禁用/启用API",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "API管理"
                 ],
@@ -426,13 +263,6 @@
         },
         "/api/core/auth/api/export": {
             "get": {
-                "description": "导出",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "API管理"
                 ],
@@ -444,57 +274,6 @@
                         "name": "authorization",
                         "in": "header",
                         "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "从1开始",
-                        "name": "pageIndex",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "默认每页10条",
-                        "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Group",
-                        "name": "group",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Method",
-                        "name": "method",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Path",
-                        "name": "path",
-                        "in": "query"
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "description": "IDs",
-                        "name": "ids",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -509,13 +288,6 @@
         },
         "/api/core/auth/api/import": {
             "post": {
-                "description": "导入",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "API管理"
                 ],
@@ -548,13 +320,6 @@
         },
         "/api/core/auth/api/query": {
             "get": {
-                "description": "分页查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "API管理"
                 ],
@@ -578,48 +343,6 @@
                         "description": "默认每页10条",
                         "name": "pageSize",
                         "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "路径",
-                        "name": "path",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "方法",
-                        "name": "method",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "分组",
-                        "name": "group",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "是否检查权限",
-                        "name": "checkAuth",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "是否需要登录",
-                        "name": "checkLogin",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -634,13 +357,6 @@
         },
         "/api/core/auth/api/update": {
             "put": {
-                "description": "更新API",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "API管理"
                 ],
@@ -675,13 +391,6 @@
         },
         "/api/core/auth/form/component/add": {
             "post": {
-                "description": "新增",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "表单组件管理"
                 ],
@@ -716,13 +425,6 @@
         },
         "/api/core/auth/form/component/delete": {
             "delete": {
-                "description": "删除",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "表单组件管理"
                 ],
@@ -757,13 +459,6 @@
         },
         "/api/core/auth/form/component/detail": {
             "get": {
-                "description": "查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "表单组件管理"
                 ],
@@ -796,13 +491,6 @@
         },
         "/api/core/auth/form/component/query": {
             "get": {
-                "description": "分页查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "表单组件管理"
                 ],
@@ -826,24 +514,6 @@
                         "description": "默认每页10条",
                         "name": "pageSize",
                         "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "组件名称",
-                        "name": "name",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -858,13 +528,6 @@
         },
         "/api/core/auth/form/component/update": {
             "put": {
-                "description": "更新",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "表单组件管理"
                 ],
@@ -899,13 +562,6 @@
         },
         "/api/core/auth/menu/add": {
             "post": {
-                "description": "新增菜单",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "菜单管理"
                 ],
@@ -940,13 +596,6 @@
         },
         "/api/core/auth/menu/delete": {
             "delete": {
-                "description": "软删除菜单",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "菜单管理"
                 ],
@@ -981,13 +630,6 @@
         },
         "/api/core/auth/menu/detail": {
             "get": {
-                "description": "查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "菜单管理"
                 ],
@@ -1020,13 +662,6 @@
         },
         "/api/core/auth/menu/export": {
             "get": {
-                "description": "导出",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "菜单管理"
                 ],
@@ -1038,39 +673,6 @@
                         "name": "authorization",
                         "in": "header",
                         "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "从1开始",
-                        "name": "pageIndex",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "默认每页10条",
-                        "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "description": "IDs",
-                        "name": "ids",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1085,13 +687,6 @@
         },
         "/api/core/auth/menu/import": {
             "post": {
-                "description": "导入",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "菜单管理"
                 ],
@@ -1124,13 +719,6 @@
         },
         "/api/core/auth/menu/query": {
             "get": {
-                "description": "分页查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "菜单管理"
                 ],
@@ -1154,48 +742,6 @@
                         "description": "默认每页10条",
                         "name": "pageSize",
                         "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "路径",
-                        "name": "path",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "名称",
-                        "name": "name",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "显示名称",
-                        "name": "title",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "父ID",
-                        "name": "parentID",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "层级",
-                        "name": "level",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1210,13 +756,6 @@
         },
         "/api/core/auth/menu/tree": {
             "get": {
-                "description": "查询所有菜单（Tree）",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "菜单管理"
                 ],
@@ -1242,13 +781,6 @@
         },
         "/api/core/auth/menu/update": {
             "put": {
-                "description": "更新菜单",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "菜单管理"
                 ],
@@ -1283,13 +815,6 @@
         },
         "/api/core/auth/project/add": {
             "post": {
-                "description": "新增",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "项目管理"
                 ],
@@ -1324,13 +849,6 @@
         },
         "/api/core/auth/project/all": {
             "get": {
-                "description": "查询所有",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "项目管理管理"
                 ],
@@ -1356,13 +874,6 @@
         },
         "/api/core/auth/project/delete": {
             "delete": {
-                "description": "删除",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "项目管理"
                 ],
@@ -1397,13 +908,6 @@
         },
         "/api/core/auth/project/detail": {
             "get": {
-                "description": "查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "项目管理"
                 ],
@@ -1436,13 +940,6 @@
         },
         "/api/core/auth/project/export": {
             "get": {
-                "description": "导出",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "项目管理管理"
                 ],
@@ -1454,51 +951,6 @@
                         "name": "authorization",
                         "in": "header",
                         "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "从1开始",
-                        "name": "pageIndex",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "默认每页10条",
-                        "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "租户ID",
-                        "name": "tenantID",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "名称",
-                        "name": "name",
-                        "in": "query"
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "description": "IDs",
-                        "name": "ids",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1513,13 +965,6 @@
         },
         "/api/core/auth/project/import": {
             "post": {
-                "description": "导入",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "项目管理管理"
                 ],
@@ -1552,13 +997,6 @@
         },
         "/api/core/auth/project/query": {
             "get": {
-                "description": "分页查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "项目管理"
                 ],
@@ -1582,30 +1020,6 @@
                         "description": "默认每页10条",
                         "name": "pageSize",
                         "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "租户ID",
-                        "name": "tenantID",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "名称",
-                        "name": "name",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1620,13 +1034,6 @@
         },
         "/api/core/auth/project/update": {
             "put": {
-                "description": "更新",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "项目管理"
                 ],
@@ -1661,13 +1068,6 @@
         },
         "/api/core/auth/role/add": {
             "post": {
-                "description": "新增角色",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "角色管理"
                 ],
@@ -1702,13 +1102,6 @@
         },
         "/api/core/auth/role/all": {
             "get": {
-                "description": "查询所有角色",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "角色管理"
                 ],
@@ -1746,13 +1139,6 @@
         },
         "/api/core/auth/role/delete": {
             "delete": {
-                "description": "软删除角色",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "角色管理"
                 ],
@@ -1787,13 +1173,6 @@
         },
         "/api/core/auth/role/detail": {
             "get": {
-                "description": "查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "角色管理"
                 ],
@@ -1824,15 +1203,43 @@
                 }
             }
         },
+        "/api/core/auth/role/enable": {
+            "post": {
+                "description": "系统角色不允许停用；状态变化会撤销受影响用户的旧登录上下文并同步 Casbin 权限。",
+                "tags": [
+                    "角色管理"
+                ],
+                "summary": "禁用/启用角色",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "请求参数",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/usercenter.EnableRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/usercenter.CommonResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/core/auth/role/export": {
             "get": {
-                "description": "导出",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "角色管理"
                 ],
@@ -1844,39 +1251,6 @@
                         "name": "authorization",
                         "in": "header",
                         "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "从1开始",
-                        "name": "pageIndex",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "默认每页10条",
-                        "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "description": "IDs",
-                        "name": "ids",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1891,13 +1265,6 @@
         },
         "/api/core/auth/role/import": {
             "post": {
-                "description": "导入",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "角色管理"
                 ],
@@ -1930,13 +1297,6 @@
         },
         "/api/core/auth/role/query": {
             "get": {
-                "description": "分页查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "角色管理"
                 ],
@@ -1960,30 +1320,6 @@
                         "description": "默认每页10条",
                         "name": "pageSize",
                         "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "租户ID",
-                        "name": "tenantID",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "名称",
-                        "name": "name",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1998,13 +1334,6 @@
         },
         "/api/core/auth/role/update": {
             "put": {
-                "description": "更新角色",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "角色管理"
                 ],
@@ -2039,13 +1368,6 @@
         },
         "/api/core/auth/tenant/add": {
             "post": {
-                "description": "新增租户",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "租户管理"
                 ],
@@ -2080,13 +1402,6 @@
         },
         "/api/core/auth/tenant/all": {
             "get": {
-                "description": "查询所有租户",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "租户管理"
                 ],
@@ -2110,15 +1425,40 @@
                 }
             }
         },
+        "/api/core/auth/tenant/copy": {
+            "post": {
+                "tags": [
+                    "租户管理"
+                ],
+                "summary": "复制租户",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "ID",
+                        "name": "id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/usercenter.CommonResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/core/auth/tenant/delete": {
             "delete": {
-                "description": "软删除租户",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "租户管理"
                 ],
@@ -2153,13 +1493,6 @@
         },
         "/api/core/auth/tenant/detail": {
             "get": {
-                "description": "查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "租户管理"
                 ],
@@ -2192,13 +1525,6 @@
         },
         "/api/core/auth/tenant/enable": {
             "post": {
-                "description": "禁用/启用租户",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "租户管理"
                 ],
@@ -2233,13 +1559,6 @@
         },
         "/api/core/auth/tenant/query": {
             "get": {
-                "description": "分页查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "租户管理"
                 ],
@@ -2263,30 +1582,6 @@
                         "description": "默认每页10条",
                         "name": "pageSize",
                         "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "租户ID",
-                        "name": "tenantID",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "名称",
-                        "name": "name",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -2301,13 +1596,6 @@
         },
         "/api/core/auth/tenant/update": {
             "put": {
-                "description": "更新租户",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "租户管理"
                 ],
@@ -2342,7 +1630,6 @@
         },
         "/api/core/auth/user/add": {
             "post": {
-                "description": "新增用户",
                 "consumes": [
                     "application/json"
                 ],
@@ -2354,13 +1641,6 @@
                 ],
                 "summary": "新增用户",
                 "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
                     {
                         "description": "用户信息",
                         "name": "data",
@@ -2383,28 +1663,14 @@
         },
         "/api/core/auth/user/all": {
             "get": {
-                "description": "查询所有用户",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "用户管理"
                 ],
                 "summary": "查询所有用户",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
-                    {
                         "type": "integer",
-                        "description": "用户类型,从1开始,为0时查询全部",
+                        "description": "用户类型",
                         "name": "type",
                         "in": "query"
                     },
@@ -2416,7 +1682,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "分组ID，例如属于某个组织的，或者某个个人",
+                        "description": "分组ID",
                         "name": "group",
                         "in": "query"
                     }
@@ -2433,25 +1699,11 @@
         },
         "/api/core/auth/user/changepwd": {
             "post": {
-                "description": "修改密码",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "用户管理"
                 ],
                 "summary": "修改密码",
                 "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
                     {
                         "description": "请求参数",
                         "name": "data",
@@ -2474,25 +1726,11 @@
         },
         "/api/core/auth/user/delete": {
             "delete": {
-                "description": "删除用户",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "用户管理"
                 ],
                 "summary": "删除用户",
                 "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
                     {
                         "description": "请求参数",
                         "name": "data",
@@ -2515,13 +1753,6 @@
         },
         "/api/core/auth/user/detail": {
             "get": {
-                "description": "查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "用户管理"
                 ],
@@ -2532,13 +1763,6 @@
                         "description": "用户ID",
                         "name": "id",
                         "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
                         "required": true
                     }
                 ],
@@ -2554,25 +1778,11 @@
         },
         "/api/core/auth/user/enable": {
             "post": {
-                "description": "禁用/启用用户",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "用户管理"
                 ],
                 "summary": "禁用/启用用户",
                 "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
                     {
                         "description": "请求参数",
                         "name": "data",
@@ -2595,7 +1805,6 @@
         },
         "/api/core/auth/user/login": {
             "post": {
-                "description": "登录",
                 "consumes": [
                     "application/json"
                 ],
@@ -2608,15 +1817,8 @@
                 "summary": "登录",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "Bearer+空格+Token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
-                    {
-                        "description": "个人信息",
-                        "name": "product",
+                        "description": "登录信息",
+                        "name": "data",
                         "in": "body",
                         "required": true,
                         "schema": {
@@ -2636,26 +1838,10 @@
         },
         "/api/core/auth/user/logout": {
             "post": {
-                "description": "退出登录",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "用户管理"
                 ],
                 "summary": "退出登录",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    }
-                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2668,7 +1854,6 @@
         },
         "/api/core/auth/user/profile": {
             "get": {
-                "description": "获取个人信息",
                 "consumes": [
                     "application/json"
                 ],
@@ -2680,13 +1865,6 @@
                 ],
                 "summary": "获取个人信息",
                 "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bearer+空格+Token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
                     {
                         "type": "boolean",
                         "description": "返回Menu",
@@ -2704,7 +1882,6 @@
                 }
             },
             "put": {
-                "description": "更新个人信息",
                 "consumes": [
                     "application/json"
                 ],
@@ -2717,15 +1894,8 @@
                 "summary": "更新个人信息",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "Bearer+空格+Token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
-                    {
                         "description": "个人信息",
-                        "name": "product",
+                        "name": "data",
                         "in": "body",
                         "required": true,
                         "schema": {
@@ -2745,25 +1915,11 @@
         },
         "/api/core/auth/user/query": {
             "get": {
-                "description": "分页查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "用户管理"
                 ],
                 "summary": "分页查询",
                 "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
                     {
                         "type": "integer",
                         "description": "从1开始",
@@ -2774,66 +1930,6 @@
                         "type": "integer",
                         "description": "默认每页10条",
                         "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "用户名",
-                        "name": "userName",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "昵称",
-                        "name": "nickname",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "身份证号",
-                        "name": "idCard",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "手机号",
-                        "name": "mobile",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "职位",
-                        "name": "title",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "用户类型,从1开始,为0时查询全部",
-                        "name": "type",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "租户ID",
-                        "name": "tenantID",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "分组ID，例如属于某个组织的，或者某个个人",
-                        "name": "group",
                         "in": "query"
                     }
                 ],
@@ -2849,25 +1945,11 @@
         },
         "/api/core/auth/user/resetpwd": {
             "post": {
-                "description": "重置密码",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "用户管理"
                 ],
                 "summary": "重置密码",
                 "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
                     {
                         "description": "请求参数",
                         "name": "data",
@@ -2890,26 +1972,10 @@
         },
         "/api/core/auth/user/token/detail": {
             "get": {
-                "description": "根据token查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "用户管理"
                 ],
                 "summary": "根据token查询明细",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    }
-                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2922,27 +1988,13 @@
         },
         "/api/core/auth/user/token/update": {
             "put": {
-                "description": "根据token更新",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "用户管理"
                 ],
                 "summary": "根据token更新",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
-                    {
-                        "description": "Update Customer",
+                        "description": "用户信息",
                         "name": "data",
                         "in": "body",
                         "required": true,
@@ -2963,25 +2015,11 @@
         },
         "/api/core/auth/user/update": {
             "put": {
-                "description": "更新用户",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "用户管理"
                 ],
                 "summary": "更新用户",
                 "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
                     {
                         "description": "用户信息",
                         "name": "data",
@@ -3004,13 +2042,6 @@
         },
         "/api/core/dictionaries/add": {
             "post": {
-                "description": "新增",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "字典管理"
                 ],
@@ -3043,47 +2074,8 @@
                 }
             }
         },
-        "/api/core/dictionaries/all": {
-            "get": {
-                "description": "查询所有",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "字典管理"
-                ],
-                "summary": "查询所有",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/usercenter.GetAllDictionariesResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/core/dictionaries/delete": {
             "delete": {
-                "description": "删除",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "字典管理"
                 ],
@@ -3118,13 +2110,6 @@
         },
         "/api/core/dictionaries/detail": {
             "get": {
-                "description": "查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "字典管理"
                 ],
@@ -3157,13 +2142,6 @@
         },
         "/api/core/dictionaries/query": {
             "get": {
-                "description": "分页查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "字典管理"
                 ],
@@ -3190,18 +2168,6 @@
                     },
                     {
                         "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
                         "description": "租户ID",
                         "name": "tenantID",
                         "in": "query"
@@ -3219,13 +2185,6 @@
         },
         "/api/core/dictionaries/update": {
             "put": {
-                "description": "更新",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "字典管理"
                 ],
@@ -3260,13 +2219,6 @@
         },
         "/api/core/language/add": {
             "post": {
-                "description": "新增",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "多语言管理"
                 ],
@@ -3299,47 +2251,8 @@
                 }
             }
         },
-        "/api/core/language/all": {
-            "get": {
-                "description": "查询所有",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "多语言管理"
-                ],
-                "summary": "查询所有",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/usercenter.GetAllLanguageResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/core/language/delete": {
             "delete": {
-                "description": "删除",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "多语言管理"
                 ],
@@ -3374,13 +2287,6 @@
         },
         "/api/core/language/detail": {
             "get": {
-                "description": "查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "多语言管理"
                 ],
@@ -3413,13 +2319,6 @@
         },
         "/api/core/language/query": {
             "get": {
-                "description": "分页查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "多语言管理"
                 ],
@@ -3443,24 +2342,6 @@
                         "description": "默认每页10条",
                         "name": "pageSize",
                         "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "所属站点",
-                        "name": "webSiteID",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -3475,13 +2356,6 @@
         },
         "/api/core/language/update": {
             "put": {
-                "description": "更新",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "多语言管理"
                 ],
@@ -3516,13 +2390,6 @@
         },
         "/api/core/system/config/add": {
             "post": {
-                "description": "新增",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "系统配置管理"
                 ],
@@ -3555,47 +2422,8 @@
                 }
             }
         },
-        "/api/core/system/config/all": {
-            "get": {
-                "description": "查询所有",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "系统配置管理"
-                ],
-                "summary": "查询所有",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/usercenter.GetAllSystemConfigResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/core/system/config/delete": {
             "delete": {
-                "description": "删除",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "系统配置管理"
                 ],
@@ -3630,13 +2458,6 @@
         },
         "/api/core/system/config/detail": {
             "get": {
-                "description": "查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "系统配置管理"
                 ],
@@ -3669,13 +2490,6 @@
         },
         "/api/core/system/config/query": {
             "get": {
-                "description": "分页查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "系统配置管理"
                 ],
@@ -3699,18 +2513,6 @@
                         "description": "默认每页10条",
                         "name": "pageSize",
                         "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -3725,13 +2527,6 @@
         },
         "/api/core/system/config/update": {
             "put": {
-                "description": "更新",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "系统配置管理"
                 ],
@@ -3766,13 +2561,6 @@
         },
         "/api/core/web_site/add": {
             "post": {
-                "description": "新增",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "网站配置管理"
                 ],
@@ -3805,47 +2593,8 @@
                 }
             }
         },
-        "/api/core/web_site/all": {
-            "get": {
-                "description": "查询所有",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "网站配置管理"
-                ],
-                "summary": "查询所有",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/usercenter.GetAllWebSiteResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/core/web_site/delete": {
             "delete": {
-                "description": "删除",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "网站配置管理"
                 ],
@@ -3880,13 +2629,6 @@
         },
         "/api/core/web_site/detail": {
             "get": {
-                "description": "查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "网站配置管理"
                 ],
@@ -3919,13 +2661,6 @@
         },
         "/api/core/web_site/query": {
             "get": {
-                "description": "分页查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "网站配置管理"
                 ],
@@ -3949,42 +2684,6 @@
                         "description": "默认每页10条",
                         "name": "pageSize",
                         "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "网站名称",
-                        "name": "name",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "网站编号",
-                        "name": "code",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "所属项目",
-                        "name": "projectID",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "租户ID",
-                        "name": "tenantID",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -3999,13 +2698,6 @@
         },
         "/api/core/web_site/update": {
             "put": {
-                "description": "更新",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "网站配置管理"
                 ],
@@ -4040,13 +2732,6 @@
         },
         "/api/core/wechat/config/add": {
             "post": {
-                "description": "新增",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "微信应用配置管理"
                 ],
@@ -4079,47 +2764,8 @@
                 }
             }
         },
-        "/api/core/wechat/config/all": {
-            "get": {
-                "description": "查询所有",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "微信应用配置管理"
-                ],
-                "summary": "查询所有",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "jwt token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/usercenter.GetAllWechatConfigResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/core/wechat/config/delete": {
             "delete": {
-                "description": "删除",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "微信应用配置管理"
                 ],
@@ -4154,13 +2800,6 @@
         },
         "/api/core/wechat/config/detail": {
             "get": {
-                "description": "查询明细",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "微信应用配置管理"
                 ],
@@ -4193,13 +2832,6 @@
         },
         "/api/core/wechat/config/query": {
             "get": {
-                "description": "分页查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/octet-stream"
-                ],
                 "tags": [
                     "微信应用配置管理"
                 ],
@@ -4223,36 +2855,6 @@
                         "description": "默认每页10条",
                         "name": "pageSize",
                         "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "排序字段",
-                        "name": "orderField",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "是否倒序排序",
-                        "name": "desc",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "APP名称",
-                        "name": "appName",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "租户ID",
-                        "name": "tenantID",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "类型",
-                        "name": "appType",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -4267,13 +2869,6 @@
         },
         "/api/core/wechat/config/update": {
             "put": {
-                "description": "更新",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "微信应用配置管理"
                 ],
@@ -4306,24 +2901,58 @@
                 }
             }
         },
-        "/api/wechat/connect/qrconnect": {
-            "get": {
-                "description": "获取微信登录二维码",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
+        "/api/core/wechat/pay/config/add": {
+            "post": {
                 "tags": [
-                    "微信相关接口"
+                    "微信支付配置管理"
                 ],
-                "summary": "获取微信登录二维码",
+                "summary": "新增微信支付商户配置",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "应用名称",
-                        "name": "app",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Add PayConfig",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/http.AddPayConfigRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.PayConfigResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/core/wechat/pay/config/delete": {
+            "delete": {
+                "tags": [
+                    "微信支付配置管理"
+                ],
+                "summary": "删除微信支付商户配置",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "ID",
+                        "name": "id",
                         "in": "query",
                         "required": true
                     }
@@ -4332,166 +2961,68 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/http.GetQRConnectResponse"
+                            "$ref": "#/definitions/http.PayConfigResponse"
                         }
                     }
                 }
             }
         },
-        "/api/wechat/mini/login": {
-            "post": {
-                "description": "微信登录",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "微信相关接口"
-                ],
-                "summary": "微信登录",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bearer+空格+Token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
-                    {
-                        "description": "登录参数",
-                        "name": "product",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/http.MiniLoginRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/usercenter.LoginResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/wechat/mini/phone/bind": {
-            "post": {
-                "description": "绑定手机号",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "微信相关接口"
-                ],
-                "summary": "绑定手机号",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bearer+空格+Token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
-                    {
-                        "description": "请求参数",
-                        "name": "product",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/http.MiniLoginRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/usercenter.LoginResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/wechat/mini/register/check": {
-            "post": {
-                "description": "检查是否注册过",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "微信相关接口"
-                ],
-                "summary": "检查是否注册过",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bearer+空格+Token",
-                        "name": "authorization",
-                        "in": "header",
-                        "required": true
-                    },
-                    {
-                        "description": "请求参数",
-                        "name": "product",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/http.MiniLoginRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/model.CheckRegisterWithWechatResp"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/wechat/qrcode": {
+        "/api/core/wechat/pay/config/detail": {
             "get": {
-                "description": "生成带参数的二维码",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
-                    "微信相关接口"
+                    "微信支付配置管理"
                 ],
-                "summary": "生成带参数的二维码",
+                "summary": "查询微信支付商户配置明细",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "应用名称",
-                        "name": "app",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "ID",
+                        "name": "id",
                         "in": "query",
                         "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.PayConfigQueryResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/core/wechat/pay/config/query": {
+            "get": {
+                "tags": [
+                    "微信支付配置管理"
+                ],
+                "summary": "分页查询微信支付商户配置",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
                     },
                     {
-                        "type": "boolean",
-                        "description": "是否临时二维码",
-                        "name": "isTemp",
+                        "type": "integer",
+                        "description": "从1开始",
+                        "name": "pageIndex",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "临时二维码过期时间",
-                        "name": "expireSeconds",
+                        "description": "默认每页10条",
+                        "name": "pageSize",
                         "in": "query"
                     }
                 ],
@@ -4499,76 +3030,226 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/http.GetQRCodeResponse"
+                            "$ref": "#/definitions/http.PayConfigQueryResponse"
                         }
                     }
                 }
             }
         },
-        "/api/wechat/qrcode/result": {
+        "/api/core/wechat/pay/config/update": {
+            "put": {
+                "tags": [
+                    "微信支付配置管理"
+                ],
+                "summary": "更新微信支付商户配置",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Update PayConfig",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/http.PayConfigInfo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.PayConfigResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/core/wechat/pay/order/query": {
             "get": {
-                "description": "支持获取生成带参数的二维码微信网页登录扫码结果",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
-                    "微信相关接口"
+                    "微信支付订单管理"
                 ],
-                "summary": "获取扫码结果",
+                "summary": "分页查询微信支付订单",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "应用名称",
-                        "name": "app",
-                        "in": "query",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
                         "required": true
                     },
                     {
+                        "type": "integer",
+                        "description": "从1开始",
+                        "name": "pageIndex",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "默认每页10条",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
-                        "description": "生成带参数的二维码的ticket或者微信网页登录state",
-                        "name": "ticket",
-                        "in": "query",
-                        "required": true
+                        "description": "租户ID",
+                        "name": "tenantID",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "用户ID",
+                        "name": "userID",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "商户号",
+                        "name": "mchID",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "状态 INIT/CREATED/PAID/CLOSED",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "商户订单号",
+                        "name": "outTradeNo",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/http.CheckQRScannResultResponse"
+                            "$ref": "#/definitions/http.PayOrderAdminQueryResponse"
                         }
                     }
                 }
             }
         },
-        "/api/wechat/web/login": {
+        "/api/core/wechat/pay/refund/apply": {
             "post": {
-                "description": "微信网页登录",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
-                    "微信相关接口"
+                    "微信支付退款管理"
                 ],
-                "summary": "微信网页登录",
+                "summary": "微信支付退款申请",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "code",
-                        "name": "code",
-                        "in": "query",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "退款申请",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/http.ApplyRefundRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.RefundAdminQueryResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/core/wechat/pay/refund/query": {
+            "get": {
+                "tags": [
+                    "微信支付退款管理"
+                ],
+                "summary": "分页查询微信支付退款单",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "从1开始",
+                        "name": "pageIndex",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "默认每页10条",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "租户ID",
+                        "name": "tenantID",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "状态 PROCESSING/SUCCESS/CLOSED/ABNORMAL",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "商户订单号",
+                        "name": "outTradeNo",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "商户退款单号",
+                        "name": "outRefundNo",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.RefundAdminQueryResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/wechat/pay/order": {
+            "get": {
+                "tags": [
+                    "微信支付"
+                ],
+                "summary": "微信支付订单状态查询",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
                         "required": true
                     },
                     {
                         "type": "string",
-                        "description": "应用名称",
-                        "name": "state",
+                        "description": "商户订单号",
+                        "name": "outTradeNo",
                         "in": "query",
                         "required": true
                     }
@@ -4577,7 +3258,148 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/usercenter.LoginResponse"
+                            "$ref": "#/definitions/http.PayOrderResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "微信支付"
+                ],
+                "summary": "微信小程序支付下单",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "下单请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/http.CreatePayOrderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.PayOrderResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/wechat/pay/order/close": {
+            "post": {
+                "tags": [
+                    "微信支付"
+                ],
+                "summary": "微信支付关单",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "关单请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/http.ClosePayOrderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/usercenter.CommonResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/wechat/pay/orders": {
+            "get": {
+                "tags": [
+                    "微信支付"
+                ],
+                "summary": "我的微信支付订单列表",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "从1开始",
+                        "name": "pageIndex",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "默认每页10条",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "状态 CREATED/PAID/CLOSED",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.PayOrderAdminQueryResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/wechat/pay/refund": {
+            "get": {
+                "tags": [
+                    "微信支付"
+                ],
+                "summary": "微信支付退款记录查询",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "商户订单号",
+                        "name": "outTradeNo",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.RefundAdminQueryResponse"
                         }
                     }
                 }
@@ -4585,119 +3407,391 @@
         }
     },
     "definitions": {
-        "http.CheckQRScannResultResponse": {
+        "http.AddPayConfigRequest": {
             "type": "object",
+            "required": [
+                "apiV3Key",
+                "appID",
+                "mchID",
+                "mchSerialNo",
+                "privateKey",
+                "tenantID",
+                "wechatConfigID"
+            ],
             "properties": {
-                "code": {
-                    "type": "integer"
+                "apiV3Key": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "minLength": 32
                 },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "finished": {
-                            "description": "是否扫码完成",
-                            "type": "boolean"
-                        },
-                        "token": {
-                            "description": "登录成功后的token",
-                            "type": "string"
-                        }
-                    }
+                "appID": {
+                    "type": "string"
                 },
-                "message": {
+                "description": {
+                    "type": "string",
+                    "maxLength": 200
+                },
+                "enable": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "mchID": {
+                    "type": "string"
+                },
+                "mchSerialNo": {
+                    "type": "string"
+                },
+                "notifyURL": {
+                    "type": "string"
+                },
+                "privateKey": {
+                    "type": "string"
+                },
+                "refundNotifyURL": {
+                    "type": "string"
+                },
+                "tenantID": {
+                    "type": "string"
+                },
+                "wechatConfigID": {
                     "type": "string"
                 }
             }
         },
-        "http.GetQRCodeResponse": {
+        "http.ApplyRefundRequest": {
             "type": "object",
+            "required": [
+                "outTradeNo",
+                "refundAmount"
+            ],
             "properties": {
-                "code": {
+                "outRefundNo": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "minLength": 6
+                },
+                "outTradeNo": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string",
+                    "maxLength": 120
+                },
+                "refundAmount": {
                     "type": "integer"
-                },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "qrcode": {
-                            "type": "string"
-                        },
-                        "ticket": {
-                            "type": "string"
-                        }
-                    }
-                },
-                "message": {
+                }
+            }
+        },
+        "http.ClosePayOrderRequest": {
+            "type": "object",
+            "required": [
+                "outTradeNo"
+            ],
+            "properties": {
+                "outTradeNo": {
                     "type": "string"
                 }
             }
         },
-        "http.GetQRConnectResponse": {
+        "http.CreatePayOrderRequest": {
             "type": "object",
+            "required": [
+                "amount",
+                "app",
+                "description"
+            ],
             "properties": {
-                "code": {
+                "amount": {
                     "type": "integer"
                 },
-                "data": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                }
-            }
-        },
-        "http.MiniLoginRequest": {
-            "type": "object",
-            "properties": {
                 "app": {
                     "type": "string"
                 },
-                "encryptedData": {
-                    "type": "string"
+                "attach": {
+                    "type": "string",
+                    "maxLength": 100
                 },
-                "iv": {
-                    "type": "string"
+                "description": {
+                    "type": "string",
+                    "maxLength": 120
                 },
-                "jsCode": {
-                    "type": "string"
+                "expireMinutes": {
+                    "description": "ExpireMinutes 订单有效期(分钟),留空默认120,最长1440。",
+                    "type": "integer",
+                    "maximum": 1440
                 },
-                "nickname": {
-                    "description": "注册时需要传一个昵称(微信修改了获取用户信息接口，目前无法获取到昵称)",
-                    "type": "string"
-                },
-                "phoneNumberCode": {
-                    "type": "string"
-                },
-                "register": {
-                    "type": "boolean"
+                "outTradeNo": {
+                    "type": "string",
+                    "maxLength": 32,
+                    "minLength": 6
                 }
             }
         },
-        "model.CheckRegisterWithWechatResp": {
+        "http.PayConfigInfo": {
+            "type": "object",
+            "required": [
+                "appID",
+                "mchID",
+                "mchSerialNo",
+                "tenantID",
+                "wechatConfigID"
+            ],
+            "properties": {
+                "apiV3Key": {
+                    "type": "string"
+                },
+                "appID": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "maxLength": 200
+                },
+                "enable": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "mchID": {
+                    "type": "string"
+                },
+                "mchSerialNo": {
+                    "type": "string"
+                },
+                "notifyURL": {
+                    "type": "string"
+                },
+                "privateKey": {
+                    "type": "string"
+                },
+                "refundNotifyURL": {
+                    "type": "string"
+                },
+                "tenantID": {
+                    "type": "string"
+                },
+                "wechatConfigID": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.PayConfigQueryResponse": {
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
-                },
-                "current": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
-                    "type": "boolean"
-                },
-                "desc": {
-                    "type": "boolean"
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/http.PayConfigInfo"
+                    }
                 },
                 "message": {
                     "type": "string"
                 },
-                "orderField": {
+                "pages": {
+                    "type": "integer"
+                },
+                "records": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "http.PayConfigResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.PayOrderAdminItem": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "integer"
+                },
+                "appID": {
                     "type": "string"
                 },
-                "pageIndex": {
+                "attach": {
+                    "type": "string"
+                },
+                "closedAt": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "lastEvent": {
+                    "type": "string"
+                },
+                "mchID": {
+                    "type": "string"
+                },
+                "outTradeNo": {
+                    "type": "string"
+                },
+                "paidAt": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tenantID": {
+                    "type": "string"
+                },
+                "tradeState": {
+                    "type": "string"
+                },
+                "tradeStateDesc": {
+                    "type": "string"
+                },
+                "transactionID": {
+                    "type": "string"
+                },
+                "userID": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.PayOrderAdminQueryResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/http.PayOrderAdminItem"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                },
+                "pages": {
                     "type": "integer"
                 },
-                "pageSize": {
+                "records": {
                     "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "http.PayOrderPayload": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "integer"
+                },
+                "expireAt": {
+                    "type": "string"
+                },
+                "outTradeNo": {
+                    "type": "string"
+                },
+                "paidAt": {
+                    "type": "string"
+                },
+                "payParams": {
+                    "$ref": "#/definitions/wechatpay.PayParams"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tradeState": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.PayOrderResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "$ref": "#/definitions/http.PayOrderPayload"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.RefundAdminItem": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "integer"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "outRefundNo": {
+                    "type": "string"
+                },
+                "outTradeNo": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "refundID": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "successTime": {
+                    "type": "string"
+                },
+                "tenantID": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "userID": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.RefundAdminQueryResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/http.RefundAdminItem"
+                    }
+                },
+                "message": {
+                    "type": "string"
                 },
                 "pages": {
                     "type": "integer"
@@ -4712,10 +3806,6 @@
         },
         "usercenter.APIInfo": {
             "type": "object",
-            "required": [
-                "method",
-                "path"
-            ],
             "properties": {
                 "checkAuth": {
                     "description": "是否检查权限",
@@ -4783,12 +3873,6 @@
         },
         "usercenter.ChangePwdRequest": {
             "type": "object",
-            "required": [
-                "id",
-                "newConfirmPwd",
-                "newPwd",
-                "oldPwd"
-            ],
             "properties": {
                 "id": {
                     "description": "@inject_tag: validate:\"required\"",
@@ -4811,11 +3895,42 @@
                 }
             }
         },
+        "usercenter.Code": {
+            "type": "integer",
+            "enum": [
+                0,
+                20000,
+                50000,
+                40000,
+                40001,
+                40002,
+                41001,
+                41002,
+                41003,
+                41004,
+                41005,
+                41006
+            ],
+            "x-enum-varnames": [
+                "Code_None",
+                "Code_Success",
+                "Code_InternalServerError",
+                "Code_BadRequest",
+                "Code_Unauthorized",
+                "Code_ErrRecordNotFound",
+                "Code_UserNameOrPasswordIsWrong",
+                "Code_UserIsNotExist",
+                "Code_NoPermission",
+                "Code_TokenInvalid",
+                "Code_TokenExpired",
+                "Code_UserDisabled"
+            ]
+        },
         "usercenter.CommonResponse": {
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "message": {
                     "type": "string"
@@ -4824,9 +3939,6 @@
         },
         "usercenter.DelRequest": {
             "type": "object",
-            "required": [
-                "id"
-            ],
             "properties": {
                 "id": {
                     "description": "@inject_tag: validate:\"required\"",
@@ -4874,9 +3986,6 @@
         },
         "usercenter.EnableRequest": {
             "type": "object",
-            "required": [
-                "id"
-            ],
             "properties": {
                 "enable": {
                     "type": "boolean"
@@ -4964,7 +4073,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.APIInfo"
@@ -4978,7 +4087,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -4991,62 +4100,11 @@
                 }
             }
         },
-        "usercenter.GetAllDictionariesResponse": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/usercenter.DictionariesInfo"
-                    }
-                },
-                "message": {
-                    "type": "string"
-                }
-            }
-        },
-        "usercenter.GetAllLanguageResponse": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/usercenter.LanguageInfo"
-                    }
-                },
-                "message": {
-                    "type": "string"
-                }
-            }
-        },
-        "usercenter.GetAllSystemConfigResponse": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/usercenter.SystemConfigInfo"
-                    }
-                },
-                "message": {
-                    "type": "string"
-                }
-            }
-        },
         "usercenter.GetAllUsersResponse": {
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5059,45 +4117,11 @@
                 }
             }
         },
-        "usercenter.GetAllWebSiteResponse": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/usercenter.WebSiteInfo"
-                    }
-                },
-                "message": {
-                    "type": "string"
-                }
-            }
-        },
-        "usercenter.GetAllWechatConfigResponse": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/usercenter.WechatConfigInfo"
-                    }
-                },
-                "message": {
-                    "type": "string"
-                }
-            }
-        },
         "usercenter.GetBasicsResponse": {
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.BasicsInfo"
@@ -5109,9 +4133,6 @@
         },
         "usercenter.GetDetailRequest": {
             "type": "object",
-            "required": [
-                "id"
-            ],
             "properties": {
                 "id": {
                     "description": "@inject_tag: uri:\"id\" form:\"id\" validate:\"required\"",
@@ -5127,7 +4148,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.DictionariesInfo"
@@ -5141,7 +4162,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.FormComponentInfo"
@@ -5155,7 +4176,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.LanguageInfo"
@@ -5169,7 +4190,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.MenuInfo"
@@ -5183,7 +4204,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.ProjectInfo"
@@ -5197,7 +4218,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.RoleInfo"
@@ -5211,7 +4232,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.SystemConfigInfo"
@@ -5225,7 +4246,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.TenantInfo"
@@ -5239,7 +4260,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.UserInfo"
@@ -5253,7 +4274,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.WebSiteInfo"
@@ -5267,7 +4288,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "$ref": "#/definitions/usercenter.WechatConfigInfo"
@@ -5352,7 +4373,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "string"
@@ -5407,9 +4428,6 @@
         },
         "usercenter.MenuInfo": {
             "type": "object",
-            "required": [
-                "name"
-            ],
             "properties": {
                 "cache": {
                     "type": "boolean"
@@ -5558,7 +4576,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5584,7 +4602,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5610,7 +4628,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5636,7 +4654,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5662,7 +4680,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5688,7 +4706,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5714,7 +4732,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5740,7 +4758,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5766,7 +4784,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5792,7 +4810,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5818,7 +4836,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5844,7 +4862,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "$ref": "#/definitions/usercenter.Code"
                 },
                 "data": {
                     "type": "array",
@@ -5868,9 +4886,6 @@
         },
         "usercenter.RoleInfo": {
             "type": "object",
-            "required": [
-                "name"
-            ],
             "properties": {
                 "canDel": {
                     "type": "boolean"
@@ -5886,6 +4901,10 @@
                 },
                 "description": {
                     "type": "string"
+                },
+                "enable": {
+                    "description": "角色是否启用；停用后不再签发到新的登录权限上下文",
+                    "type": "boolean"
                 },
                 "id": {
                     "type": "string"
@@ -5986,9 +5005,6 @@
         },
         "usercenter.TenantInfo": {
             "type": "object",
-            "required": [
-                "name"
-            ],
             "properties": {
                 "address": {
                     "type": "string"
@@ -6083,11 +5099,6 @@
         },
         "usercenter.UserInfo": {
             "type": "object",
-            "required": [
-                "mobile",
-                "nickname",
-                "userName"
-            ],
             "properties": {
                 "age": {
                     "type": "integer"
@@ -6213,10 +5224,6 @@
         },
         "usercenter.UserProfile": {
             "type": "object",
-            "required": [
-                "mobile",
-                "nickname"
-            ],
             "properties": {
                 "avatar": {
                     "description": "头像",
@@ -6376,6 +5383,9 @@
         "usercenter.WechatConfigInfo": {
             "type": "object",
             "properties": {
+                "agentID": {
+                    "type": "string"
+                },
                 "appID": {
                     "description": "APP ID",
                     "type": "string"
@@ -6428,6 +5438,32 @@
                 },
                 "token": {
                     "description": "Token",
+                    "type": "string"
+                }
+            }
+        },
+        "wechatpay.PayParams": {
+            "type": "object",
+            "properties": {
+                "appId": {
+                    "type": "string"
+                },
+                "nonceStr": {
+                    "type": "string"
+                },
+                "package": {
+                    "type": "string"
+                },
+                "paySign": {
+                    "type": "string"
+                },
+                "prepayID": {
+                    "type": "string"
+                },
+                "signType": {
+                    "type": "string"
+                },
+                "timeStamp": {
                     "type": "string"
                 }
             }

@@ -25,7 +25,7 @@ require (
 	github.com/silenceper/wechat/v2 v2.1.4
 	github.com/stretchr/testify v1.9.0
 	github.com/swaggo/gin-swagger v1.3.3
-	github.com/swaggo/swag v1.8.1
+	github.com/swaggo/swag v1.16.2
 	github.com/wechatpay-apiv3/wechatpay-go v0.2.21
 	golang.org/x/crypto v0.50.0
 	google.golang.org/protobuf v1.34.1

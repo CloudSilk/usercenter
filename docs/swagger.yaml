@@ -1,79 +1,266 @@
 definitions:
-  http.CheckQRScannResultResponse:
+  http.AddPayConfigRequest:
     properties:
-      code:
-        type: integer
-      data:
-        properties:
-          finished:
-            description: 是否扫码完成
-            type: boolean
-          token:
-            description: 登录成功后的token
-            type: string
-        type: object
-      message:
+      apiV3Key:
+        maxLength: 64
+        minLength: 32
         type: string
+      appID:
+        type: string
+      description:
+        maxLength: 200
+        type: string
+      enable:
+        type: boolean
+      id:
+        type: string
+      mchID:
+        type: string
+      mchSerialNo:
+        type: string
+      notifyURL:
+        type: string
+      privateKey:
+        type: string
+      refundNotifyURL:
+        type: string
+      tenantID:
+        type: string
+      wechatConfigID:
+        type: string
+    required:
+    - apiV3Key
+    - appID
+    - mchID
+    - mchSerialNo
+    - privateKey
+    - tenantID
+    - wechatConfigID
     type: object
-  http.GetQRCodeResponse:
+  http.ApplyRefundRequest:
     properties:
-      code:
+      outRefundNo:
+        maxLength: 64
+        minLength: 6
+        type: string
+      outTradeNo:
+        type: string
+      reason:
+        maxLength: 120
+        type: string
+      refundAmount:
         type: integer
-      data:
-        properties:
-          qrcode:
-            type: string
-          ticket:
-            type: string
-        type: object
-      message:
-        type: string
+    required:
+    - outTradeNo
+    - refundAmount
     type: object
-  http.GetQRConnectResponse:
+  http.ClosePayOrderRequest:
     properties:
-      code:
+      outTradeNo:
+        type: string
+    required:
+    - outTradeNo
+    type: object
+  http.CreatePayOrderRequest:
+    properties:
+      amount:
         type: integer
-      data:
-        type: string
-      message:
-        type: string
-    type: object
-  http.MiniLoginRequest:
-    properties:
       app:
         type: string
-      encryptedData:
+      attach:
+        maxLength: 100
         type: string
-      iv:
+      description:
+        maxLength: 120
         type: string
-      jsCode:
+      expireMinutes:
+        description: ExpireMinutes 订单有效期(分钟),留空默认120,最长1440。
+        maximum: 1440
+        type: integer
+      outTradeNo:
+        maxLength: 32
+        minLength: 6
         type: string
-      nickname:
-        description: 注册时需要传一个昵称(微信修改了获取用户信息接口，目前无法获取到昵称)
-        type: string
-      phoneNumberCode:
-        type: string
-      register:
-        type: boolean
+    required:
+    - amount
+    - app
+    - description
     type: object
-  model.CheckRegisterWithWechatResp:
+  http.PayConfigInfo:
+    properties:
+      apiV3Key:
+        type: string
+      appID:
+        type: string
+      description:
+        maxLength: 200
+        type: string
+      enable:
+        type: boolean
+      id:
+        type: string
+      mchID:
+        type: string
+      mchSerialNo:
+        type: string
+      notifyURL:
+        type: string
+      privateKey:
+        type: string
+      refundNotifyURL:
+        type: string
+      tenantID:
+        type: string
+      wechatConfigID:
+        type: string
+    required:
+    - appID
+    - mchID
+    - mchSerialNo
+    - tenantID
+    - wechatConfigID
+    type: object
+  http.PayConfigQueryResponse:
     properties:
       code:
-        type: integer
-      current:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
-        type: boolean
-      desc:
-        type: boolean
+        items:
+          $ref: '#/definitions/http.PayConfigInfo'
+        type: array
       message:
         type: string
-      orderField:
+      pages:
+        type: integer
+      records:
+        type: integer
+      total:
+        type: integer
+    type: object
+  http.PayConfigResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      message:
         type: string
-      pageIndex:
+    type: object
+  http.PayOrderAdminItem:
+    properties:
+      amount:
         type: integer
-      pageSize:
+      appID:
+        type: string
+      attach:
+        type: string
+      closedAt:
+        type: string
+      createdAt:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      lastEvent:
+        type: string
+      mchID:
+        type: string
+      outTradeNo:
+        type: string
+      paidAt:
+        type: string
+      status:
+        type: string
+      tenantID:
+        type: string
+      tradeState:
+        type: string
+      tradeStateDesc:
+        type: string
+      transactionID:
+        type: string
+      userID:
+        type: string
+    type: object
+  http.PayOrderAdminQueryResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      data:
+        items:
+          $ref: '#/definitions/http.PayOrderAdminItem'
+        type: array
+      message:
+        type: string
+      pages:
         type: integer
+      records:
+        type: integer
+      total:
+        type: integer
+    type: object
+  http.PayOrderPayload:
+    properties:
+      amount:
+        type: integer
+      expireAt:
+        type: string
+      outTradeNo:
+        type: string
+      paidAt:
+        type: string
+      payParams:
+        $ref: '#/definitions/wechatpay.PayParams'
+      status:
+        type: string
+      tradeState:
+        type: string
+    type: object
+  http.PayOrderResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      data:
+        $ref: '#/definitions/http.PayOrderPayload'
+      message:
+        type: string
+    type: object
+  http.RefundAdminItem:
+    properties:
+      amount:
+        type: integer
+      createdAt:
+        type: string
+      id:
+        type: string
+      outRefundNo:
+        type: string
+      outTradeNo:
+        type: string
+      reason:
+        type: string
+      refundID:
+        type: string
+      status:
+        type: string
+      successTime:
+        type: string
+      tenantID:
+        type: string
+      total:
+        type: integer
+      userID:
+        type: string
+    type: object
+  http.RefundAdminQueryResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      data:
+        items:
+          $ref: '#/definitions/http.RefundAdminItem'
+        type: array
+      message:
+        type: string
       pages:
         type: integer
       records:
@@ -118,9 +305,6 @@ definitions:
         type: string
       tenantID:
         type: string
-    required:
-    - method
-    - path
     type: object
   usercenter.BasicsInfo:
     properties:
@@ -151,16 +335,39 @@ definitions:
         type: string
       tenantID:
         type: string
-    required:
-    - id
-    - newConfirmPwd
-    - newPwd
-    - oldPwd
     type: object
+  usercenter.Code:
+    enum:
+    - 0
+    - 20000
+    - 50000
+    - 40000
+    - 40001
+    - 40002
+    - 41001
+    - 41002
+    - 41003
+    - 41004
+    - 41005
+    - 41006
+    type: integer
+    x-enum-varnames:
+    - Code_None
+    - Code_Success
+    - Code_InternalServerError
+    - Code_BadRequest
+    - Code_Unauthorized
+    - Code_ErrRecordNotFound
+    - Code_UserNameOrPasswordIsWrong
+    - Code_UserIsNotExist
+    - Code_NoPermission
+    - Code_TokenInvalid
+    - Code_TokenExpired
+    - Code_UserDisabled
   usercenter.CommonResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       message:
         type: string
     type: object
@@ -171,8 +378,6 @@ definitions:
         type: string
       tenantID:
         type: string
-    required:
-    - id
     type: object
   usercenter.DictionariesInfo:
     properties:
@@ -208,8 +413,6 @@ definitions:
         type: string
       tenantID:
         type: string
-    required:
-    - id
     type: object
   usercenter.FormComponentInfo:
     properties:
@@ -260,7 +463,7 @@ definitions:
   usercenter.GetAPIDetailResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.APIInfo'
       message:
@@ -269,7 +472,7 @@ definitions:
   usercenter.GetAllAPIResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.APIInfo'
@@ -277,43 +480,10 @@ definitions:
       message:
         type: string
     type: object
-  usercenter.GetAllDictionariesResponse:
-    properties:
-      code:
-        type: integer
-      data:
-        items:
-          $ref: '#/definitions/usercenter.DictionariesInfo'
-        type: array
-      message:
-        type: string
-    type: object
-  usercenter.GetAllLanguageResponse:
-    properties:
-      code:
-        type: integer
-      data:
-        items:
-          $ref: '#/definitions/usercenter.LanguageInfo'
-        type: array
-      message:
-        type: string
-    type: object
-  usercenter.GetAllSystemConfigResponse:
-    properties:
-      code:
-        type: integer
-      data:
-        items:
-          $ref: '#/definitions/usercenter.SystemConfigInfo'
-        type: array
-      message:
-        type: string
-    type: object
   usercenter.GetAllUsersResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.UserInfo'
@@ -321,32 +491,10 @@ definitions:
       message:
         type: string
     type: object
-  usercenter.GetAllWebSiteResponse:
-    properties:
-      code:
-        type: integer
-      data:
-        items:
-          $ref: '#/definitions/usercenter.WebSiteInfo'
-        type: array
-      message:
-        type: string
-    type: object
-  usercenter.GetAllWechatConfigResponse:
-    properties:
-      code:
-        type: integer
-      data:
-        items:
-          $ref: '#/definitions/usercenter.WechatConfigInfo'
-        type: array
-      message:
-        type: string
-    type: object
   usercenter.GetBasicsResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.BasicsInfo'
       message:
@@ -360,13 +508,11 @@ definitions:
       tenantID:
         description: '@inject_tag: uri:"tenantID" form:"tenantID"'
         type: string
-    required:
-    - id
     type: object
   usercenter.GetDictionariesDetailResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.DictionariesInfo'
       message:
@@ -375,7 +521,7 @@ definitions:
   usercenter.GetFormComponentDetailResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.FormComponentInfo'
       message:
@@ -384,7 +530,7 @@ definitions:
   usercenter.GetLanguageDetailResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.LanguageInfo'
       message:
@@ -393,7 +539,7 @@ definitions:
   usercenter.GetMenuDetailResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.MenuInfo'
       message:
@@ -402,7 +548,7 @@ definitions:
   usercenter.GetProjectDetailResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.ProjectInfo'
       message:
@@ -411,7 +557,7 @@ definitions:
   usercenter.GetRoleDetailResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.RoleInfo'
       message:
@@ -420,7 +566,7 @@ definitions:
   usercenter.GetSystemConfigDetailResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.SystemConfigInfo'
       message:
@@ -429,7 +575,7 @@ definitions:
   usercenter.GetTenantDetailResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.TenantInfo'
       message:
@@ -438,7 +584,7 @@ definitions:
   usercenter.GetUserDetailResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.UserInfo'
       message:
@@ -447,7 +593,7 @@ definitions:
   usercenter.GetWebSiteDetailResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.WebSiteInfo'
       message:
@@ -456,7 +602,7 @@ definitions:
   usercenter.GetWechatConfigDetailResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         $ref: '#/definitions/usercenter.WechatConfigInfo'
       message:
@@ -516,7 +662,7 @@ definitions:
   usercenter.LoginResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         type: string
       message:
@@ -598,8 +744,6 @@ definitions:
         type: string
       title:
         type: string
-    required:
-    - name
     type: object
   usercenter.MenuParameter:
     properties:
@@ -652,7 +796,7 @@ definitions:
   usercenter.QueryAPIResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.APIInfo'
@@ -669,7 +813,7 @@ definitions:
   usercenter.QueryDictionariesResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.DictionariesInfo'
@@ -686,7 +830,7 @@ definitions:
   usercenter.QueryFormComponentResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.FormComponentInfo'
@@ -703,7 +847,7 @@ definitions:
   usercenter.QueryLanguageResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.LanguageInfo'
@@ -720,7 +864,7 @@ definitions:
   usercenter.QueryMenuResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.MenuInfo'
@@ -737,7 +881,7 @@ definitions:
   usercenter.QueryProjectResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.ProjectInfo'
@@ -754,7 +898,7 @@ definitions:
   usercenter.QueryRoleResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.RoleInfo'
@@ -771,7 +915,7 @@ definitions:
   usercenter.QuerySystemConfigResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.SystemConfigInfo'
@@ -788,7 +932,7 @@ definitions:
   usercenter.QueryTenantResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.TenantInfo'
@@ -805,7 +949,7 @@ definitions:
   usercenter.QueryUserResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.UserInfo'
@@ -822,7 +966,7 @@ definitions:
   usercenter.QueryWebSiteResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.WebSiteInfo'
@@ -839,7 +983,7 @@ definitions:
   usercenter.QueryWechatConfigResponse:
     properties:
       code:
-        type: integer
+        $ref: '#/definitions/usercenter.Code'
       data:
         items:
           $ref: '#/definitions/usercenter.WechatConfigInfo'
@@ -865,6 +1009,9 @@ definitions:
         type: string
       description:
         type: string
+      enable:
+        description: 角色是否启用；停用后不再签发到新的登录权限上下文
+        type: boolean
       id:
         type: string
       isMust:
@@ -887,8 +1034,6 @@ definitions:
         type: string
       tenantName:
         type: string
-    required:
-    - name
     type: object
   usercenter.RoleMenu:
     properties:
@@ -981,8 +1126,6 @@ definitions:
         type: string
       userCount:
         type: integer
-    required:
-    - name
     type: object
   usercenter.TenantMenu:
     properties:
@@ -1081,10 +1224,6 @@ definitions:
         type: string
       weight:
         type: number
-    required:
-    - mobile
-    - nickname
-    - userName
     type: object
   usercenter.UserProfile:
     properties:
@@ -1155,9 +1294,6 @@ definitions:
         type: string
       vipExpired:
         type: string
-    required:
-    - mobile
-    - nickname
     type: object
   usercenter.UserRole:
     properties:
@@ -1206,6 +1342,8 @@ definitions:
     type: object
   usercenter.WechatConfigInfo:
     properties:
+      agentID:
+        type: string
       appID:
         description: APP ID
         type: string
@@ -1247,48 +1385,34 @@ definitions:
         description: Token
         type: string
     type: object
+  wechatpay.PayParams:
+    properties:
+      appId:
+        type: string
+      nonceStr:
+        type: string
+      package:
+        type: string
+      paySign:
+        type: string
+      prepayID:
+        type: string
+      signType:
+        type: string
+      timeStamp:
+        type: string
+    type: object
 info:
   contact: {}
 paths:
   /api/auth/tenant/export:
     get:
-      consumes:
-      - application/json
-      description: 导出
       parameters:
       - description: jwt token
         in: header
         name: authorization
         required: true
         type: string
-      - description: 从1开始
-        in: query
-        name: pageIndex
-        type: integer
-      - description: 默认每页10条
-        in: query
-        name: pageSize
-        type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: 租户名称
-        in: query
-        name: name
-        type: string
-      - description: IDs
-        in: query
-        items:
-          type: string
-        name: ids
-        type: array
-      produces:
-      - application/octet-stream
       responses:
         "200":
           description: OK
@@ -1299,9 +1423,6 @@ paths:
       - 租户管理
   /api/auth/tenant/import:
     post:
-      consumes:
-      - multipart/form-data
-      description: 导入
       parameters:
       - description: Bearer+空格+Token
         in: header
@@ -1313,8 +1434,6 @@ paths:
         name: files
         required: true
         type: file
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1325,47 +1444,6 @@ paths:
       - 租户管理
   /api/auth/user/export:
     get:
-      consumes:
-      - application/json
-      description: 导出
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: 从1开始
-        in: query
-        name: pageIndex
-        type: integer
-      - description: 默认每页10条
-        in: query
-        name: pageSize
-        type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: Nickname
-        in: query
-        name: nickname
-        type: string
-      - description: UserName
-        in: query
-        name: userName
-        type: string
-      - description: IDs
-        in: query
-        items:
-          type: string
-        name: ids
-        type: array
-      produces:
-      - application/octet-stream
       responses:
         "200":
           description: OK
@@ -1376,22 +1454,12 @@ paths:
       - 用户管理
   /api/auth/user/import:
     post:
-      consumes:
-      - multipart/form-data
-      description: 导入
       parameters:
-      - description: Bearer+空格+Token
-        in: header
-        name: authorization
-        required: true
-        type: string
       - description: 要上传的文件
         in: formData
         name: files
         required: true
         type: file
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1402,9 +1470,6 @@ paths:
       - 用户管理
   /api/core/auth/api/add:
     post:
-      consumes:
-      - application/json
-      description: 新增API
       parameters:
       - description: jwt token
         in: header
@@ -1417,8 +1482,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.APIInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1429,17 +1492,12 @@ paths:
       - API管理
   /api/core/auth/api/all:
     get:
-      consumes:
-      - application/json
-      description: 查询所有API
       parameters:
       - description: jwt token
         in: header
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1450,9 +1508,6 @@ paths:
       - API管理
   /api/core/auth/api/delete:
     delete:
-      consumes:
-      - application/json
-      description: 软删除API
       parameters:
       - description: jwt token
         in: header
@@ -1465,8 +1520,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.DelRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1477,9 +1530,6 @@ paths:
       - API管理
   /api/core/auth/api/detail:
     get:
-      consumes:
-      - application/json
-      description: 查询明细
       parameters:
       - description: ID
         in: query
@@ -1491,8 +1541,6 @@ paths:
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1503,9 +1551,6 @@ paths:
       - API管理
   /api/core/auth/api/enable:
     post:
-      consumes:
-      - application/json
-      description: 禁用/启用API
       parameters:
       - description: jwt token
         in: header
@@ -1518,8 +1563,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.EnableRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1530,51 +1573,12 @@ paths:
       - API管理
   /api/core/auth/api/export:
     get:
-      consumes:
-      - application/json
-      description: 导出
       parameters:
       - description: jwt token
         in: header
         name: authorization
         required: true
         type: string
-      - description: 从1开始
-        in: query
-        name: pageIndex
-        type: integer
-      - description: 默认每页10条
-        in: query
-        name: pageSize
-        type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: Group
-        in: query
-        name: group
-        type: string
-      - description: Method
-        in: query
-        name: method
-        type: string
-      - description: Path
-        in: query
-        name: path
-        type: string
-      - description: IDs
-        in: query
-        items:
-          type: string
-        name: ids
-        type: array
-      produces:
-      - application/octet-stream
       responses:
         "200":
           description: OK
@@ -1585,9 +1589,6 @@ paths:
       - API管理
   /api/core/auth/api/import:
     post:
-      consumes:
-      - multipart/form-data
-      description: 导入
       parameters:
       - description: Bearer+空格+Token
         in: header
@@ -1599,8 +1600,6 @@ paths:
         name: files
         required: true
         type: file
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1611,9 +1610,6 @@ paths:
       - API管理
   /api/core/auth/api/query:
     get:
-      consumes:
-      - application/json
-      description: 分页查询
       parameters:
       - description: jwt token
         in: header
@@ -1628,36 +1624,6 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: 路径
-        in: query
-        name: path
-        type: string
-      - description: 方法
-        in: query
-        name: method
-        type: string
-      - description: 分组
-        in: query
-        name: group
-        type: string
-      - description: 是否检查权限
-        in: query
-        name: checkAuth
-        type: string
-      - description: 是否需要登录
-        in: query
-        name: checkLogin
-        type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1668,9 +1634,6 @@ paths:
       - API管理
   /api/core/auth/api/update:
     put:
-      consumes:
-      - application/json
-      description: 更新API
       parameters:
       - description: jwt token
         in: header
@@ -1683,8 +1646,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.APIInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1695,9 +1656,6 @@ paths:
       - API管理
   /api/core/auth/form/component/add:
     post:
-      consumes:
-      - application/json
-      description: 新增
       parameters:
       - description: jwt token
         in: header
@@ -1710,8 +1668,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.FormComponentInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1722,9 +1678,6 @@ paths:
       - 表单组件管理
   /api/core/auth/form/component/delete:
     delete:
-      consumes:
-      - application/json
-      description: 删除
       parameters:
       - description: jwt token
         in: header
@@ -1737,8 +1690,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.DelRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1749,9 +1700,6 @@ paths:
       - 表单组件管理
   /api/core/auth/form/component/detail:
     get:
-      consumes:
-      - application/json
-      description: 查询明细
       parameters:
       - description: ID
         in: query
@@ -1763,8 +1711,6 @@ paths:
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1775,9 +1721,6 @@ paths:
       - 表单组件管理
   /api/core/auth/form/component/query:
     get:
-      consumes:
-      - application/json
-      description: 分页查询
       parameters:
       - description: jwt token
         in: header
@@ -1792,20 +1735,6 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: 组件名称
-        in: query
-        name: name
-        type: string
-      produces:
-      - application/octet-stream
       responses:
         "200":
           description: OK
@@ -1816,9 +1745,6 @@ paths:
       - 表单组件管理
   /api/core/auth/form/component/update:
     put:
-      consumes:
-      - application/json
-      description: 更新
       parameters:
       - description: jwt token
         in: header
@@ -1831,8 +1757,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.FormComponentInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1843,9 +1767,6 @@ paths:
       - 表单组件管理
   /api/core/auth/menu/add:
     post:
-      consumes:
-      - application/json
-      description: 新增菜单
       parameters:
       - description: jwt token
         in: header
@@ -1858,8 +1779,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.MenuInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1870,9 +1789,6 @@ paths:
       - 菜单管理
   /api/core/auth/menu/delete:
     delete:
-      consumes:
-      - application/json
-      description: 软删除菜单
       parameters:
       - description: jwt token
         in: header
@@ -1885,8 +1801,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.DelRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1897,9 +1811,6 @@ paths:
       - 菜单管理
   /api/core/auth/menu/detail:
     get:
-      consumes:
-      - application/json
-      description: 查询明细
       parameters:
       - description: ID
         in: query
@@ -1911,8 +1822,6 @@ paths:
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1923,39 +1832,12 @@ paths:
       - 菜单管理
   /api/core/auth/menu/export:
     get:
-      consumes:
-      - application/json
-      description: 导出
       parameters:
       - description: jwt token
         in: header
         name: authorization
         required: true
         type: string
-      - description: 从1开始
-        in: query
-        name: pageIndex
-        type: integer
-      - description: 默认每页10条
-        in: query
-        name: pageSize
-        type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: IDs
-        in: query
-        items:
-          type: string
-        name: ids
-        type: array
-      produces:
-      - application/octet-stream
       responses:
         "200":
           description: OK
@@ -1966,9 +1848,6 @@ paths:
       - 菜单管理
   /api/core/auth/menu/import:
     post:
-      consumes:
-      - multipart/form-data
-      description: 导入
       parameters:
       - description: Bearer+空格+Token
         in: header
@@ -1980,8 +1859,6 @@ paths:
         name: files
         required: true
         type: file
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1992,9 +1869,6 @@ paths:
       - 菜单管理
   /api/core/auth/menu/query:
     get:
-      consumes:
-      - application/json
-      description: 分页查询
       parameters:
       - description: jwt token
         in: header
@@ -2009,36 +1883,6 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: 路径
-        in: query
-        name: path
-        type: string
-      - description: 名称
-        in: query
-        name: name
-        type: string
-      - description: 显示名称
-        in: query
-        name: title
-        type: string
-      - description: 父ID
-        in: query
-        name: parentID
-        type: string
-      - description: 层级
-        in: query
-        name: level
-        type: integer
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2049,17 +1893,12 @@ paths:
       - 菜单管理
   /api/core/auth/menu/tree:
     get:
-      consumes:
-      - application/json
-      description: 查询所有菜单（Tree）
       parameters:
       - description: jwt token
         in: header
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2070,9 +1909,6 @@ paths:
       - 菜单管理
   /api/core/auth/menu/update:
     put:
-      consumes:
-      - application/json
-      description: 更新菜单
       parameters:
       - description: jwt token
         in: header
@@ -2085,8 +1921,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.MenuInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2097,9 +1931,6 @@ paths:
       - 菜单管理
   /api/core/auth/project/add:
     post:
-      consumes:
-      - application/json
-      description: 新增
       parameters:
       - description: jwt token
         in: header
@@ -2112,8 +1943,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.ProjectInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2124,17 +1953,12 @@ paths:
       - 项目管理
   /api/core/auth/project/all:
     get:
-      consumes:
-      - application/json
-      description: 查询所有
       parameters:
       - description: jwt token
         in: header
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2145,9 +1969,6 @@ paths:
       - 项目管理管理
   /api/core/auth/project/delete:
     delete:
-      consumes:
-      - application/json
-      description: 删除
       parameters:
       - description: jwt token
         in: header
@@ -2160,8 +1981,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.DelRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2172,9 +1991,6 @@ paths:
       - 项目管理
   /api/core/auth/project/detail:
     get:
-      consumes:
-      - application/json
-      description: 查询明细
       parameters:
       - description: ID
         in: query
@@ -2186,8 +2002,6 @@ paths:
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2198,47 +2012,12 @@ paths:
       - 项目管理
   /api/core/auth/project/export:
     get:
-      consumes:
-      - application/json
-      description: 导出
       parameters:
       - description: jwt token
         in: header
         name: authorization
         required: true
         type: string
-      - description: 从1开始
-        in: query
-        name: pageIndex
-        type: integer
-      - description: 默认每页10条
-        in: query
-        name: pageSize
-        type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: 租户ID
-        in: query
-        name: tenantID
-        type: string
-      - description: 名称
-        in: query
-        name: name
-        type: string
-      - description: IDs
-        in: query
-        items:
-          type: string
-        name: ids
-        type: array
-      produces:
-      - application/octet-stream
       responses:
         "200":
           description: OK
@@ -2249,9 +2028,6 @@ paths:
       - 项目管理管理
   /api/core/auth/project/import:
     post:
-      consumes:
-      - multipart/form-data
-      description: 导入
       parameters:
       - description: Bearer+空格+Token
         in: header
@@ -2263,8 +2039,6 @@ paths:
         name: files
         required: true
         type: file
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2275,9 +2049,6 @@ paths:
       - 项目管理管理
   /api/core/auth/project/query:
     get:
-      consumes:
-      - application/json
-      description: 分页查询
       parameters:
       - description: jwt token
         in: header
@@ -2292,24 +2063,6 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: 租户ID
-        in: query
-        name: tenantID
-        type: string
-      - description: 名称
-        in: query
-        name: name
-        type: string
-      produces:
-      - application/octet-stream
       responses:
         "200":
           description: OK
@@ -2320,9 +2073,6 @@ paths:
       - 项目管理
   /api/core/auth/project/update:
     put:
-      consumes:
-      - application/json
-      description: 更新
       parameters:
       - description: jwt token
         in: header
@@ -2335,8 +2085,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.ProjectInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2347,9 +2095,6 @@ paths:
       - 项目管理
   /api/core/auth/role/add:
     post:
-      consumes:
-      - application/json
-      description: 新增角色
       parameters:
       - description: jwt token
         in: header
@@ -2362,8 +2107,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.RoleInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2374,9 +2117,6 @@ paths:
       - 角色管理
   /api/core/auth/role/all:
     get:
-      consumes:
-      - application/json
-      description: 查询所有角色
       parameters:
       - description: jwt token
         in: header
@@ -2391,8 +2131,6 @@ paths:
         in: query
         name: containerComm
         type: boolean
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2403,9 +2141,6 @@ paths:
       - 角色管理
   /api/core/auth/role/delete:
     delete:
-      consumes:
-      - application/json
-      description: 软删除角色
       parameters:
       - description: jwt token
         in: header
@@ -2418,8 +2153,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.DelRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2430,9 +2163,6 @@ paths:
       - 角色管理
   /api/core/auth/role/detail:
     get:
-      consumes:
-      - application/json
-      description: 查询明细
       parameters:
       - description: ID
         in: query
@@ -2444,8 +2174,6 @@ paths:
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2454,253 +2182,9 @@ paths:
       summary: 查询明细
       tags:
       - 角色管理
-  /api/core/auth/role/export:
-    get:
-      consumes:
-      - application/json
-      description: 导出
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: 从1开始
-        in: query
-        name: pageIndex
-        type: integer
-      - description: 默认每页10条
-        in: query
-        name: pageSize
-        type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: IDs
-        in: query
-        items:
-          type: string
-        name: ids
-        type: array
-      produces:
-      - application/octet-stream
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.CommonResponse'
-      summary: 导出
-      tags:
-      - 角色管理
-  /api/core/auth/role/import:
+  /api/core/auth/role/enable:
     post:
-      consumes:
-      - multipart/form-data
-      description: 导入
-      parameters:
-      - description: Bearer+空格+Token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: 要上传的文件
-        in: formData
-        name: files
-        required: true
-        type: file
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.CommonResponse'
-      summary: 导入
-      tags:
-      - 角色管理
-  /api/core/auth/role/query:
-    get:
-      consumes:
-      - application/json
-      description: 分页查询
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: 从1开始
-        in: query
-        name: pageIndex
-        type: integer
-      - description: 默认每页10条
-        in: query
-        name: pageSize
-        type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: 租户ID
-        in: query
-        name: tenantID
-        type: string
-      - description: 名称
-        in: query
-        name: name
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.QueryRoleResponse'
-      summary: 分页查询
-      tags:
-      - 角色管理
-  /api/core/auth/role/update:
-    put:
-      consumes:
-      - application/json
-      description: 更新角色
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: 请求参数
-        in: body
-        name: data
-        required: true
-        schema:
-          $ref: '#/definitions/usercenter.RoleInfo'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.CommonResponse'
-      summary: 更新角色
-      tags:
-      - 角色管理
-  /api/core/auth/tenant/add:
-    post:
-      consumes:
-      - application/json
-      description: 新增租户
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: 请求参数
-        in: body
-        name: data
-        required: true
-        schema:
-          $ref: '#/definitions/usercenter.TenantInfo'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.CommonResponse'
-      summary: 新增租户
-      tags:
-      - 租户管理
-  /api/core/auth/tenant/all:
-    get:
-      consumes:
-      - application/json
-      description: 查询所有租户
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.QueryTenantResponse'
-      summary: 查询所有租户
-      tags:
-      - 租户管理
-  /api/core/auth/tenant/delete:
-    delete:
-      consumes:
-      - application/json
-      description: 软删除租户
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: 请求参数
-        in: body
-        name: data
-        required: true
-        schema:
-          $ref: '#/definitions/usercenter.DelRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.CommonResponse'
-      summary: 删除租户
-      tags:
-      - 租户管理
-  /api/core/auth/tenant/detail:
-    get:
-      consumes:
-      - application/json
-      description: 查询明细
-      parameters:
-      - description: ID
-        in: query
-        name: id
-        required: true
-        type: string
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.GetTenantDetailResponse'
-      summary: 查询明细
-      tags:
-      - 租户管理
-  /api/core/auth/tenant/enable:
-    post:
-      consumes:
-      - application/json
-      description: 禁用/启用租户
+      description: 系统角色不允许停用；状态变化会撤销受影响用户的旧登录上下文并同步 Casbin 权限。
       parameters:
       - description: jwt token
         in: header
@@ -2713,21 +2197,53 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.EnableRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
           schema:
             $ref: '#/definitions/usercenter.CommonResponse'
-      summary: 禁用/启用租户
+      summary: 禁用/启用角色
       tags:
-      - 租户管理
-  /api/core/auth/tenant/query:
+      - 角色管理
+  /api/core/auth/role/export:
     get:
-      consumes:
-      - application/json
-      description: 分页查询
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.CommonResponse'
+      summary: 导出
+      tags:
+      - 角色管理
+  /api/core/auth/role/import:
+    post:
+      parameters:
+      - description: Bearer+空格+Token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 要上传的文件
+        in: formData
+        name: files
+        required: true
+        type: file
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.CommonResponse'
+      summary: 导入
+      tags:
+      - 角色管理
+  /api/core/auth/role/query:
+    get:
       parameters:
       - description: jwt token
         in: header
@@ -2742,37 +2258,38 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: 租户ID
-        in: query
-        name: tenantID
-        type: string
-      - description: 名称
-        in: query
-        name: name
-        type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/usercenter.QueryTenantResponse'
+            $ref: '#/definitions/usercenter.QueryRoleResponse'
       summary: 分页查询
       tags:
-      - 租户管理
-  /api/core/auth/tenant/update:
+      - 角色管理
+  /api/core/auth/role/update:
     put:
-      consumes:
-      - application/json
-      description: 更新租户
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 请求参数
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/usercenter.RoleInfo'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.CommonResponse'
+      summary: 更新角色
+      tags:
+      - 角色管理
+  /api/core/auth/tenant/add:
+    post:
       parameters:
       - description: jwt token
         in: header
@@ -2785,8 +2302,154 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.TenantInfo'
-      produces:
-      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.CommonResponse'
+      summary: 新增租户
+      tags:
+      - 租户管理
+  /api/core/auth/tenant/all:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.QueryTenantResponse'
+      summary: 查询所有租户
+      tags:
+      - 租户管理
+  /api/core/auth/tenant/copy:
+    post:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: ID
+        in: query
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.CommonResponse'
+      summary: 复制租户
+      tags:
+      - 租户管理
+  /api/core/auth/tenant/delete:
+    delete:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 请求参数
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/usercenter.DelRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.CommonResponse'
+      summary: 删除租户
+      tags:
+      - 租户管理
+  /api/core/auth/tenant/detail:
+    get:
+      parameters:
+      - description: ID
+        in: query
+        name: id
+        required: true
+        type: string
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.GetTenantDetailResponse'
+      summary: 查询明细
+      tags:
+      - 租户管理
+  /api/core/auth/tenant/enable:
+    post:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 请求参数
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/usercenter.EnableRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.CommonResponse'
+      summary: 禁用/启用租户
+      tags:
+      - 租户管理
+  /api/core/auth/tenant/query:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 从1开始
+        in: query
+        name: pageIndex
+        type: integer
+      - description: 默认每页10条
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.QueryTenantResponse'
+      summary: 分页查询
+      tags:
+      - 租户管理
+  /api/core/auth/tenant/update:
+    put:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 请求参数
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/usercenter.TenantInfo'
       responses:
         "200":
           description: OK
@@ -2799,13 +2462,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: 新增用户
       parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
       - description: 用户信息
         in: body
         name: data
@@ -2824,16 +2481,8 @@ paths:
       - 用户管理
   /api/core/auth/user/all:
     get:
-      consumes:
-      - application/json
-      description: 查询所有用户
       parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: 用户类型,从1开始,为0时查询全部
+      - description: 用户类型
         in: query
         name: type
         type: integer
@@ -2841,12 +2490,10 @@ paths:
         in: query
         name: tenantID
         type: string
-      - description: 分组ID，例如属于某个组织的，或者某个个人
+      - description: 分组ID
         in: query
         name: group
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2857,23 +2504,13 @@ paths:
       - 用户管理
   /api/core/auth/user/changepwd:
     post:
-      consumes:
-      - application/json
-      description: 修改密码
       parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
       - description: 请求参数
         in: body
         name: data
         required: true
         schema:
           $ref: '#/definitions/usercenter.ChangePwdRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2884,23 +2521,13 @@ paths:
       - 用户管理
   /api/core/auth/user/delete:
     delete:
-      consumes:
-      - application/json
-      description: 删除用户
       parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
       - description: 请求参数
         in: body
         name: data
         required: true
         schema:
           $ref: '#/definitions/usercenter.DelRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2911,22 +2538,12 @@ paths:
       - 用户管理
   /api/core/auth/user/detail:
     get:
-      consumes:
-      - application/json
-      description: 查询明细
       parameters:
       - description: 用户ID
         in: query
         name: id
         required: true
         type: string
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2937,23 +2554,13 @@ paths:
       - 用户管理
   /api/core/auth/user/enable:
     post:
-      consumes:
-      - application/json
-      description: 禁用/启用用户
       parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
       - description: 请求参数
         in: body
         name: data
         required: true
         schema:
           $ref: '#/definitions/usercenter.EnableRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -2966,16 +2573,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: 登录
       parameters:
-      - description: Bearer+空格+Token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: 个人信息
+      - description: 登录信息
         in: body
-        name: product
+        name: data
         required: true
         schema:
           $ref: '#/definitions/usercenter.LoginRequest'
@@ -2991,17 +2592,6 @@ paths:
       - 用户管理
   /api/core/auth/user/logout:
     post:
-      consumes:
-      - application/json
-      description: 退出登录
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3014,13 +2604,7 @@ paths:
     get:
       consumes:
       - application/json
-      description: 获取个人信息
       parameters:
-      - description: Bearer+空格+Token
-        in: header
-        name: authorization
-        required: true
-        type: string
       - description: 返回Menu
         in: query
         name: returnMenu
@@ -3038,16 +2622,10 @@ paths:
     put:
       consumes:
       - application/json
-      description: 更新个人信息
       parameters:
-      - description: Bearer+空格+Token
-        in: header
-        name: authorization
-        required: true
-        type: string
       - description: 个人信息
         in: body
-        name: product
+        name: data
         required: true
         schema:
           $ref: '#/definitions/usercenter.UserProfile'
@@ -3063,15 +2641,7 @@ paths:
       - 用户管理
   /api/core/auth/user/query:
     get:
-      consumes:
-      - application/json
-      description: 分页查询
       parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
       - description: 从1开始
         in: query
         name: pageIndex
@@ -3080,48 +2650,6 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: 用户名
-        in: query
-        name: userName
-        type: string
-      - description: 昵称
-        in: query
-        name: nickname
-        type: string
-      - description: 身份证号
-        in: query
-        name: idCard
-        type: string
-      - description: 手机号
-        in: query
-        name: mobile
-        type: string
-      - description: 职位
-        in: query
-        name: title
-        type: string
-      - description: 用户类型,从1开始,为0时查询全部
-        in: query
-        name: type
-        type: integer
-      - description: 租户ID
-        in: query
-        name: tenantID
-        type: string
-      - description: 分组ID，例如属于某个组织的，或者某个个人
-        in: query
-        name: group
-        type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3132,23 +2660,13 @@ paths:
       - 用户管理
   /api/core/auth/user/resetpwd:
     post:
-      consumes:
-      - application/json
-      description: 重置密码
       parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
       - description: 请求参数
         in: body
         name: data
         required: true
         schema:
           $ref: '#/definitions/usercenter.GetDetailRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3159,17 +2677,6 @@ paths:
       - 用户管理
   /api/core/auth/user/token/detail:
     get:
-      consumes:
-      - application/json
-      description: 根据token查询明细
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3180,23 +2687,13 @@ paths:
       - 用户管理
   /api/core/auth/user/token/update:
     put:
-      consumes:
-      - application/json
-      description: 根据token更新
       parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: Update Customer
+      - description: 用户信息
         in: body
         name: data
         required: true
         schema:
           $ref: '#/definitions/usercenter.BasicsInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3207,23 +2704,13 @@ paths:
       - 用户管理
   /api/core/auth/user/update:
     put:
-      consumes:
-      - application/json
-      description: 更新用户
       parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
       - description: 用户信息
         in: body
         name: data
         required: true
         schema:
           $ref: '#/definitions/usercenter.UserInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3234,9 +2721,6 @@ paths:
       - 用户管理
   /api/core/dictionaries/add:
     post:
-      consumes:
-      - application/json
-      description: 新增
       parameters:
       - description: jwt token
         in: header
@@ -3249,8 +2733,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.DictionariesInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3259,32 +2741,8 @@ paths:
       summary: 新增
       tags:
       - 字典管理
-  /api/core/dictionaries/all:
-    get:
-      consumes:
-      - application/json
-      description: 查询所有
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.GetAllDictionariesResponse'
-      summary: 查询所有
-      tags:
-      - 字典管理
   /api/core/dictionaries/delete:
     delete:
-      consumes:
-      - application/json
-      description: 删除
       parameters:
       - description: jwt token
         in: header
@@ -3297,8 +2755,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.DelRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3309,9 +2765,6 @@ paths:
       - 字典管理
   /api/core/dictionaries/detail:
     get:
-      consumes:
-      - application/json
-      description: 查询明细
       parameters:
       - description: ID
         in: query
@@ -3323,8 +2776,6 @@ paths:
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3335,9 +2786,6 @@ paths:
       - 字典管理
   /api/core/dictionaries/query:
     get:
-      consumes:
-      - application/json
-      description: 分页查询
       parameters:
       - description: jwt token
         in: header
@@ -3352,20 +2800,10 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
       - description: 租户ID
         in: query
         name: tenantID
         type: string
-      produces:
-      - application/octet-stream
       responses:
         "200":
           description: OK
@@ -3376,9 +2814,6 @@ paths:
       - 字典管理
   /api/core/dictionaries/update:
     put:
-      consumes:
-      - application/json
-      description: 更新
       parameters:
       - description: jwt token
         in: header
@@ -3391,8 +2826,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.DictionariesInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3403,9 +2836,6 @@ paths:
       - 字典管理
   /api/core/language/add:
     post:
-      consumes:
-      - application/json
-      description: 新增
       parameters:
       - description: jwt token
         in: header
@@ -3418,8 +2848,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.LanguageInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3428,32 +2856,8 @@ paths:
       summary: 新增
       tags:
       - 多语言管理
-  /api/core/language/all:
-    get:
-      consumes:
-      - application/json
-      description: 查询所有
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.GetAllLanguageResponse'
-      summary: 查询所有
-      tags:
-      - 多语言管理
   /api/core/language/delete:
     delete:
-      consumes:
-      - application/json
-      description: 删除
       parameters:
       - description: jwt token
         in: header
@@ -3466,8 +2870,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.DelRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3478,9 +2880,6 @@ paths:
       - 多语言管理
   /api/core/language/detail:
     get:
-      consumes:
-      - application/json
-      description: 查询明细
       parameters:
       - description: ID
         in: query
@@ -3492,8 +2891,6 @@ paths:
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3504,9 +2901,6 @@ paths:
       - 多语言管理
   /api/core/language/query:
     get:
-      consumes:
-      - application/json
-      description: 分页查询
       parameters:
       - description: jwt token
         in: header
@@ -3521,20 +2915,6 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: 所属站点
-        in: query
-        name: webSiteID
-        type: string
-      produces:
-      - application/octet-stream
       responses:
         "200":
           description: OK
@@ -3545,9 +2925,6 @@ paths:
       - 多语言管理
   /api/core/language/update:
     put:
-      consumes:
-      - application/json
-      description: 更新
       parameters:
       - description: jwt token
         in: header
@@ -3560,8 +2937,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.LanguageInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3572,9 +2947,6 @@ paths:
       - 多语言管理
   /api/core/system/config/add:
     post:
-      consumes:
-      - application/json
-      description: 新增
       parameters:
       - description: jwt token
         in: header
@@ -3587,8 +2959,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.SystemConfigInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3597,32 +2967,8 @@ paths:
       summary: 新增
       tags:
       - 系统配置管理
-  /api/core/system/config/all:
-    get:
-      consumes:
-      - application/json
-      description: 查询所有
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.GetAllSystemConfigResponse'
-      summary: 查询所有
-      tags:
-      - 系统配置管理
   /api/core/system/config/delete:
     delete:
-      consumes:
-      - application/json
-      description: 删除
       parameters:
       - description: jwt token
         in: header
@@ -3635,8 +2981,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.DelRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3647,9 +2991,6 @@ paths:
       - 系统配置管理
   /api/core/system/config/detail:
     get:
-      consumes:
-      - application/json
-      description: 查询明细
       parameters:
       - description: ID
         in: query
@@ -3661,8 +3002,6 @@ paths:
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3673,9 +3012,6 @@ paths:
       - 系统配置管理
   /api/core/system/config/query:
     get:
-      consumes:
-      - application/json
-      description: 分页查询
       parameters:
       - description: jwt token
         in: header
@@ -3690,16 +3026,6 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      produces:
-      - application/octet-stream
       responses:
         "200":
           description: OK
@@ -3710,9 +3036,6 @@ paths:
       - 系统配置管理
   /api/core/system/config/update:
     put:
-      consumes:
-      - application/json
-      description: 更新
       parameters:
       - description: jwt token
         in: header
@@ -3725,8 +3048,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.SystemConfigInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3737,9 +3058,6 @@ paths:
       - 系统配置管理
   /api/core/web_site/add:
     post:
-      consumes:
-      - application/json
-      description: 新增
       parameters:
       - description: jwt token
         in: header
@@ -3752,8 +3070,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.WebSiteInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3762,32 +3078,8 @@ paths:
       summary: 新增
       tags:
       - 网站配置管理
-  /api/core/web_site/all:
-    get:
-      consumes:
-      - application/json
-      description: 查询所有
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.GetAllWebSiteResponse'
-      summary: 查询所有
-      tags:
-      - 网站配置管理
   /api/core/web_site/delete:
     delete:
-      consumes:
-      - application/json
-      description: 删除
       parameters:
       - description: jwt token
         in: header
@@ -3800,8 +3092,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.DelRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3812,9 +3102,6 @@ paths:
       - 网站配置管理
   /api/core/web_site/detail:
     get:
-      consumes:
-      - application/json
-      description: 查询明细
       parameters:
       - description: ID
         in: query
@@ -3826,8 +3113,6 @@ paths:
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3838,9 +3123,6 @@ paths:
       - 网站配置管理
   /api/core/web_site/query:
     get:
-      consumes:
-      - application/json
-      description: 分页查询
       parameters:
       - description: jwt token
         in: header
@@ -3855,32 +3137,6 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: 网站名称
-        in: query
-        name: name
-        type: string
-      - description: 网站编号
-        in: query
-        name: code
-        type: string
-      - description: 所属项目
-        in: query
-        name: projectID
-        type: string
-      - description: 租户ID
-        in: query
-        name: tenantID
-        type: string
-      produces:
-      - application/octet-stream
       responses:
         "200":
           description: OK
@@ -3891,9 +3147,6 @@ paths:
       - 网站配置管理
   /api/core/web_site/update:
     put:
-      consumes:
-      - application/json
-      description: 更新
       parameters:
       - description: jwt token
         in: header
@@ -3906,8 +3159,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.WebSiteInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3918,9 +3169,6 @@ paths:
       - 网站配置管理
   /api/core/wechat/config/add:
     post:
-      consumes:
-      - application/json
-      description: 新增
       parameters:
       - description: jwt token
         in: header
@@ -3933,8 +3181,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.WechatConfigInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3943,32 +3189,8 @@ paths:
       summary: 新增
       tags:
       - 微信应用配置管理
-  /api/core/wechat/config/all:
-    get:
-      consumes:
-      - application/json
-      description: 查询所有
-      parameters:
-      - description: jwt token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.GetAllWechatConfigResponse'
-      summary: 查询所有
-      tags:
-      - 微信应用配置管理
   /api/core/wechat/config/delete:
     delete:
-      consumes:
-      - application/json
-      description: 删除
       parameters:
       - description: jwt token
         in: header
@@ -3981,8 +3203,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.DelRequest'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -3993,9 +3213,6 @@ paths:
       - 微信应用配置管理
   /api/core/wechat/config/detail:
     get:
-      consumes:
-      - application/json
-      description: 查询明细
       parameters:
       - description: ID
         in: query
@@ -4007,8 +3224,6 @@ paths:
         name: authorization
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -4019,9 +3234,6 @@ paths:
       - 微信应用配置管理
   /api/core/wechat/config/query:
     get:
-      consumes:
-      - application/json
-      description: 分页查询
       parameters:
       - description: jwt token
         in: header
@@ -4036,28 +3248,6 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: 排序字段
-        in: query
-        name: orderField
-        type: string
-      - description: 是否倒序排序
-        in: query
-        name: desc
-        type: boolean
-      - description: APP名称
-        in: query
-        name: appName
-        type: string
-      - description: 租户ID
-        in: query
-        name: tenantID
-        type: string
-      - description: 类型
-        in: query
-        name: appType
-        type: integer
-      produces:
-      - application/octet-stream
       responses:
         "200":
           description: OK
@@ -4068,9 +3258,6 @@ paths:
       - 微信应用配置管理
   /api/core/wechat/config/update:
     put:
-      consumes:
-      - application/json
-      description: 更新
       parameters:
       - description: jwt token
         in: header
@@ -4083,8 +3270,6 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/usercenter.WechatConfigInfo'
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -4093,187 +3278,333 @@ paths:
       summary: 更新
       tags:
       - 微信应用配置管理
-  /api/wechat/connect/qrconnect:
+  /api/core/wechat/pay/config/add:
+    post:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: Add PayConfig
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/http.AddPayConfigRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.PayConfigResponse'
+      summary: 新增微信支付商户配置
+      tags:
+      - 微信支付配置管理
+  /api/core/wechat/pay/config/delete:
+    delete:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: ID
+        in: query
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.PayConfigResponse'
+      summary: 删除微信支付商户配置
+      tags:
+      - 微信支付配置管理
+  /api/core/wechat/pay/config/detail:
     get:
-      consumes:
-      - application/json
-      description: 获取微信登录二维码
       parameters:
-      - description: 应用名称
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: ID
         in: query
-        name: app
+        name: id
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/http.GetQRConnectResponse'
-      summary: 获取微信登录二维码
+            $ref: '#/definitions/http.PayConfigQueryResponse'
+      summary: 查询微信支付商户配置明细
       tags:
-      - 微信相关接口
-  /api/wechat/mini/login:
-    post:
-      consumes:
-      - application/json
-      description: 微信登录
-      parameters:
-      - description: Bearer+空格+Token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: 登录参数
-        in: body
-        name: product
-        required: true
-        schema:
-          $ref: '#/definitions/http.MiniLoginRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.LoginResponse'
-      summary: 微信登录
-      tags:
-      - 微信相关接口
-  /api/wechat/mini/phone/bind:
-    post:
-      consumes:
-      - application/json
-      description: 绑定手机号
-      parameters:
-      - description: Bearer+空格+Token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: 请求参数
-        in: body
-        name: product
-        required: true
-        schema:
-          $ref: '#/definitions/http.MiniLoginRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/usercenter.LoginResponse'
-      summary: 绑定手机号
-      tags:
-      - 微信相关接口
-  /api/wechat/mini/register/check:
-    post:
-      consumes:
-      - application/json
-      description: 检查是否注册过
-      parameters:
-      - description: Bearer+空格+Token
-        in: header
-        name: authorization
-        required: true
-        type: string
-      - description: 请求参数
-        in: body
-        name: product
-        required: true
-        schema:
-          $ref: '#/definitions/http.MiniLoginRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/model.CheckRegisterWithWechatResp'
-      summary: 检查是否注册过
-      tags:
-      - 微信相关接口
-  /api/wechat/qrcode:
+      - 微信支付配置管理
+  /api/core/wechat/pay/config/query:
     get:
-      consumes:
-      - application/json
-      description: 生成带参数的二维码
       parameters:
-      - description: 应用名称
-        in: query
-        name: app
+      - description: jwt token
+        in: header
+        name: authorization
         required: true
         type: string
-      - description: 是否临时二维码
+      - description: 从1开始
         in: query
-        name: isTemp
-        type: boolean
-      - description: 临时二维码过期时间
-        in: query
-        name: expireSeconds
+        name: pageIndex
         type: integer
-      produces:
-      - application/json
+      - description: 默认每页10条
+        in: query
+        name: pageSize
+        type: integer
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/http.GetQRCodeResponse'
-      summary: 生成带参数的二维码
+            $ref: '#/definitions/http.PayConfigQueryResponse'
+      summary: 分页查询微信支付商户配置
       tags:
-      - 微信相关接口
-  /api/wechat/qrcode/result:
+      - 微信支付配置管理
+  /api/core/wechat/pay/config/update:
+    put:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: Update PayConfig
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/http.PayConfigInfo'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.PayConfigResponse'
+      summary: 更新微信支付商户配置
+      tags:
+      - 微信支付配置管理
+  /api/core/wechat/pay/order/query:
     get:
-      consumes:
-      - application/json
-      description: 支持获取生成带参数的二维码微信网页登录扫码结果
       parameters:
-      - description: 应用名称
-        in: query
-        name: app
+      - description: jwt token
+        in: header
+        name: authorization
         required: true
         type: string
-      - description: 生成带参数的二维码的ticket或者微信网页登录state
+      - description: 从1开始
         in: query
-        name: ticket
-        required: true
+        name: pageIndex
+        type: integer
+      - description: 默认每页10条
+        in: query
+        name: pageSize
+        type: integer
+      - description: 租户ID
+        in: query
+        name: tenantID
         type: string
-      produces:
-      - application/json
+      - description: 用户ID
+        in: query
+        name: userID
+        type: string
+      - description: 商户号
+        in: query
+        name: mchID
+        type: string
+      - description: 状态 INIT/CREATED/PAID/CLOSED
+        in: query
+        name: status
+        type: string
+      - description: 商户订单号
+        in: query
+        name: outTradeNo
+        type: string
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/http.CheckQRScannResultResponse'
-      summary: 获取扫码结果
+            $ref: '#/definitions/http.PayOrderAdminQueryResponse'
+      summary: 分页查询微信支付订单
       tags:
-      - 微信相关接口
-  /api/wechat/web/login:
+      - 微信支付订单管理
+  /api/core/wechat/pay/refund/apply:
     post:
-      consumes:
-      - application/json
-      description: 微信网页登录
       parameters:
-      - description: code
-        in: query
-        name: code
+      - description: jwt token
+        in: header
+        name: authorization
         required: true
         type: string
-      - description: 应用名称
-        in: query
-        name: state
+      - description: 退款申请
+        in: body
+        name: body
         required: true
-        type: string
-      produces:
-      - application/json
+        schema:
+          $ref: '#/definitions/http.ApplyRefundRequest'
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/usercenter.LoginResponse'
-      summary: 微信网页登录
+            $ref: '#/definitions/http.RefundAdminQueryResponse'
+      summary: 微信支付退款申请
       tags:
-      - 微信相关接口
+      - 微信支付退款管理
+  /api/core/wechat/pay/refund/query:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 从1开始
+        in: query
+        name: pageIndex
+        type: integer
+      - description: 默认每页10条
+        in: query
+        name: pageSize
+        type: integer
+      - description: 租户ID
+        in: query
+        name: tenantID
+        type: string
+      - description: 状态 PROCESSING/SUCCESS/CLOSED/ABNORMAL
+        in: query
+        name: status
+        type: string
+      - description: 商户订单号
+        in: query
+        name: outTradeNo
+        type: string
+      - description: 商户退款单号
+        in: query
+        name: outRefundNo
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.RefundAdminQueryResponse'
+      summary: 分页查询微信支付退款单
+      tags:
+      - 微信支付退款管理
+  /api/wechat/pay/order:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 商户订单号
+        in: query
+        name: outTradeNo
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.PayOrderResponse'
+      summary: 微信支付订单状态查询
+      tags:
+      - 微信支付
+    post:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 下单请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/http.CreatePayOrderRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.PayOrderResponse'
+      summary: 微信小程序支付下单
+      tags:
+      - 微信支付
+  /api/wechat/pay/order/close:
+    post:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 关单请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/http.ClosePayOrderRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/usercenter.CommonResponse'
+      summary: 微信支付关单
+      tags:
+      - 微信支付
+  /api/wechat/pay/orders:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 从1开始
+        in: query
+        name: pageIndex
+        type: integer
+      - description: 默认每页10条
+        in: query
+        name: pageSize
+        type: integer
+      - description: 状态 CREATED/PAID/CLOSED
+        in: query
+        name: status
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.PayOrderAdminQueryResponse'
+      summary: 我的微信支付订单列表
+      tags:
+      - 微信支付
+  /api/wechat/pay/refund:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 商户订单号
+        in: query
+        name: outTradeNo
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.RefundAdminQueryResponse'
+      summary: 微信支付退款记录查询
+      tags:
+      - 微信支付
 swagger: "2.0"
