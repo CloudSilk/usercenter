@@ -121,6 +121,9 @@ func main() {
 	} else {
 		wechatpay.SetDailyReportConfig(false, 0)
 	}
+	if wpCfg.BillRetentionDays > 0 {
+		wechatpay.BillRetentionDays = wpCfg.BillRetentionDays
+	}
 	// 社交登录配置（GitHub/Google 等）
 	socialCfgs := make([]userhttp.SocialLoginConfig, 0, len(ucconfig.DefaultConfig.SocialLogins))
 	for _, s := range ucconfig.DefaultConfig.SocialLogins {

@@ -101,6 +101,30 @@ definitions:
       message:
         type: string
     type: object
+  http.BillFileItem:
+    properties:
+      billDate:
+        type: string
+      billType:
+        type: string
+      configID:
+        type: string
+      id:
+        type: string
+      tenantID:
+        type: string
+    type: object
+  http.BillFileListResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      data:
+        items:
+          $ref: '#/definitions/http.BillFileItem'
+        type: array
+      message:
+        type: string
+    type: object
   http.CheckQRScannResultResponse:
     properties:
       code:
@@ -3522,6 +3546,51 @@ paths:
       summary: 更新
       tags:
       - 微信应用配置管理
+  /api/core/wechat/pay/bill/download:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 账单ID
+        in: query
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: 下载已归档交易账单
+      tags:
+      - 微信支付订单管理
+  /api/core/wechat/pay/bill/list:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 商户配置ID
+        in: query
+        name: configID
+        type: string
+      - description: 最近 N 天,默认 30
+        in: query
+        name: days
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.BillFileListResponse'
+      summary: 已归档交易账单列表
+      tags:
+      - 微信支付订单管理
   /api/core/wechat/pay/config/add:
     post:
       parameters:

@@ -83,3 +83,4 @@ wechatPay:
   reconcileAlertSilenceMinutes: 120 # 同类告警静默窗口（分钟，默认 120；0 视为默认，最小 1）
   dailyReportEnabled: true         # 每日对账日报 webhook 推送（默认启用，随对账循环触发）
   dailyReportHour: 8               # 日报推送时刻（本地时区小时 0-23，默认 8）
+  billRetentionDays: 90            # 归档账单保留天数（超期自动清理，默认 90，最小 7）

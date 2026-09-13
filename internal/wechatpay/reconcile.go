@@ -134,6 +134,7 @@ func StartReconcileLoop() {
 				}
 				maybePushDailyReport(ctx, time.Now())
 				maybeDownloadDailyBills(ctx, time.Now())
+				maybeCleanupExpiredBills(ctx, time.Now())
 			case <-stop:
 				return
 			}

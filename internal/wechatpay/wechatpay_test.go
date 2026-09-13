@@ -1903,3 +1903,53 @@ func TestMaybeDownloadDailyBills(t *testing.T) {
 		t.Fatal("expected bill download failed audit")
 	}
 }
+
+func TestCleanupExpiredBills(t *testing.T) {
+	const tenant = "wp-bill-cleanup"
+	setupApp(t, tenant)
+	oldRetention := BillRetentionDays
+	BillRetentionDays = 30
+	defer func() { BillRetentionDays = oldRetention }()
+
+	// 一条超期(31 天前)+ 一条新鲜(昨日) + 一条超期但不同日期
+	mk := func(no, date string) {
+		t.Helper()
+		if _, err := UpsertBillFile(&BillFile{
+			TenantID: tenant, ConfigID: "cfg-cleanup", BillDate: date,
+			BillType: BillTypeAll, Content: []byte("x"),
+		}); err != nil {
+			t.Fatalf("upsert bill %s: %v", no, err)
+		}
+	}
+	mk("old", time.Now().AddDate(0, 0, -31).Format("2006-01-02"))
+	mk("fresh", time.Now().AddDate(0, 0, -1).Format("2006-01-02"))
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&BillFile{}, "tenant_id = ?", tenant).Error
+	})
+
+	deleted, err := CleanupExpiredBills(context.Background())
+	if err != nil {
+		t.Fatalf("CleanupExpiredBills: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("expected 1 deleted, got %d", deleted)
+	}
+	// 新鲜账单保留
+	if _, err := ListBillFiles(tenant, "", 365); err != nil {
+		t.Fatalf("list bills: %v", err)
+	}
+	var remain int64
+	if err := store.DB().Model(&BillFile{}).Where("tenant_id = ?", tenant).Count(&remain).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if remain != 1 {
+		t.Fatalf("expected 1 remaining bill, got %d", remain)
+	}
+	// 保留期禁用(<=0)时不删除
+	BillRetentionDays = 0
+	mk("old2", time.Now().AddDate(0, 0, -400).Format("2006-01-02"))
+	deleted2, err := CleanupExpiredBills(context.Background())
+	if err != nil || deleted2 != 0 {
+		t.Fatalf("disabled retention should delete nothing: %d err=%v", deleted2, err)
+	}
+}

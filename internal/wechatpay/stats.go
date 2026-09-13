@@ -405,3 +405,41 @@ func ListEnabledPayConfigs() ([]*PayConfig, error) {
 	err := store.DB().Where("enable = ?", true).Find(&list).Error
 	return list, err
 }
+
+// --- 归档账单保留期清理:随对账循环每日执行一次 ---
+
+var (
+	// BillRetentionDays 归档账单保留天数,默认 90。
+	BillRetentionDays = 90
+	// billCleanupLastDate 进程内按日去重。
+	billCleanupLastDate string
+)
+
+// CleanupExpiredBills 删除 bill_date 早于保留期起点(BillRetentionDays)的归档账单,
+// 返回删除行数。
+func CleanupExpiredBills(ctx context.Context) (int64, error) {
+	if BillRetentionDays <= 0 {
+		return 0, nil
+	}
+	cutoff := time.Now().AddDate(0, 0, -BillRetentionDays).Format("2006-01-02")
+	res := store.DB().Where("bill_date < ?", cutoff).Delete(&BillFile{})
+	if res.Error == nil && res.RowsAffected > 0 {
+		log.Infof(ctx, "已清理超期归档账单 %d 条(保留 %d 天)", res.RowsAffected, BillRetentionDays)
+	}
+	return res.RowsAffected, res.Error
+}
+
+// maybeCleanupExpiredBills 对账循环 tick 调用:每日在账单下载完成后清理一次超期归档。
+func maybeCleanupExpiredBills(ctx context.Context, now time.Time) {
+	if !BillDownloadEnabled || now.Hour() < DailyReportHour+2 {
+		return
+	}
+	today := now.Format("2006-01-02")
+	if billCleanupLastDate == today {
+		return
+	}
+	billCleanupLastDate = today
+	if _, err := CleanupExpiredBills(ctx); err != nil {
+		log.Errorf(ctx, "归档账单清理失败:%v", err)
+	}
+}

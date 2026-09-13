@@ -169,6 +169,8 @@ type WechatPayConfig struct {
 	DailyReportEnabled *bool `yaml:"dailyReportEnabled"`
 	// DailyReportHour 每日日报推送时刻(本地时区小时 0-23),默认 8。
 	DailyReportHour int `yaml:"dailyReportHour"`
+	// BillRetentionDays 归档账单保留天数(超期自动清理),默认 90,最小 7,0 视为默认。
+	BillRetentionDays int `yaml:"billRetentionDays"`
 }
 
 // AICacheConfig AI 网关语义缓存配置。

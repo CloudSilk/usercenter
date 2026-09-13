@@ -2912,6 +2912,75 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/core/wechat/pay/bill/download": {
+            "get": {
+                "tags": [
+                    "微信支付订单管理"
+                ],
+                "summary": "下载已归档交易账单",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "账单ID",
+                        "name": "id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/core/wechat/pay/bill/list": {
+            "get": {
+                "tags": [
+                    "微信支付订单管理"
+                ],
+                "summary": "已归档交易账单列表",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "商户配置ID",
+                        "name": "configID",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "最近 N 天,默认 30",
+                        "name": "days",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.BillFileListResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/core/wechat/pay/config/add": {
             "post": {
                 "tags": [
@@ -4247,6 +4316,43 @@ const docTemplate = `{
                 },
                 "data": {
                     "$ref": "#/definitions/wechatpay.BatchCloseResult"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.BillFileItem": {
+            "type": "object",
+            "properties": {
+                "billDate": {
+                    "type": "string"
+                },
+                "billType": {
+                    "type": "string"
+                },
+                "configID": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "tenantID": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.BillFileListResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/http.BillFileItem"
+                    }
                 },
                 "message": {
                     "type": "string"
