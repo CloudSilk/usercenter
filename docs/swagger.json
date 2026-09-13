@@ -3271,6 +3271,58 @@
                 }
             }
         },
+        "/api/core/wechat/pay/order/trade-bill/range": {
+            "get": {
+                "tags": [
+                    "微信支付订单管理"
+                ],
+                "summary": "按日期范围批量下载微信交易账单",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "商户配置ID",
+                        "name": "configID",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "开始日期(YYYY-MM-DD)",
+                        "name": "startDate",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "结束日期(YYYY-MM-DD,仅昨日及更早)",
+                        "name": "endDate",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "账单类型 ALL/SUCCESS/REFUND,默认 ALL",
+                        "name": "billType",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/core/wechat/pay/refund/apply": {
             "post": {
                 "tags": [
