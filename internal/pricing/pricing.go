@@ -8,15 +8,17 @@ import (
 	"github.com/CloudSilk/usercenter/internal/store"
 )
 
-// ModelPrice 模型计价表(租户级或全局)
+// ModelPrice 模型计价表(租户级或全局)。
+// Enable 不带 default 标签:带 default 的 bool 会让 GORM 在创建时忽略零值
+// (false 被回填为 true),导致"创建禁用计价"失效。
 type ModelPrice struct {
 	commonmodel.Model
-	TenantID     string  `json:"tenantID" gorm:"index;size:36"`
-	ModelName    string  `json:"modelName" gorm:"size:100;index;comment:模型别名"`
-	InputPer1M   float64 `json:"inputPer1M" gorm:"comment:输入 token 每百万美元"`
-	OutputPer1M  float64 `json:"outputPer1M" gorm:"comment:输出 token 每百万美元"`
-	Currency     string  `json:"currency" gorm:"size:10;default:USD"`
-	Enable       bool    `json:"enable" gorm:"default:true"`
+	TenantID    string  `json:"tenantID" gorm:"index;size:36"`
+	ModelName   string  `json:"modelName" gorm:"size:100;index;comment:模型别名"`
+	InputPer1M  float64 `json:"inputPer1M" gorm:"comment:输入 token 每百万美元"`
+	OutputPer1M float64 `json:"outputPer1M" gorm:"comment:输出 token 每百万美元"`
+	Currency    string  `json:"currency" gorm:"size:10;default:USD"`
+	Enable      bool    `json:"enable" gorm:"comment:是否启用"`
 }
 
 func (ModelPrice) TableName() string { return "model_price" }
@@ -49,7 +51,7 @@ func CalculateCost(p *ModelPrice, prompt, comp int64) float64 {
 	return float64(prompt)/1e6*p.InputPer1M + float64(comp)/1e6*p.OutputPer1M
 }
 
-// CreatePrice 创建计价记录
+// CreatePrice 创建计价记录。
 func CreatePrice(p *ModelPrice) (string, error) {
 	err := store.DB().Create(p).Error
 	return p.ID, err
