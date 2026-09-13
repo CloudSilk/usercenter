@@ -3081,6 +3081,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/core/wechat/pay/order/batch-close": {
+            "post": {
+                "tags": [
+                    "微信支付订单管理"
+                ],
+                "summary": "微信支付订单批量关单",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "批量关单请求(二选一:outTradeNos 或 tenantID+olderThanMinutes)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/http.BatchCloseOrdersRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.BatchCloseOrdersResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/core/wechat/pay/order/export": {
             "get": {
                 "tags": [
@@ -4079,6 +4113,45 @@ const docTemplate = `{
                     "maxLength": 200
                 },
                 "outRefundNo": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.BatchCloseOrdersRequest": {
+            "type": "object",
+            "required": [
+                "outTradeNos"
+            ],
+            "properties": {
+                "olderThanMinutes": {
+                    "type": "integer",
+                    "maximum": 43200
+                },
+                "outTradeNos": {
+                    "description": "OutTradeNos 显式订单号列表(上限100)。",
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tenantID": {
+                    "description": "模式二:租户ID + 创建超过 OlderThanMinutes 的 CREATED 订单批量清理。",
+                    "type": "string",
+                    "maxLength": 36
+                }
+            }
+        },
+        "http.BatchCloseOrdersResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "$ref": "#/definitions/wechatpay.BatchCloseResult"
+                },
+                "message": {
                     "type": "string"
                 }
             }
@@ -6232,6 +6305,34 @@ const docTemplate = `{
                 "token": {
                     "description": "Token",
                     "type": "string"
+                }
+            }
+        },
+        "wechatpay.BatchCloseFailure": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "outTradeNo": {
+                    "type": "string"
+                }
+            }
+        },
+        "wechatpay.BatchCloseResult": {
+            "type": "object",
+            "properties": {
+                "closed": {
+                    "type": "integer"
+                },
+                "failures": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/wechatpay.BatchCloseFailure"
+                    }
+                },
+                "skipped": {
+                    "type": "integer"
                 }
             }
         },

@@ -1246,6 +1246,7 @@ await request('GET', `/api/wechat/pay/order?outTradeNo=${res.data.outTradeNo}`)
 | `/api/wechat/notify/pay/:app` | POST | 公开 | 支付/退款结果回调 |
 | `/api/core/wechat/pay/order/query` | GET | 管理端 | 订单分页查询（租户/用户/商户号/状态/订单号） |
 | `/api/core/wechat/pay/order/export` | GET | 管理端 | 订单 CSV 导出（复用过滤条件，单次上限 5 万行，UTF-8 BOM） |
+| `/api/core/wechat/pay/order/batch-close` | POST | 管理端 | 批量关单（显式订单号列表 或 租户+滞留时长，仅关 CREATED） |
 | `/api/core/wechat/pay/stats/daily` | GET | 管理端 | 对账日报：按日聚合下单/支付/关单/退款 |
 | `/api/core/wechat/pay/stats/refund-reason` | GET | 管理端 | 退款原因类别统计（金额降序） |
 | `/api/core/wechat/pay/refund/apply` | POST | 管理端 | 退款申请 |

@@ -74,6 +74,33 @@ definitions:
     required:
     - outRefundNo
     type: object
+  http.BatchCloseOrdersRequest:
+    properties:
+      olderThanMinutes:
+        maximum: 43200
+        type: integer
+      outTradeNos:
+        description: OutTradeNos 显式订单号列表(上限100)。
+        items:
+          type: string
+        maxItems: 100
+        type: array
+      tenantID:
+        description: 模式二:租户ID + 创建超过 OlderThanMinutes 的 CREATED 订单批量清理。
+        maxLength: 36
+        type: string
+    required:
+    - outTradeNos
+    type: object
+  http.BatchCloseOrdersResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      data:
+        $ref: '#/definitions/wechatpay.BatchCloseResult'
+      message:
+        type: string
+    type: object
   http.CheckQRScannResultResponse:
     properties:
       code:
@@ -1530,6 +1557,24 @@ definitions:
       token:
         description: Token
         type: string
+    type: object
+  wechatpay.BatchCloseFailure:
+    properties:
+      error:
+        type: string
+      outTradeNo:
+        type: string
+    type: object
+  wechatpay.BatchCloseResult:
+    properties:
+      closed:
+        type: integer
+      failures:
+        items:
+          $ref: '#/definitions/wechatpay.BatchCloseFailure'
+        type: array
+      skipped:
+        type: integer
     type: object
   wechatpay.DailyPayStat:
     properties:
@@ -3587,6 +3632,28 @@ paths:
       summary: 更新微信支付商户配置
       tags:
       - 微信支付配置管理
+  /api/core/wechat/pay/order/batch-close:
+    post:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      - description: 批量关单请求(二选一:outTradeNos 或 tenantID+olderThanMinutes)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/http.BatchCloseOrdersRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.BatchCloseOrdersResponse'
+      summary: 微信支付订单批量关单
+      tags:
+      - 微信支付订单管理
   /api/core/wechat/pay/order/export:
     get:
       parameters:
