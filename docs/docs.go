@@ -3607,6 +3607,31 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/core/wechat/pay/stats/loop-status": {
+            "get": {
+                "tags": [
+                    "微信支付订单管理"
+                ],
+                "summary": "对账循环运行状态",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "jwt token",
+                        "name": "authorization",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/http.LoopStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/core/wechat/pay/stats/refund-reason": {
             "get": {
                 "tags": [
@@ -4459,6 +4484,17 @@ const docTemplate = `{
                 },
                 "message": {
                     "type": "string"
+                }
+            }
+        },
+        "http.LoopStatusResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/usercenter.Code"
+                },
+                "data": {
+                    "$ref": "#/definitions/wechatpay.LoopStatus"
                 }
             }
         },
@@ -6569,6 +6605,44 @@ const docTemplate = `{
                 },
                 "refundCount": {
                     "description": "RefundCount/RefundAmount 当日有效退款申请笔数与金额\n(待审核+受理中+已成功,不含已拒绝)。",
+                    "type": "integer"
+                }
+            }
+        },
+        "wechatpay.LoopStatus": {
+            "type": "object",
+            "properties": {
+                "alertAgeHours": {
+                    "type": "integer"
+                },
+                "batchSize": {
+                    "type": "integer"
+                },
+                "billRetentionDays": {
+                    "type": "integer"
+                },
+                "intervalSeconds": {
+                    "type": "integer"
+                },
+                "lastBillDownload": {
+                    "type": "string"
+                },
+                "lastDailyReport": {
+                    "type": "string"
+                },
+                "lastProcessed": {
+                    "type": "integer"
+                },
+                "lastReconcileAt": {
+                    "type": "string"
+                },
+                "lastReconcileOK": {
+                    "type": "boolean"
+                },
+                "running": {
+                    "type": "boolean"
+                },
+                "scanAgeMinutes": {
                     "type": "integer"
                 }
             }

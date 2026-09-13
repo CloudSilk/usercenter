@@ -182,6 +182,7 @@ func RegisterWechatPayOrderRouter(r *gin.Engine) {
 	g.GET("trade-bill/range", TradeBillRange)
 	s := r.Group("/api/core/wechat/pay/stats")
 	s.GET("daily", AutoQueryHandler(QueryWechatPayDailyStats))
+	s.GET("loop-status", GetWechatPayLoopStatus)
 	s.GET("refund-reason", AutoQueryHandler(QueryWechatRefundReasonStats))
 	s.GET("refund-reason/trend", AutoQueryHandler(QueryWechatRefundReasonTrend))
 }
@@ -718,4 +719,22 @@ func RegisterWechatBillRouter(r *gin.Engine) {
 	g := r.Group("/api/core/wechat/pay/bill")
 	g.GET("list", AutoQueryHandler(QueryWechatBillFiles))
 	g.GET("download", DownloadWechatBillFile)
+}
+
+// LoopStatusResponse 对账循环状态响应。
+type LoopStatusResponse struct {
+	Code apipb.Code            `json:"code"`
+	Data *wechatpay.LoopStatus `json:"data,omitempty"`
+}
+
+// GetWechatPayLoopStatus 查询对账循环运行状态与参数。
+//
+//	@Summary 对账循环运行状态
+//	@Tags 微信支付订单管理
+//	@Param authorization header string true "jwt token"
+//	@Success 200 {object} LoopStatusResponse
+//	@Router /api/core/wechat/pay/stats/loop-status [get]
+func GetWechatPayLoopStatus(c *gin.Context) {
+	status := wechatpay.GetLoopStatus()
+	c.JSON(http.StatusOK, &LoopStatusResponse{Code: apipb.Code_Success, Data: &status})
 }

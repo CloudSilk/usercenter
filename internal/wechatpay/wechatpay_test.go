@@ -1953,3 +1953,42 @@ func TestCleanupExpiredBills(t *testing.T) {
 		t.Fatalf("disabled retention should delete nothing: %d err=%v", deleted2, err)
 	}
 }
+
+func TestGetLoopStatus(t *testing.T) {
+	const tenant = "wp-loop-status"
+	app := setupApp(t, tenant)
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		t.Fatalf("get wechat config: %v", err)
+	}
+	order := &PayOrder{TenantID: tenant, UserID: "u", WechatConfigID: wc.ID, AppID: "wx",
+		MchID: "m", OutTradeNo: "loop-status-trade-1", Amount: 100, Status: PayOrderCreated}
+	if _, err := CreatePayOrder(order); err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	ageOrder(t, order.ID)
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&PayOrder{}, "tenant_id = ?", tenant).Error
+	})
+
+	// 循环未启动:Running=false
+	status := GetLoopStatus()
+	if status.Running {
+		t.Fatal("loop should not be running before StartReconcileLoop")
+	}
+	// 执行一轮对账后:状态被记录
+	fakeAPI.queryErr = errors.New("probe")
+	if _, err := ReconcileStaleOrders(context.Background()); err != nil {
+		t.Fatalf("ReconcileStaleOrders: %v", err)
+	}
+	status = GetLoopStatus()
+	if status.Running {
+		t.Fatal("loop flag should remain false (task ran directly)")
+	}
+	if status.LastReconcileAt.IsZero() || !status.LastReconcileOK || status.LastProcessed != 1 {
+		t.Fatalf("unexpected status: %+v", status)
+	}
+	if status.BatchSize <= 0 || status.IntervalSeconds <= 0 {
+		t.Fatalf("expected config snapshot: %+v", status)
+	}
+}

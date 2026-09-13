@@ -194,6 +194,13 @@ definitions:
       message:
         type: string
     type: object
+  http.LoopStatusResponse:
+    properties:
+      code:
+        $ref: '#/definitions/usercenter.Code'
+      data:
+        $ref: '#/definitions/wechatpay.LoopStatus'
+    type: object
   http.MiniLoginRequest:
     properties:
       app:
@@ -1624,6 +1631,31 @@ definitions:
         description: |-
           RefundCount/RefundAmount 当日有效退款申请笔数与金额
           (待审核+受理中+已成功,不含已拒绝)。
+        type: integer
+    type: object
+  wechatpay.LoopStatus:
+    properties:
+      alertAgeHours:
+        type: integer
+      batchSize:
+        type: integer
+      billRetentionDays:
+        type: integer
+      intervalSeconds:
+        type: integer
+      lastBillDownload:
+        type: string
+      lastDailyReport:
+        type: string
+      lastProcessed:
+        type: integer
+      lastReconcileAt:
+        type: string
+      lastReconcileOK:
+        type: boolean
+      running:
+        type: boolean
+      scanAgeMinutes:
         type: integer
     type: object
   wechatpay.PayParams:
@@ -3999,6 +4031,22 @@ paths:
           schema:
             $ref: '#/definitions/http.PayDailyStatsResponse'
       summary: 微信支付对账日报
+      tags:
+      - 微信支付订单管理
+  /api/core/wechat/pay/stats/loop-status:
+    get:
+      parameters:
+      - description: jwt token
+        in: header
+        name: authorization
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.LoopStatusResponse'
+      summary: 对账循环运行状态
       tags:
       - 微信支付订单管理
   /api/core/wechat/pay/stats/refund-reason:

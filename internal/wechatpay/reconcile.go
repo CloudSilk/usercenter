@@ -41,7 +41,46 @@ var (
 	reconcileMu      sync.Mutex
 	reconcileRunning bool
 	reconcileStop    chan struct{}
+
+	// 最近一轮对账执行情况(供状态查询端点展示)。
+	lastReconcileAt  time.Time
+	lastReconcileOK  bool
+	lastProcessedCnt int
 )
+
+// LoopStatus 对账循环运行状态快照。
+type LoopStatus struct {
+	Running           bool      `json:"running"`
+	IntervalSeconds   int       `json:"intervalSeconds"`
+	ScanAgeMinutes    int       `json:"scanAgeMinutes"`
+	BatchSize         int       `json:"batchSize"`
+	AlertAgeHours     int       `json:"alertAgeHours"`
+	BillRetentionDays int       `json:"billRetentionDays"`
+	LastReconcileAt   time.Time `json:"lastReconcileAt,omitempty"`
+	LastReconcileOK   bool      `json:"lastReconcileOK"`
+	LastProcessed     int       `json:"lastProcessed"`
+	LastDailyReport   string    `json:"lastDailyReport,omitempty"`
+	LastBillDownload  string    `json:"lastBillDownload,omitempty"`
+}
+
+// GetLoopStatus 返回循环状态快照。
+func GetLoopStatus() LoopStatus {
+	reconcileMu.Lock()
+	defer reconcileMu.Unlock()
+	return LoopStatus{
+		Running:           reconcileRunning,
+		IntervalSeconds:   int(ReconcileLoopInterval / time.Second),
+		ScanAgeMinutes:    int(ReconcileScanAge / time.Minute),
+		BatchSize:         ReconcileBatchSize,
+		AlertAgeHours:     int(ReconcileAlertAge / time.Hour),
+		BillRetentionDays: BillRetentionDays,
+		LastReconcileAt:   lastReconcileAt,
+		LastReconcileOK:   lastReconcileOK,
+		LastProcessed:     lastProcessedCnt,
+		LastDailyReport:   dailyReportLastDate,
+		LastBillDownload:  billDownloadLastDate,
+	}
+}
 
 // shouldAlert 静默窗口判定:该事件类型上次发送在窗口内则返回 false(不发送)。
 func shouldAlert(eventType string) bool {
@@ -192,6 +231,9 @@ func ReconcileStaleOrders(ctx context.Context) (int, error) {
 	before := time.Now().Add(-ReconcileScanAge)
 	orders, err := ListStaleCreatedOrders(before, ReconcileBatchSize)
 	if err != nil {
+		reconcileMu.Lock()
+		lastReconcileAt, lastReconcileOK, lastProcessedCnt = time.Now(), false, 0
+		reconcileMu.Unlock()
 		return 0, err
 	}
 	// 按微信应用配置缓存客户端,避免同一商户重复构建
@@ -250,5 +292,8 @@ func ReconcileStaleOrders(ctx context.Context) (int, error) {
 		alertFire("pay_order_stuck_created", payload)
 		recordAlertAudit("pay_order_stuck_created", payload)
 	}
+	reconcileMu.Lock()
+	lastReconcileAt, lastReconcileOK, lastProcessedCnt = time.Now(), true, processed
+	reconcileMu.Unlock()
 	return processed, nil
 }

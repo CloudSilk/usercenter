@@ -53,6 +53,25 @@ interface RefundReasonTrendPoint {
   amount: number
 }
 
+interface LoopStatus {
+  running: boolean
+  intervalSeconds: number
+  scanAgeMinutes: number
+  batchSize: number
+  alertAgeHours: number
+  billRetentionDays: number
+  lastReconcileAt?: string
+  lastReconcileOK: boolean
+  lastProcessed: number
+  lastDailyReport?: string
+  lastBillDownload?: string
+}
+
+interface BatchCloseFailureItem {
+  outTradeNo: string
+  error: string
+}
+
 interface PayConfigInfo {
   id?: string
   tenantID: string
@@ -206,6 +225,7 @@ export default function WechatPay() {
 
   // ---- 订单 ----
   const [orderStatus, setOrderStatus] = useState("PAID")
+  const [closeFailures, setCloseFailures] = useState<BatchCloseFailureItem[]>([])
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set())
   const orders = useQuery({
     queryKey: ["pay-orders", orderStatus],
@@ -218,15 +238,24 @@ export default function WechatPay() {
 
   const batchClose = useMutation({
     mutationFn: (outTradeNos: string[]) =>
-      api.post<{ closed: number; skipped: number }>(`${ORDER}/batch-close`, {
-        outTradeNos,
-      }),
+      api.post<{ closed: number; skipped: number; failures?: { outTradeNo: string; error: string }[] }>(
+        `${ORDER}/batch-close`,
+        { outTradeNos },
+      ),
     onSuccess: (r) => {
       toast.success(`批量关单完成:关闭 ${r.closed},跳过 ${r.skipped}`)
+      setCloseFailures(r.failures || [])
       setSelectedOrders(new Set())
       qc.invalidateQueries({ queryKey: ["pay-orders"] })
     },
     onError: (e: Error) => toast.error(e.message),
+  })
+
+  // ---- 对账循环状态 ----
+  const loopStatus = useQuery({
+    queryKey: ["pay-loop-status"],
+    queryFn: () => api.get<LoopStatus>("/api/core/wechat/pay/stats/loop-status"),
+    refetchInterval: 30_000,
   })
 
   function toggleOrder(no: string) {
@@ -303,6 +332,35 @@ export default function WechatPay() {
         <Wallet className="h-5 w-5" />
         <h1 className="text-xl font-semibold">微信支付</h1>
       </div>
+
+      {/* 对账循环状态 */}
+      {loopStatus.data && (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded border bg-muted/30 px-4 py-2 text-sm">
+          <span className="flex items-center gap-1">
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${loopStatus.data.running ? "bg-green-500" : "bg-red-500"}`}
+            />
+            对账循环 {loopStatus.data.running ? "运行中" : "已停止"}
+          </span>
+          <span className="text-muted-foreground">
+            间隔 {loopStatus.data.intervalSeconds}s · 扫描窗口 {loopStatus.data.scanAgeMinutes}m ·
+            批次 {loopStatus.data.batchSize} · 账单保留 {loopStatus.data.billRetentionDays} 天
+          </span>
+          {loopStatus.data.lastReconcileAt && (
+            <span className="text-muted-foreground">
+              最近对账{" "}
+              {new Date(loopStatus.data.lastReconcileAt).toLocaleString()}(
+              {loopStatus.data.lastProcessed} 笔
+              {loopStatus.data.lastReconcileOK ? "" : ",异常"})
+            </span>
+          )}
+          {loopStatus.data.lastDailyReport && (
+            <span className="text-muted-foreground">
+              日报 {loopStatus.data.lastDailyReport}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* 商户配置 */}
       <section className="space-y-2">
@@ -442,6 +500,26 @@ export default function WechatPay() {
             ))}
           </TableBody>
         </Table>
+        {/* 批量关单失败明细 */}
+        {closeFailures.length > 0 && (
+          <div className="rounded border border-red-300 bg-red-500/5 p-2">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-sm font-medium text-red-600">
+                关单失败 {closeFailures.length} 笔
+              </span>
+              <Button size="sm" variant="ghost" onClick={() => setCloseFailures([])}>
+                关闭
+              </Button>
+            </div>
+            <div className="max-h-40 overflow-y-auto">
+              {closeFailures.map((f) => (
+                <div key={f.outTradeNo} className="font-mono text-xs">
+                  {f.outTradeNo} — {f.error}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* 退款审核 */}
