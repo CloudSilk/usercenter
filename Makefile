@@ -28,5 +28,11 @@ push-image:
 	sudo docker push ${IMAGE}
 gen-doc:
 	swag init --parseDependency --parseInternal --parseDepth 2
-test:
+
+# 文档过期检查:重新生成 swagger 并与 docs/ 已提交版本比对,过期则以非零退出
+doc-check:
+	go run ./cmd/doccheck
+
+# test 纳入 doc-check 门禁:文档落后于代码注解时测试先失败
+test: doc-check
 	go test ./...
