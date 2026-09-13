@@ -3,6 +3,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
+import { configDefaults } from 'vitest/config'
 
 // 开发期:Vite dev server(5173)代理所有后端前缀到 devserver(48180)。
 // 生产:go:embed dist/ 由 Go 服务,无需 proxy。
@@ -42,5 +43,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    // e2e/ 目录是 Playwright 用例(需运行中的 devserver),不纳入 vitest
+    exclude: [...configDefaults.exclude, 'e2e/**'],
   },
 })
