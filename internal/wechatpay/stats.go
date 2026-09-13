@@ -2,6 +2,7 @@ package wechatpay
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/CloudSilk/pkg/utils/log"
@@ -264,4 +265,77 @@ func QueryRefundReasonStats(tenantID string, days int) ([]*ReasonCodeStat, error
 	err := scope.Select("reason_code as reason_code, count(*) as count, coalesce(sum(amount),0) as amount").
 		Group("reason_code").Order("amount DESC").Find(&stats).Error
 	return stats, err
+}
+
+// RefundReasonTrendPoint 退款原因月度趋势点。
+type RefundReasonTrendPoint struct {
+	// Month 统计月份(YYYY-MM,本地时区)。
+	Month string `json:"month"`
+	// ReasonCode 退款原因类别。
+	ReasonCode string `json:"reasonCode"`
+	// Count 有效退款申请笔数。
+	Count int64 `json:"count"`
+	// Amount 退款金额合计,单位:分。
+	Amount int64 `json:"amount"`
+}
+
+// QueryRefundReasonTrend 按月聚合各类别退款趋势,最近 months 个月(含当月)。
+// 月内按类别一行,按月升序、类别金额降序;tenantID 留空为平台全量。
+// 日期分组在 Go 侧完成(而非 SQL date 函数),兼容 SQLite 与 MySQL。
+func QueryRefundReasonTrend(tenantID string, months int) ([]*RefundReasonTrendPoint, error) {
+	if months <= 0 {
+		months = 6
+	}
+	if months > 24 {
+		months = 24
+	}
+	now := time.Now()
+	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, -(months - 1), 0)
+
+	scope := store.DB().Model(&PayRefund{}).
+		Where("created_at >= ? AND status IN ?", start,
+				[]string{RefundPending, RefundProcessing, RefundSuccess}).
+		Limit(20000) // 防御性上限:聚合在内存完成,避免异常数据量拖垮服务
+	if tenantID != "" {
+		scope = scope.Where("tenant_id = ?", tenantID)
+	}
+	var rows []struct {
+		CreatedAt  time.Time
+		ReasonCode string
+		Amount     int64
+	}
+	if err := scope.Select("created_at, reason_code, amount").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	type key struct {
+		month string
+		code  string
+	}
+	agg := map[key]*RefundReasonTrendPoint{}
+	var order []key
+	for _, r := range rows {
+		month := r.CreatedAt.Format("2006-01")
+		k := key{month, r.ReasonCode}
+		p, ok := agg[k]
+		if !ok {
+			p = &RefundReasonTrendPoint{Month: month, ReasonCode: r.ReasonCode}
+			agg[k] = p
+			order = append(order, k)
+		}
+		p.Count++
+		p.Amount += r.Amount
+	}
+	// 稳定输出:月升序,月内按类别金额降序
+	sort.Slice(order, func(i, j int) bool {
+		if order[i].month != order[j].month {
+			return order[i].month < order[j].month
+		}
+		return agg[order[i]].Amount > agg[order[j]].Amount
+	})
+	result := make([]*RefundReasonTrendPoint, 0, len(order))
+	for _, k := range order {
+		result = append(result, agg[k])
+	}
+	return result, nil
 }

@@ -180,6 +180,7 @@ func RegisterWechatPayOrderRouter(r *gin.Engine) {
 	s := r.Group("/api/core/wechat/pay/stats")
 	s.GET("daily", AutoQueryHandler(QueryWechatPayDailyStats))
 	s.GET("refund-reason", AutoQueryHandler(QueryWechatRefundReasonStats))
+	s.GET("refund-reason/trend", AutoQueryHandler(QueryWechatRefundReasonTrend))
 }
 
 // ApplyRefundRequest 管理端退款申请请求。
@@ -455,6 +456,41 @@ type RefundReasonStatsResponse struct {
 func QueryWechatRefundReasonStats(c *gin.Context, req *RefundReasonStatsQueryRequest) (*RefundReasonStatsResponse, error) {
 	resp := &RefundReasonStatsResponse{Code: apipb.Code_Success}
 	stats, err := wechatpay.QueryRefundReasonStats(req.TenantID, req.Days)
+	if err != nil {
+		resp.Code = apipb.Code_InternalServerError
+		resp.Message = err.Error()
+		return resp, nil
+	}
+	resp.Data = stats
+	return resp, nil
+}
+
+// RefundReasonTrendQueryRequest 退款原因月度趋势查询请求。
+type RefundReasonTrendQueryRequest struct {
+	// Months 统计最近 N 个月(含当月),默认 6,范围 1-24。
+	Months   int    `form:"months" binding:"omitempty,gt=0,lte=24"`
+	TenantID string `form:"tenantID"`
+}
+
+// RefundReasonTrendResponse 退款原因月度趋势响应。
+type RefundReasonTrendResponse struct {
+	Code    apipb.Code                          `json:"code"`
+	Message string                              `json:"message,omitempty"`
+	Data    []*wechatpay.RefundReasonTrendPoint `json:"data,omitempty"`
+}
+
+// QueryWechatRefundReasonTrend 退款原因月度趋势:按月聚合各类别退款笔数与金额。
+//
+//	@Summary 退款原因月度趋势
+//	@Tags 微信支付退款管理
+//	@Param authorization header string true "jwt token"
+//	@Param months query int false "统计最近 N 个月(含当月),默认 6,范围 1-24"
+//	@Param tenantID query string false "租户ID,留空为全租户汇总"
+//	@Success 200 {object} RefundReasonTrendResponse
+//	@Router /api/core/wechat/pay/stats/refund-reason/trend [get]
+func QueryWechatRefundReasonTrend(c *gin.Context, req *RefundReasonTrendQueryRequest) (*RefundReasonTrendResponse, error) {
+	resp := &RefundReasonTrendResponse{Code: apipb.Code_Success}
+	stats, err := wechatpay.QueryRefundReasonTrend(req.TenantID, req.Months)
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()

@@ -1364,3 +1364,17 @@ curl "/api/core/wechat/pay/stats/refund-reason?days=30&tenantID=<租户ID>"
 
 审计联动:退款审核(通过/拒绝)与对账告警均写入审计日志,审核以审核人为操作主体,
 对账告警为系统主体(`principalKind=2`)。
+
+### 17.10 swagger 文档过期检查
+
+端点注解与 `docs/` 生成文档可能脱节,仓库提供门禁检查:
+
+```bash
+make doc-check                 # 或无 make 环境: go run ./cmd/doccheck
+make test                      # test 目标已挂接 doc-check,文档过期则先失败
+make gen-doc                   # 重新生成并提交 docs/
+```
+
+原理:`cmd/doccheck` 就地运行 `swag init --parseDependency --parseInternal --parseDepth 2`,
+再用 `git diff --exit-code -- docs/` 检测再生成差异;有差异即文档过期,退出码 1。
+

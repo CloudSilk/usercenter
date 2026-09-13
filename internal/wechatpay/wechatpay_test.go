@@ -1567,3 +1567,75 @@ func TestQueryRefundReasonStats(t *testing.T) {
 		t.Fatalf("expected empty for foreign tenant: %v %+v", err, other)
 	}
 }
+
+func TestQueryRefundReasonTrend(t *testing.T) {
+	const tenant = "wp-reason-trend"
+	setupApp(t, tenant)
+	order := &PayOrder{TenantID: tenant, UserID: "u", WechatConfigID: "wc", AppID: "wx", MchID: "m",
+		OutTradeNo: "reason-trend-trade", Amount: 10000, Status: PayOrderPaid}
+	if _, err := CreatePayOrder(order); err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	// 两笔当月退款(不同类别) + 一笔上月退款 + 一笔已拒绝(排除)
+	mk := func(no, code string, amount int64, status string, createdAt time.Time) {
+		t.Helper()
+		r := &PayRefund{TenantID: tenant, PayOrderID: order.ID,
+			OutTradeNo: order.OutTradeNo, OutRefundNo: no, Amount: amount, Total: 10000,
+			ReasonCode: code, Status: status}
+		if _, err := CreatePayRefund(r); err != nil {
+			t.Fatalf("create refund %s: %v", no, err)
+		}
+		if err := store.DB().Model(&PayRefund{}).Where("id = ?", r.ID).
+			Update("created_at", createdAt).Error; err != nil {
+			t.Fatalf("backdate refund: %v", err)
+		}
+	}
+	now := time.Now()
+	lastMonth := now.AddDate(0, -1, 0)
+	mk("trend-cur-quality", RefundReasonQuality, 200, RefundSuccess, now)
+	mk("trend-cur-price", RefundReasonPrice, 100, RefundProcessing, now)
+	mk("trend-last-dup", RefundReasonDuplicate, 400, RefundSuccess, lastMonth)
+	mk("trend-rejected", RefundReasonOther, 999, RefundRejected, now)
+	t.Cleanup(func() {
+		_ = store.DB().Unscoped().Delete(&PayOrder{}, "id = ?", order.ID).Error
+		_ = store.DB().Unscoped().Delete(&PayRefund{}, "tenant_id = ?", tenant).Error
+	})
+
+	points, err := QueryRefundReasonTrend(tenant, 6)
+	if err != nil {
+		t.Fatalf("QueryRefundReasonTrend: %v", err)
+	}
+	if len(points) != 3 {
+		t.Fatalf("expected 3 trend points, got %d: %+v", len(points), points)
+	}
+	thisMonth := now.Format("2006-01")
+	lastMonthStr := lastMonth.Format("2006-01")
+	// 月升序:上月条目在最前
+	if points[0].Month != lastMonthStr || points[0].ReasonCode != RefundReasonDuplicate ||
+		points[0].Amount != 400 {
+		t.Fatalf("unexpected last month point: %+v", points[0])
+	}
+	// 当月按金额降序:quality(200) 在 price(100) 前
+	cur := map[string]*RefundReasonTrendPoint{}
+	for _, p := range points[1:] {
+		if p.Month != thisMonth {
+			t.Fatalf("unexpected month %q", p.Month)
+		}
+		cur[p.ReasonCode] = p
+	}
+	if p := cur[RefundReasonQuality]; p == nil || p.Count != 1 || p.Amount != 200 {
+		t.Fatalf("unexpected quality point: %+v", p)
+	}
+	if p := cur[RefundReasonPrice]; p == nil || p.Amount != 100 {
+		t.Fatalf("unexpected price point: %+v", p)
+	}
+	// 已拒绝不出现
+	if _, ok := cur[RefundReasonOther]; ok {
+		t.Fatal("rejected refund should be excluded from trend")
+	}
+	// 租户隔离
+	other, err := QueryRefundReasonTrend("other-tenant", 6)
+	if err != nil || len(other) != 0 {
+		t.Fatalf("expected empty for foreign tenant: %v %+v", err, other)
+	}
+}
