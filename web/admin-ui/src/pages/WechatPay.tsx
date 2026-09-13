@@ -341,14 +341,20 @@ export default function WechatPay() {
   const [billDate, setBillDate] = useState(fmtLocalDate(new Date(Date.now() - 86400000)))
   const [billType, setBillType] = useState("ALL")
   const [pulling, setPulling] = useState(false)
+  const [billDays, setBillDays] = useState(30)
+  const [billPage, setBillPage] = useState(1)
+  const billPageSize = 10
   const bills = useQuery({
-    queryKey: ["pay-bills", billConfigID],
+    queryKey: ["pay-bills", billConfigID, billDays],
     queryFn: () =>
       api.get<ListResp<BillFileItem>>(`${BILL}/list`, {
         configID: billConfigID || undefined,
-        days: 30,
+        days: billDays,
       }),
   })
+  const allBills = bills.data?.data || []
+  const totalPages = Math.max(1, Math.ceil(allBills.length / billPageSize))
+  const billRows = allBills.slice((billPage - 1) * billPageSize, billPage * billPageSize)
 
   /** 手动拉取指定日期/类型的交易账单(实时调微信侧)。 */
   async function pullTradeBill() {
@@ -792,13 +798,31 @@ export default function WechatPay() {
       {/* 账单归档 */}
       <section className="space-y-2">
         <div className="flex items-center justify-between">
-          <h2 className="font-medium">已归档交易账单(近30天)</h2>
-          <Input
-            placeholder="按商户配置ID过滤(可空)"
-            className="w-64"
-            value={billConfigID}
-            onChange={(e) => setBillConfigID(e.target.value)}
-          />
+          <h2 className="font-medium">已归档交易账单</h2>
+          <div className="flex items-center gap-2">
+            <select
+              className="rounded border px-2 py-1 text-sm"
+              value={billDays}
+              onChange={(e) => {
+                setBillDays(Number(e.target.value))
+                setBillPage(1)
+              }}
+            >
+              <option value={7}>近 7 天</option>
+              <option value={30}>近 30 天</option>
+              <option value={90}>近 90 天</option>
+              <option value={365}>近 365 天</option>
+            </select>
+            <Input
+              placeholder="按商户配置ID过滤(可空)"
+              className="w-64"
+              value={billConfigID}
+              onChange={(e) => {
+                setBillConfigID(e.target.value)
+                setBillPage(1)
+              }}
+            />
+          </div>
         </div>
         <div className="flex flex-wrap items-end gap-2 rounded border bg-muted/30 p-3">
           <div className="space-y-1">
@@ -847,7 +871,7 @@ export default function WechatPay() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(bills.data?.data || []).map((b) => (
+            {billRows.map((b) => (
               <TableRow key={b.id}>
                 <TableCell>{b.billDate}</TableCell>
                 <TableCell>
@@ -863,6 +887,30 @@ export default function WechatPay() {
             ))}
           </TableBody>
         </Table>
+        {/* 账单分页条 */}
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <span>
+            共 {allBills.length} 条 · 第 {billPage} / {totalPages} 页
+          </span>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={billPage <= 1}
+              onClick={() => setBillPage(billPage - 1)}
+            >
+              上一页
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={billPage >= totalPages}
+              onClick={() => setBillPage(billPage + 1)}
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
       </section>
 
       {/* 商户配置编辑对话框 */}
