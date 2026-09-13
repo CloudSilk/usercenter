@@ -289,6 +289,40 @@ const (
 	RefundAbnormal   = "ABNORMAL"
 )
 
+// 退款原因类别:内部业务结构化分类(微信侧 reason 为自由文本)。
+// 空值归一化为 Other。
+const (
+	RefundReasonQuality         = "quality"          // 商品质量问题
+	RefundReasonNotReceived     = "not_received"     // 未收到商品
+	RefundReasonWrongOrder      = "wrong_order"      // 错拍/误购
+	RefundReasonPrice           = "price"            // 价格因素
+	RefundReasonDuplicate       = "duplicate"        // 重复支付
+	RefundReasonCustomerService = "customer_service" // 客服协商
+	RefundReasonOther           = "other"            // 其他
+)
+
+// ValidReasonCodes 退款原因类别白名单。
+func ValidReasonCodes() []string {
+	return []string{
+		RefundReasonQuality, RefundReasonNotReceived, RefundReasonWrongOrder,
+		RefundReasonPrice, RefundReasonDuplicate, RefundReasonCustomerService,
+		RefundReasonOther,
+	}
+}
+
+// NormalizeReasonCode 归一化退款原因类别:空值默认 other,非法值报错。
+func NormalizeReasonCode(code string) (string, error) {
+	if code == "" {
+		return RefundReasonOther, nil
+	}
+	for _, valid := range ValidReasonCodes() {
+		if code == valid {
+			return code, nil
+		}
+	}
+	return "", errors.New("非法退款原因类别: " + code)
+}
+
 // PayRefund 退款单记录,OutRefundNo 商户侧唯一。
 type PayRefund struct {
 	commonmodel.Model
@@ -300,7 +334,8 @@ type PayRefund struct {
 	RefundID       string     `json:"refundID" gorm:"size:64;index"`
 	Amount         int64      `json:"amount" gorm:"comment:退款金额,单位:分"`
 	Total          int64      `json:"total" gorm:"comment:原订单金额,单位:分"`
-	Reason         string     `json:"reason" gorm:"size:128"`
+	ReasonCode     string     `json:"reasonCode" gorm:"size:32;comment:退款原因类别"`
+	Reason         string     `json:"reason" gorm:"size:128;comment:退款原因补充说明"`
 	Status         string     `json:"status" gorm:"size:16;index"`
 	SuccessTime    *time.Time `json:"successTime"`
 	ApproverID     string     `json:"approverID" gorm:"size:36;comment:审核人用户ID"`

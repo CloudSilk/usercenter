@@ -268,7 +268,8 @@ type ApplyRefundInput struct {
 	OutTradeNo   string
 	RefundAmount int64  // 退款金额,单位:分
 	OutRefundNo  string // 可选,留空自动生成
-	Reason       string
+	ReasonCode   string // 退款原因类别,留空默认 other
+	Reason       string // 原因补充说明(自由文本)
 }
 
 // ApplyRefund 对已支付订单发起退款:校验可退余额后调微信侧申请退款并落库。
@@ -277,6 +278,11 @@ func ApplyRefund(ctx context.Context, in ApplyRefundInput) (*PayRefund, error) {
 	if in.RefundAmount <= 0 {
 		return nil, errors.New("退款金额必须大于0")
 	}
+	reasonCode, err := NormalizeReasonCode(in.ReasonCode)
+	if err != nil {
+		return nil, err
+	}
+	in.ReasonCode = reasonCode
 	order, err := GetPayOrderByOutTradeNo(in.OutTradeNo)
 	if err != nil {
 		return nil, err
@@ -327,6 +333,7 @@ func ApplyRefund(ctx context.Context, in ApplyRefundInput) (*PayRefund, error) {
 		OutRefundNo: outRefundNo,
 		Amount:      in.RefundAmount,
 		Total:       order.Amount,
+		ReasonCode:  in.ReasonCode,
 		Reason:      in.Reason,
 	}
 
@@ -464,6 +471,7 @@ func recordRefundAudit(in ApproveRefundInput, refund *PayRefund, wxRefundID stri
 		"outRefundNo": refund.OutRefundNo,
 		"outTradeNo":  refund.OutTradeNo,
 		"amount":      refund.Amount,
+		"reasonCode":  refund.ReasonCode,
 		"approved":    in.Approved,
 		"comment":     in.Comment,
 		"wxRefundID":  wxRefundID,

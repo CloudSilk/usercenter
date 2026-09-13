@@ -1396,3 +1396,64 @@ func TestMaybePushDailyReport(t *testing.T) {
 		t.Fatal("duplicate push on same day should be suppressed")
 	}
 }
+
+func TestRefundReasonCode(t *testing.T) {
+	const tenant = "wp-reason-1"
+	app := setupApp(t, tenant)
+	enableRefundApproval(t, app)
+	order := markOrderPaidDirect(t, tenant, app, CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 1000,
+	})
+
+	// 空类别归一化为 other
+	r1, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 100,
+	})
+	if err != nil {
+		t.Fatalf("ApplyRefund default code: %v", err)
+	}
+	if r1.ReasonCode != RefundReasonOther {
+		t.Fatalf("expected default other, got %q", r1.ReasonCode)
+	}
+
+	// 合法类别落库
+	r2, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 100,
+		ReasonCode: RefundReasonQuality, Reason: "外观划痕",
+	})
+	if err != nil {
+		t.Fatalf("ApplyRefund quality: %v", err)
+	}
+	if r2.ReasonCode != RefundReasonQuality {
+		t.Fatalf("expected quality, got %q", r2.ReasonCode)
+	}
+
+	// 非法类别拒绝
+	if _, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 100,
+		ReasonCode: "hacked",
+	}); err == nil || !strings.Contains(err.Error(), "非法退款原因类别") {
+		t.Fatalf("expected invalid reason code error, got %v", err)
+	}
+
+	// 白名单完整
+	for _, code := range ValidReasonCodes() {
+		if _, err := NormalizeReasonCode(code); err != nil {
+			t.Fatalf("whitelist code %q should be valid: %v", code, err)
+		}
+	}
+
+	// 审核审计详情包含原因类别
+	getAudits, restore := collectAudits()
+	defer restore()
+	fakeAPI.refundResult = &RefundResult{RefundID: "re-rc", OutRefundNo: r2.OutRefundNo, Status: RefundProcessing}
+	if _, err := ApproveRefund(context.Background(), ApproveRefundInput{
+		TenantID: tenant, ApproverID: "admin-1", OutRefundNo: r2.OutRefundNo, Approved: true,
+	}); err != nil {
+		t.Fatalf("ApproveRefund: %v", err)
+	}
+	audits := getAudits()
+	if len(audits) != 1 || !strings.Contains(audits[0].Detail, `"reasonCode":"quality"`) {
+		t.Fatalf("expected reasonCode in audit detail: %+v", audits)
+	}
+}

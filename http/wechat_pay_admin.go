@@ -186,7 +186,10 @@ type ApplyRefundRequest struct {
 	OutTradeNo   string `json:"outTradeNo" binding:"required"`
 	RefundAmount int64  `json:"refundAmount" binding:"required,gt=0"`
 	OutRefundNo  string `json:"outRefundNo" binding:"omitempty,min=6,max=64"`
-	Reason       string `json:"reason" binding:"omitempty,max=120"`
+	// ReasonCode 退款原因类别(quality/not_received/wrong_order/price/duplicate/customer_service/other),
+	// 留空默认 other。
+	ReasonCode string `json:"reasonCode" binding:"omitempty,max=32"`
+	Reason     string `json:"reason" binding:"omitempty,max=120"`
 }
 
 // RefundAdminItem 退款单视图。
@@ -199,6 +202,7 @@ type RefundAdminItem struct {
 	RefundID       string     `json:"refundID"`
 	Amount         int64      `json:"amount"`
 	Total          int64      `json:"total"`
+	ReasonCode     string     `json:"reasonCode,omitempty"`
 	Reason         string     `json:"reason"`
 	Status         string     `json:"status"`
 	SuccessTime    *time.Time `json:"successTime,omitempty"`
@@ -212,7 +216,8 @@ func refundToAdminItem(m *wechatpay.PayRefund) *RefundAdminItem {
 	return &RefundAdminItem{
 		ID: m.ID, TenantID: m.TenantID, UserID: m.UserID,
 		OutTradeNo: m.OutTradeNo, OutRefundNo: m.OutRefundNo, RefundID: m.RefundID,
-		Amount: m.Amount, Total: m.Total, Reason: m.Reason, Status: m.Status,
+		Amount: m.Amount, Total: m.Total, ReasonCode: m.ReasonCode,
+		Reason: m.Reason, Status: m.Status,
 		SuccessTime: m.SuccessTime, ApproverID: m.ApproverID,
 		ApproveComment: m.ApproveComment, ApprovedAt: m.ApprovedAt,
 		CreatedAt: m.CreatedAt.Format(time.RFC3339),
@@ -234,6 +239,7 @@ func ApplyWechatRefund(c *gin.Context, req *ApplyRefundRequest) (*RefundAdminQue
 		OutTradeNo:   req.OutTradeNo,
 		RefundAmount: req.RefundAmount,
 		OutRefundNo:  req.OutRefundNo,
+		ReasonCode:   req.ReasonCode,
 		Reason:       req.Reason,
 	})
 	if err != nil {
