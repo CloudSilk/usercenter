@@ -163,6 +163,8 @@ type WechatPayConfig struct {
 	ReconcileBatchSize int `yaml:"reconcileBatchSize"`
 	// ReconcileAlertAgeHours 订单滞留 CREATED 超过该小时数触发告警(webhook),默认 24,最小 1。
 	ReconcileAlertAgeHours int `yaml:"reconcileAlertAgeHours"`
+	// ReconcileAlertSilenceMinutes 同类告警静默窗口(分钟),默认 120,最小 1,0 视为默认。
+	ReconcileAlertSilenceMinutes int `yaml:"reconcileAlertSilenceMinutes"`
 }
 
 // AICacheConfig AI 网关语义缓存配置。

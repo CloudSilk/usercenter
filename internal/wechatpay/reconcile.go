@@ -23,18 +23,37 @@ var (
 	ReconcileLoopInterval = time.Minute
 	// ReconcileAlertAge 订单滞留 CREATED 超过该时长触发告警。
 	ReconcileAlertAge = 24 * time.Hour
+	// ReconcileAlertSilence 同类告警的静默窗口:发送后窗口内的重复事件被抑制。
+	// <=0 表示禁用去重(每轮都发)。
+	ReconcileAlertSilence = 2 * time.Hour
 
 	// alertFire 告警推送函数,测试可替换。未配置 webhook URL 时为空操作。
 	alertFire = alert.FireWebhook
+
+	// alertSilenceLast 各事件类型上次发送时间(静默窗口去重)。
+	alertSilenceLast = map[string]time.Time{}
 
 	reconcileMu      sync.Mutex
 	reconcileRunning bool
 	reconcileStop    chan struct{}
 )
 
+// shouldAlert 静默窗口判定:该事件类型上次发送在窗口内则返回 false(不发送)。
+func shouldAlert(eventType string) bool {
+	if ReconcileAlertSilence <= 0 {
+		return true
+	}
+	if last, ok := alertSilenceLast[eventType]; ok && time.Since(last) < ReconcileAlertSilence {
+		return false
+	}
+	alertSilenceLast[eventType] = time.Now()
+	return true
+}
+
 // ConfigureReconcile 应用对账参数(须在 StartReconcileLoop 前调用)。
-// 非法值被钳制:interval 最小 10s,batchSize 范围 1-1000,alertAge 最小 1h。
-func ConfigureReconcile(interval time.Duration, scanAge time.Duration, batchSize int, alertAge time.Duration) {
+// 非法值被钳制:interval 最小 10s,batchSize 范围 1-1000,alertAge 最小 1h,
+// alertSilence 最小 1m(传 0 表示禁用静默去重)。
+func ConfigureReconcile(interval time.Duration, scanAge time.Duration, batchSize int, alertAge time.Duration, alertSilence time.Duration) {
 	reconcileMu.Lock()
 	defer reconcileMu.Unlock()
 	if interval < 10*time.Second {
@@ -55,6 +74,14 @@ func ConfigureReconcile(interval time.Duration, scanAge time.Duration, batchSize
 		alertAge = time.Hour
 	}
 	ReconcileAlertAge = alertAge
+	switch {
+	case alertSilence == 0:
+		ReconcileAlertSilence = 0 // 显式禁用静默去重
+	case alertSilence < time.Minute:
+		ReconcileAlertSilence = time.Minute
+	default:
+		ReconcileAlertSilence = alertSilence
+	}
 }
 
 // ReconcileLoopRunning 对账循环是否在运行。
@@ -187,13 +214,13 @@ func ReconcileStaleOrders(ctx context.Context) (int, error) {
 			})
 		}
 	}
-	if len(queryFailures) > 0 {
+	if len(queryFailures) > 0 && shouldAlert("pay_reconcile_query_failed") {
 		alertFire("pay_reconcile_query_failed", map[string]any{"count": len(queryFailures), "orders": queryFailures})
 	}
-	if len(clientFailures) > 0 {
+	if len(clientFailures) > 0 && shouldAlert("pay_reconcile_client_failed") {
 		alertFire("pay_reconcile_client_failed", map[string]any{"count": len(clientFailures), "failures": clientFailures})
 	}
-	if len(stuckOrders) > 0 {
+	if len(stuckOrders) > 0 && shouldAlert("pay_order_stuck_created") {
 		alertFire("pay_order_stuck_created", map[string]any{
 			"count": len(stuckOrders), "orders": stuckOrders, "thresholdHours": int(ReconcileAlertAge.Hours()),
 		})

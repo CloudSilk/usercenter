@@ -111,6 +111,7 @@ func main() {
 			time.Duration(wpCfg.ReconcileScanAgeMinutes)*time.Minute,
 			wpCfg.ReconcileBatchSize,
 			time.Duration(wpCfg.ReconcileAlertAgeHours)*time.Hour,
+			time.Duration(wpCfg.ReconcileAlertSilenceMinutes)*time.Minute,
 		)
 		wechatpay.StartReconcileLoop()
 	}

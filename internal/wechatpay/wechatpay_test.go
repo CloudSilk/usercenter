@@ -970,7 +970,7 @@ func TestReconcileConfigAndLoop(t *testing.T) {
 		ReconcileLoopInterval, ReconcileScanAge, ReconcileBatchSize, ReconcileAlertAge = oldInterval, oldAge, oldBatch, oldAlert
 		reconcileMu.Unlock()
 	}()
-	ConfigureReconcile(3*time.Second, 2*time.Minute, 5000, 2*time.Hour)
+	ConfigureReconcile(3*time.Second, 2*time.Minute, 5000, 2*time.Hour, time.Minute)
 	if ReconcileLoopInterval != 10*time.Second {
 		t.Fatalf("expected interval clamped to 10s, got %v", ReconcileLoopInterval)
 	}
@@ -982,6 +982,14 @@ func TestReconcileConfigAndLoop(t *testing.T) {
 	}
 	if ReconcileAlertAge != 2*time.Hour {
 		t.Fatalf("expected alertAge applied, got %v", ReconcileAlertAge)
+	}
+	if ReconcileAlertSilence != time.Minute {
+		t.Fatalf("expected alertSilence clamped to 1m, got %v", ReconcileAlertSilence)
+	}
+	// 0 = 显式禁用静默去重
+	ConfigureReconcile(0, 0, 0, 0, 0)
+	if ReconcileAlertSilence != 0 {
+		t.Fatalf("expected alertSilence disabled, got %v", ReconcileAlertSilence)
 	}
 
 	// 循环启停幂等
@@ -1063,6 +1071,7 @@ func TestReconcileAlerts(t *testing.T) {
 	// 注入告警收集器与按单定制查单结果
 	getEvents, restore := collectAlerts()
 	defer restore()
+	alertSilenceLast = map[string]time.Time{} // 重置静默状态,确保首轮告警必发
 	oldAge := ReconcileAlertAge
 	ReconcileAlertAge = 24 * time.Hour
 	defer func() { ReconcileAlertAge = oldAge }()
@@ -1100,6 +1109,37 @@ func TestReconcileAlerts(t *testing.T) {
 		if e == "pay_reconcile_query_failed" {
 			t.Fatalf("unexpected query_failed alert after recovery: %v", getEvents())
 		}
+	}
+}
+
+func TestAlertSilenceWindow(t *testing.T) {
+	oldSilence := ReconcileAlertSilence
+	defer func() { ReconcileAlertSilence = oldSilence }()
+
+	// 禁用静默(<=0):每次都放行
+	ReconcileAlertSilence = 0
+	alertSilenceLast = map[string]time.Time{}
+	if !shouldAlert("evt") || !shouldAlert("evt") {
+		t.Fatal("disabled silence should always alert")
+	}
+
+	// 窗口内第二次同类事件被抑制,异类事件不受影响
+	ReconcileAlertSilence = time.Hour
+	alertSilenceLast = map[string]time.Time{}
+	if !shouldAlert("evt-a") {
+		t.Fatal("first event should alert")
+	}
+	if shouldAlert("evt-a") {
+		t.Fatal("second event in silence window should be suppressed")
+	}
+	if !shouldAlert("evt-b") {
+		t.Fatal("different event type should alert")
+	}
+
+	// 窗口过期后再次放行(模拟:把上次发送时间改到窗口之前)
+	alertSilenceLast["evt-a"] = time.Now().Add(-2 * time.Hour)
+	if !shouldAlert("evt-a") {
+		t.Fatal("event after silence window should alert again")
 	}
 }
 
