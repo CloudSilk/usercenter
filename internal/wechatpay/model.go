@@ -230,7 +230,11 @@ type PayOrderListResult struct {
 	Pages   int64
 }
 
-func QueryPayOrders(q *PayOrderQuery) (*PayOrderListResult, error) {
+// maxExportOrders 导出单次最大行数,防止全量导出拖垮服务。
+const maxExportOrders = 50000
+
+// filterPayOrders 构建订单查询过滤条件(分页查询与导出共用)。
+func filterPayOrders(q *PayOrderQuery) *gorm.DB {
 	db := store.DB().Model(&PayOrder{})
 	if q.TenantID != "" {
 		db = db.Where("tenant_id = ?", q.TenantID)
@@ -247,6 +251,11 @@ func QueryPayOrders(q *PayOrderQuery) (*PayOrderListResult, error) {
 	if q.OutTradeNo != "" {
 		db = db.Where("out_trade_no = ?", q.OutTradeNo)
 	}
+	return db
+}
+
+func QueryPayOrders(q *PayOrderQuery) (*PayOrderListResult, error) {
+	db := filterPayOrders(q)
 	if q.PageSize <= 0 {
 		q.PageSize = 10
 	}
@@ -260,6 +269,13 @@ func QueryPayOrders(q *PayOrderQuery) (*PayOrderListResult, error) {
 	result.Pages = (result.Total + int64(q.PageSize) - 1) / int64(q.PageSize)
 	err := db.Order("created_at DESC").Offset((q.PageIndex - 1) * q.PageSize).Limit(q.PageSize).Find(&result.Records).Error
 	return result, err
+}
+
+// ListPayOrdersForExport 导出用全量查询(复用过滤条件,无分页,行数封顶)。
+func ListPayOrdersForExport(q *PayOrderQuery) ([]*PayOrder, error) {
+	var list []*PayOrder
+	err := filterPayOrders(q).Order("created_at DESC").Limit(maxExportOrders).Find(&list).Error
+	return list, err
 }
 
 // 退款单状态:PENDING/REJECTED 为本地审核流状态(未到达微信侧),

@@ -1,8 +1,10 @@
 package http
 
 import (
+	"encoding/csv"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/CloudSilk/usercenter/internal/wechatpay"
@@ -110,10 +112,71 @@ func QueryWechatPayOrders(c *gin.Context, req *PayOrderAdminQueryRequest) (*PayO
 	return resp, nil
 }
 
+// ExportWechatPayOrders 导出支付订单 CSV(复用查询过滤条件,无分页,单次上限 5 万行)。
+//
+//	@Summary 导出微信支付订单 CSV
+//	@Tags 微信支付订单管理
+//	@Param authorization header string true "jwt token"
+//	@Param tenantID query string false "租户ID"
+//	@Param userID query string false "用户ID"
+//	@Param mchID query string false "商户号"
+//	@Param status query string false "状态 INIT/CREATED/PAID/CLOSED"
+//	@Param outTradeNo query string false "商户订单号"
+//	@Success 200 {string} string
+//	@Router /api/core/wechat/pay/order/export [get]
+func ExportWechatPayOrders(c *gin.Context) {
+	req := &PayOrderAdminQueryRequest{}
+	if err := c.ShouldBindQuery(req); err != nil {
+		c.JSON(http.StatusOK, &PayOrderAdminQueryResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
+		return
+	}
+	orders, err := wechatpay.ListPayOrdersForExport(&wechatpay.PayOrderQuery{
+		TenantID:   req.TenantID,
+		UserID:     req.UserID,
+		MchID:      req.MchID,
+		Status:     req.Status,
+		OutTradeNo: req.OutTradeNo,
+	})
+	if err != nil {
+		c.JSON(http.StatusOK, &PayOrderAdminQueryResponse{Code: apipb.Code_InternalServerError, Message: err.Error()})
+		return
+	}
+	filename := "pay_orders_" + time.Now().Format("20060102150405") + ".csv"
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
+	c.Status(http.StatusOK)
+	// UTF-8 BOM:保证 Excel 直接打开中文不乱码
+	_, _ = c.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
+	w := csv.NewWriter(c.Writer)
+	_ = w.Write([]string{
+		"订单ID", "租户ID", "用户ID", "AppID", "商户号", "商户订单号", "微信支付单号",
+		"商品描述", "附加数据", "金额(分)", "状态", "微信交易状态", "状态说明", "最近事件",
+		"创建时间", "支付时间", "关闭时间",
+	})
+	for _, o := range orders {
+		_ = w.Write([]string{
+			o.ID, o.TenantID, o.UserID, o.AppID, o.MchID, o.OutTradeNo, o.TransactionID,
+			o.Description, o.Attach, strconv.FormatInt(o.Amount, 10), o.Status, o.TradeState,
+			o.TradeStateDesc, o.LastEvent,
+			o.CreatedAt.Format(time.RFC3339),
+			formatTimePtr(o.PaidAt), formatTimePtr(o.ClosedAt),
+		})
+	}
+	w.Flush()
+}
+
+func formatTimePtr(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format(time.RFC3339)
+}
+
 // RegisterWechatPayOrderRouter 挂载管理端支付订单端点。
 func RegisterWechatPayOrderRouter(r *gin.Engine) {
 	g := r.Group("/api/core/wechat/pay/order")
 	g.GET("query", AutoQueryHandler(QueryWechatPayOrders))
+	g.GET("export", ExportWechatPayOrders)
 }
 
 // ApplyRefundRequest 管理端退款申请请求。
