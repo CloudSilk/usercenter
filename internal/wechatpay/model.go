@@ -33,8 +33,10 @@ type PayConfig struct {
 	PrivateKey      string `json:"privateKey" gorm:"type:text;comment:商户私钥PEM内容(apiclient_key.pem)"`
 	NotifyURL       string `json:"notifyURL" gorm:"size:255;comment:支付结果回调完整URL(HTTPS)"`
 	RefundNotifyURL string `json:"refundNotifyURL" gorm:"size:255;comment:退款结果回调完整URL(HTTPS),留空复用notifyURL"`
-	Enable          bool   `json:"enable" gorm:"index;comment:是否启用"`
-	Description     string `json:"description" gorm:"size:255"`
+	// RefundApprovalRequired 开启后退款申请先进入 PENDING 待审核,审核通过才调用微信侧退款。
+	RefundApprovalRequired bool   `json:"refundApprovalRequired" gorm:"comment:退款是否需要人工审核"`
+	Enable                 bool   `json:"enable" gorm:"index;comment:是否启用"`
+	Description            string `json:"description" gorm:"size:255"`
 }
 
 // PayOrder 支付订单记录,OutTradeNo 对微信侧全局唯一。
@@ -260,8 +262,11 @@ func QueryPayOrders(q *PayOrderQuery) (*PayOrderListResult, error) {
 	return result, err
 }
 
-// 退款单状态:受理中/成功/关闭/异常,与微信侧 RefundStatus 枚举对齐。
+// 退款单状态:PENDING/REJECTED 为本地审核流状态(未到达微信侧),
+// 其余与微信侧 RefundStatus 枚举对齐。
 const (
+	RefundPending    = "PENDING"  // 待审核
+	RefundRejected   = "REJECTED" // 审核拒绝
 	RefundProcessing = "PROCESSING"
 	RefundSuccess    = "SUCCESS"
 	RefundClosed     = "CLOSED"
@@ -271,17 +276,20 @@ const (
 // PayRefund 退款单记录,OutRefundNo 商户侧唯一。
 type PayRefund struct {
 	commonmodel.Model
-	TenantID    string     `json:"tenantID" gorm:"size:36;index"`
-	UserID      string     `json:"userID" gorm:"size:36;index;comment:原订单归属用户"`
-	PayOrderID  string     `json:"payOrderID" gorm:"size:36;index"`
-	OutTradeNo  string     `json:"outTradeNo" gorm:"size:32;index"`
-	OutRefundNo string     `json:"outRefundNo" gorm:"size:64;uniqueIndex"`
-	RefundID    string     `json:"refundID" gorm:"size:64;index"`
-	Amount      int64      `json:"amount" gorm:"comment:退款金额,单位:分"`
-	Total       int64      `json:"total" gorm:"comment:原订单金额,单位:分"`
-	Reason      string     `json:"reason" gorm:"size:128"`
-	Status      string     `json:"status" gorm:"size:16;index"`
-	SuccessTime *time.Time `json:"successTime"`
+	TenantID       string     `json:"tenantID" gorm:"size:36;index"`
+	UserID         string     `json:"userID" gorm:"size:36;index;comment:原订单归属用户"`
+	PayOrderID     string     `json:"payOrderID" gorm:"size:36;index"`
+	OutTradeNo     string     `json:"outTradeNo" gorm:"size:32;index"`
+	OutRefundNo    string     `json:"outRefundNo" gorm:"size:64;uniqueIndex"`
+	RefundID       string     `json:"refundID" gorm:"size:64;index"`
+	Amount         int64      `json:"amount" gorm:"comment:退款金额,单位:分"`
+	Total          int64      `json:"total" gorm:"comment:原订单金额,单位:分"`
+	Reason         string     `json:"reason" gorm:"size:128"`
+	Status         string     `json:"status" gorm:"size:16;index"`
+	SuccessTime    *time.Time `json:"successTime"`
+	ApproverID     string     `json:"approverID" gorm:"size:36;comment:审核人用户ID"`
+	ApproveComment string     `json:"approveComment" gorm:"size:255;comment:审核意见"`
+	ApprovedAt     *time.Time `json:"approvedAt"`
 }
 
 func CreatePayRefund(m *PayRefund) (string, error) {
@@ -303,14 +311,43 @@ func GetPayRefundByOutRefundNo(outRefundNo string) (*PayRefund, error) {
 	return m, err
 }
 
-// SumActiveRefundAmount 统计订单仍在处理中或已成功的退款总额,用于可退余额校验。
+// SumActiveRefundAmount 统计订单占用退款额度的总额(待审核+受理中+已成功),用于可退余额校验。
 func SumActiveRefundAmount(payOrderID string) (int64, error) {
 	var total int64
 	err := store.DB().Model(&PayRefund{}).
-		Where("pay_order_id = ? AND status IN ?", payOrderID, []string{RefundProcessing, RefundSuccess}).
+		Where("pay_order_id = ? AND status IN ?", payOrderID,
+			[]string{RefundPending, RefundProcessing, RefundSuccess}).
 		Select("COALESCE(SUM(amount),0)").
 		Scan(&total).Error
 	return total, err
+}
+
+// MarkRefundApproved 审核落库:通过时置为微信返回状态,拒绝时置 REJECTED。
+// 带状态守卫(WHERE status=PENDING)防止并发重复审核;返回是否发生变更。
+func MarkRefundApproved(id, approverID, comment string, approved bool, wxStatus, refundID string, successTime time.Time) (bool, error) {
+	now := time.Now()
+	updates := map[string]any{
+		"approver_id":     approverID,
+		"approve_comment": comment,
+		"approved_at":     now,
+	}
+	if approved {
+		status := wxStatus
+		if status == "" {
+			status = RefundProcessing
+		}
+		updates["status"] = status
+		updates["refund_id"] = refundID
+		if status == RefundSuccess && !successTime.IsZero() {
+			updates["success_time"] = successTime
+		}
+	} else {
+		updates["status"] = RefundRejected
+	}
+	res := store.DB().Model(&PayRefund{}).
+		Where("id = ? AND status = ?", id, RefundPending).
+		Updates(updates)
+	return res.RowsAffected > 0, res.Error
 }
 
 // MarkRefundStatus 幂等推进退款单状态;已终态(SUCCESS)不再变更。返回是否发生变更。

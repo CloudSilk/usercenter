@@ -317,6 +317,28 @@ func ApplyRefund(ctx context.Context, in ApplyRefundInput) (*PayRefund, error) {
 	if err != nil {
 		return nil, fmt.Errorf("支付配置不可用: %w", err)
 	}
+
+	refund := &PayRefund{
+		TenantID:    order.TenantID,
+		UserID:      order.UserID,
+		PayOrderID:  order.ID,
+		OutTradeNo:  order.OutTradeNo,
+		OutRefundNo: outRefundNo,
+		Amount:      in.RefundAmount,
+		Total:       order.Amount,
+		Reason:      in.Reason,
+	}
+
+	// 审核流开启:仅落库待审核,审核通过后才调用微信侧退款
+	if cfg.RefundApprovalRequired {
+		refund.Status = RefundPending
+		if _, err := CreatePayRefund(refund); err != nil {
+			return nil, err
+		}
+		log.Infof(ctx, "订单 %s 退款申请待审核(退款单 %s, %d 分)", order.OutTradeNo, outRefundNo, in.RefundAmount)
+		return refund, nil
+	}
+
 	api, err := GetPayAPI(cfg)
 	if err != nil {
 		return nil, err
@@ -341,18 +363,8 @@ func ApplyRefund(ctx context.Context, in ApplyRefundInput) (*PayRefund, error) {
 	if status == "" {
 		status = RefundProcessing
 	}
-	refund := &PayRefund{
-		TenantID:    order.TenantID,
-		UserID:      order.UserID,
-		PayOrderID:  order.ID,
-		OutTradeNo:  order.OutTradeNo,
-		OutRefundNo: outRefundNo,
-		RefundID:    result.RefundID,
-		Amount:      in.RefundAmount,
-		Total:       order.Amount,
-		Reason:      in.Reason,
-		Status:      status,
-	}
+	refund.Status = status
+	refund.RefundID = result.RefundID
 	if status == RefundSuccess && !result.SuccessTime.IsZero() {
 		refund.SuccessTime = &result.SuccessTime
 	}
@@ -361,6 +373,75 @@ func ApplyRefund(ctx context.Context, in ApplyRefundInput) (*PayRefund, error) {
 	}
 	log.Infof(ctx, "订单 %s 退款申请受理(退款单 %s, %d 分)", order.OutTradeNo, outRefundNo, in.RefundAmount)
 	return refund, nil
+}
+
+// ApproveRefundInput 审核退款业务入参。
+type ApproveRefundInput struct {
+	TenantID    string
+	ApproverID  string
+	OutRefundNo string
+	Approved    bool
+	Comment     string
+}
+
+// ApproveRefund 审核待审核退款单:通过则调用微信侧退款,拒绝则置 REJECTED。
+// 仅 PENDING 状态可审核,状态守卫防并发重复审核。
+func ApproveRefund(ctx context.Context, in ApproveRefundInput) (*PayRefund, error) {
+	refund, err := GetPayRefundByOutRefundNo(in.OutRefundNo)
+	if err != nil {
+		return nil, err
+	}
+	if refund == nil {
+		return nil, errors.New("退款单不存在")
+	}
+	if in.TenantID != "" && refund.TenantID != in.TenantID {
+		return nil, ErrOrderNotOwned
+	}
+	if refund.Status != RefundPending {
+		return nil, fmt.Errorf("仅待审核退款单可审核,当前状态 %s", refund.Status)
+	}
+
+	if !in.Approved {
+		if _, err := MarkRefundApproved(refund.ID, in.ApproverID, in.Comment, false, "", "", time.Time{}); err != nil {
+			return nil, err
+		}
+		log.Infof(ctx, "退款单 %s 审核拒绝(审核人 %s)", in.OutRefundNo, in.ApproverID)
+		return GetPayRefundByOutRefundNo(in.OutRefundNo)
+	}
+
+	order, err := GetPayOrderByOutTradeNo(refund.OutTradeNo)
+	if err != nil || order == nil {
+		return nil, fmt.Errorf("原支付订单不可用")
+	}
+	cfg, err := GetPayConfigByWechatConfigID(order.WechatConfigID)
+	if err != nil {
+		return nil, fmt.Errorf("支付配置不可用: %w", err)
+	}
+	api, err := GetPayAPI(cfg)
+	if err != nil {
+		return nil, err
+	}
+	refundNotifyURL := cfg.RefundNotifyURL
+	if refundNotifyURL == "" {
+		refundNotifyURL = cfg.NotifyURL
+	}
+	result, err := api.Refund(ctx, RefundInput{
+		MchID:           cfg.MchID,
+		OutTradeNo:      order.OutTradeNo,
+		OutRefundNo:     refund.OutRefundNo,
+		Reason:          refund.Reason,
+		NotifyURL:       refundNotifyURL,
+		RefundAmountFen: refund.Amount,
+		TotalFen:        order.Amount,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("微信退款申请失败: %w", err)
+	}
+	if _, err := MarkRefundApproved(refund.ID, in.ApproverID, in.Comment, true, result.Status, result.RefundID, result.SuccessTime); err != nil {
+		return nil, err
+	}
+	log.Infof(ctx, "退款单 %s 审核通过并已提交微信(审核人 %s)", in.OutRefundNo, in.ApproverID)
+	return GetPayRefundByOutRefundNo(in.OutRefundNo)
 }
 
 // SyncRefundStatus 向微信侧查退款单并对账更新本地状态。

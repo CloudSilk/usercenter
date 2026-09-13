@@ -126,18 +126,21 @@ type ApplyRefundRequest struct {
 
 // RefundAdminItem 退款单视图。
 type RefundAdminItem struct {
-	ID          string     `json:"id"`
-	TenantID    string     `json:"tenantID"`
-	UserID      string     `json:"userID"`
-	OutTradeNo  string     `json:"outTradeNo"`
-	OutRefundNo string     `json:"outRefundNo"`
-	RefundID    string     `json:"refundID"`
-	Amount      int64      `json:"amount"`
-	Total       int64      `json:"total"`
-	Reason      string     `json:"reason"`
-	Status      string     `json:"status"`
-	SuccessTime *time.Time `json:"successTime,omitempty"`
-	CreatedAt   string     `json:"createdAt"`
+	ID             string     `json:"id"`
+	TenantID       string     `json:"tenantID"`
+	UserID         string     `json:"userID"`
+	OutTradeNo     string     `json:"outTradeNo"`
+	OutRefundNo    string     `json:"outRefundNo"`
+	RefundID       string     `json:"refundID"`
+	Amount         int64      `json:"amount"`
+	Total          int64      `json:"total"`
+	Reason         string     `json:"reason"`
+	Status         string     `json:"status"`
+	SuccessTime    *time.Time `json:"successTime,omitempty"`
+	ApproverID     string     `json:"approverID,omitempty"`
+	ApproveComment string     `json:"approveComment,omitempty"`
+	ApprovedAt     *time.Time `json:"approvedAt,omitempty"`
+	CreatedAt      string     `json:"createdAt"`
 }
 
 func refundToAdminItem(m *wechatpay.PayRefund) *RefundAdminItem {
@@ -145,7 +148,9 @@ func refundToAdminItem(m *wechatpay.PayRefund) *RefundAdminItem {
 		ID: m.ID, TenantID: m.TenantID, UserID: m.UserID,
 		OutTradeNo: m.OutTradeNo, OutRefundNo: m.OutRefundNo, RefundID: m.RefundID,
 		Amount: m.Amount, Total: m.Total, Reason: m.Reason, Status: m.Status,
-		SuccessTime: m.SuccessTime, CreatedAt: m.CreatedAt.Format(time.RFC3339),
+		SuccessTime: m.SuccessTime, ApproverID: m.ApproverID,
+		ApproveComment: m.ApproveComment, ApprovedAt: m.ApprovedAt,
+		CreatedAt: m.CreatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -274,10 +279,45 @@ func GetWechatRefundDetail(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// ApproveRefundRequest 退款审核请求。
+type ApproveRefundRequest struct {
+	OutRefundNo string `json:"outRefundNo" binding:"required"`
+	Approved    bool   `json:"approved"`
+	Comment     string `json:"comment" binding:"omitempty,max=200"`
+}
+
+// ApproveWechatRefund 审核待审核退款单(通过后提交微信,拒绝置为 REJECTED)。
+//
+//	@Summary 微信支付退款审核
+//	@Tags 微信支付退款管理
+//	@Param authorization header string true "jwt token"
+//	@Param body body ApproveRefundRequest true "审核请求"
+//	@Success 200 {object} RefundAdminQueryResponse
+//	@Router /api/core/wechat/pay/refund/approve [post]
+func ApproveWechatRefund(c *gin.Context, req *ApproveRefundRequest) (*RefundAdminQueryResponse, error) {
+	resp := &RefundAdminQueryResponse{Code: apipb.Code_Success}
+	refund, err := wechatpay.ApproveRefund(c.Request.Context(), wechatpay.ApproveRefundInput{
+		TenantID:    middleware.GetTenantID(c),
+		ApproverID:  middleware.GetUserID(c),
+		OutRefundNo: req.OutRefundNo,
+		Approved:    req.Approved,
+		Comment:     req.Comment,
+	})
+	if err != nil {
+		resp.Code = apipb.Code_BadRequest
+		resp.Message = err.Error()
+		return resp, nil
+	}
+	resp.Data = []*RefundAdminItem{refundToAdminItem(refund)}
+	resp.Records, resp.Total, resp.Pages = 1, 1, 1
+	return resp, nil
+}
+
 // RegisterWechatPayRefundRouter 挂载管理端退款端点。
 func RegisterWechatPayRefundRouter(r *gin.Engine) {
 	g := r.Group("/api/core/wechat/pay/refund")
 	g.POST("apply", AutoHandler(ApplyWechatRefund))
+	g.POST("approve", AutoHandler(ApproveWechatRefund))
 	g.GET("query", AutoQueryHandler(QueryWechatRefunds))
 	g.GET("detail", GetWechatRefundDetail)
 }

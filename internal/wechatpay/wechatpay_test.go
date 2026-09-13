@@ -839,5 +839,126 @@ func TestApplyRefundUsesDedicatedRefundNotifyURL(t *testing.T) {
 	}
 }
 
+// enableRefundApproval 开启商户配置的退款审核开关。
+func enableRefundApproval(t *testing.T, app string) {
+	t.Helper()
+	wc, err := wechatconfig.GetWechatConfigByAppName(app)
+	if err != nil {
+		t.Fatalf("get wechat config: %v", err)
+	}
+	cfg, err := GetPayConfigByWechatConfigID(wc.ID)
+	if err != nil {
+		t.Fatalf("get pay config: %v", err)
+	}
+	cfg.RefundApprovalRequired = true
+	if err := UpdatePayConfig(cfg); err != nil {
+		t.Fatalf("update pay config: %v", err)
+	}
+}
+
+func TestRefundApprovalFlow(t *testing.T) {
+	const tenant = "wp-approval-1"
+	app := setupApp(t, tenant)
+	enableRefundApproval(t, app)
+	order := markOrderPaidDirect(t, tenant, app, CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 1000,
+	})
+
+	// 申请进入 PENDING,不调用微信
+	refund, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 400,
+	})
+	if err != nil {
+		t.Fatalf("ApplyRefund: %v", err)
+	}
+	if refund.Status != RefundPending {
+		t.Fatalf("expected PENDING, got %s", refund.Status)
+	}
+	if fakeAPI.lastRefund != nil && fakeAPI.lastRefund.OutRefundNo == refund.OutRefundNo {
+		t.Fatal("wechat refund should not be called for pending approval")
+	}
+
+	// PENDING 占用退款额度:再申请 601(400+601>1000)应被拒绝
+	if _, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 601,
+	}); err == nil {
+		t.Fatal("expected pending amount to consume refund quota")
+	}
+
+	// 拒绝:置 REJECTED,记录审批人,不调用微信
+	callsBefore := fakeAPI.lastRefund
+	rejected, err := ApproveRefund(context.Background(), ApproveRefundInput{
+		TenantID: tenant, ApproverID: "admin-1", OutRefundNo: refund.OutRefundNo,
+		Approved: false, Comment: "凭证不足",
+	})
+	if err != nil {
+		t.Fatalf("ApproveRefund reject: %v", err)
+	}
+	if rejected.Status != RefundRejected || rejected.ApproverID != "admin-1" || rejected.ApproveComment != "凭证不足" {
+		t.Fatalf("unexpected rejected refund: %#v", rejected)
+	}
+	if callsBefore != nil && fakeAPI.lastRefund != callsBefore && fakeAPI.lastRefund.OutRefundNo == refund.OutRefundNo {
+		t.Fatal("wechat refund should not be called on rejection")
+	}
+
+	// 重复审核同一单应报错
+	if _, err := ApproveRefund(context.Background(), ApproveRefundInput{
+		TenantID: tenant, ApproverID: "admin-1", OutRefundNo: refund.OutRefundNo, Approved: true,
+	}); err == nil {
+		t.Fatal("expected re-approval error")
+	}
+
+	// 新申请并通过审核:调用微信并置为返回状态
+	second, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 600,
+	})
+	if err != nil {
+		t.Fatalf("second ApplyRefund: %v", err)
+	}
+	if second.Status != RefundPending {
+		t.Fatalf("expected second refund PENDING, got %s", second.Status)
+	}
+	fakeAPI.refundResult = &RefundResult{RefundID: "re-approved", OutRefundNo: second.OutRefundNo, Status: RefundProcessing}
+	approved, err := ApproveRefund(context.Background(), ApproveRefundInput{
+		TenantID: tenant, ApproverID: "admin-2", OutRefundNo: second.OutRefundNo, Approved: true,
+	})
+	if err != nil {
+		t.Fatalf("ApproveRefund approve: %v", err)
+	}
+	if approved.Status != RefundProcessing || approved.RefundID != "re-approved" || approved.ApproverID != "admin-2" {
+		t.Fatalf("unexpected approved refund: %#v", approved)
+	}
+	if fakeAPI.lastRefund == nil || fakeAPI.lastRefund.OutRefundNo != second.OutRefundNo ||
+		fakeAPI.lastRefund.RefundAmountFen != 600 {
+		t.Fatalf("wechat refund not called properly: %#v", fakeAPI.lastRefund)
+	}
+}
+
+func TestRefundApprovalTenantGuard(t *testing.T) {
+	const tenant = "wp-approval-2"
+	app := setupApp(t, tenant)
+	enableRefundApproval(t, app)
+	order := markOrderPaidDirect(t, tenant, app, CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 500,
+	})
+	refund, err := ApplyRefund(context.Background(), ApplyRefundInput{
+		TenantID: tenant, OutTradeNo: order.OutTradeNo, RefundAmount: 100,
+	})
+	if err != nil {
+		t.Fatalf("ApplyRefund: %v", err)
+	}
+	if _, err := ApproveRefund(context.Background(), ApproveRefundInput{
+		TenantID: "other-tenant", ApproverID: "admin-x", OutRefundNo: refund.OutRefundNo, Approved: true,
+	}); err != ErrOrderNotOwned {
+		t.Fatalf("expected ErrOrderNotOwned, got %v", err)
+	}
+	// 平台侧(空租户)可审核
+	if _, err := ApproveRefund(context.Background(), ApproveRefundInput{
+		TenantID: "", ApproverID: "platform-admin", OutRefundNo: refund.OutRefundNo, Approved: true,
+	}); err != nil {
+		t.Fatalf("platform approve: %v", err)
+	}
+}
+
 // 编译期约束:确保 fakePayAPI 始终实现 PayAPI。
 var _ PayAPI = (*fakePayAPI)(nil)
