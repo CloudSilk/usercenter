@@ -113,6 +113,7 @@ interface RefundItem {
   status: string
   approverID?: string
   approveComment?: string
+  approvedAt?: string
 }
 
 interface ListResp<T> {
@@ -329,9 +330,13 @@ export default function WechatPay() {
   // ---- 退款审核 ----
   const [approving, setApproving] = useState<{ refund: RefundItem; approved: boolean } | null>(null)
   const [approveComment, setApproveComment] = useState("")
+  const [refundStatus, setRefundStatus] = useState("PENDING")
   const pendingRefunds = useQuery({
-    queryKey: ["pay-refunds-pending"],
-    queryFn: () => api.get<ListResp<RefundItem>>(`${REFUND}/query`, { status: "PENDING" }),
+    queryKey: ["pay-refunds-pending", refundStatus],
+    queryFn: () =>
+      api.get<ListResp<RefundItem>>(`${REFUND}/query`, {
+        status: refundStatus || undefined,
+      }),
   })
   const approveRefund = useMutation({
     mutationFn: (v: { outRefundNo: string; approved: boolean; comment: string }) =>
@@ -586,17 +591,34 @@ export default function WechatPay() {
         )}
       </section>
 
-      {/* 退款审核 */}
+      {/* 退款单(含审核记录) */}
       <section className="space-y-2">
-        <h2 className="font-medium">待审核退款</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium">退款单</h2>
+          <select
+            className="rounded border px-2 py-1 text-sm"
+            value={refundStatus}
+            onChange={(e) => setRefundStatus(e.target.value)}
+          >
+            <option value="PENDING">待审核</option>
+            <option value="">全部</option>
+            <option value="PROCESSING">受理中</option>
+            <option value="SUCCESS">已成功</option>
+            <option value="REJECTED">已拒绝</option>
+            <option value="CLOSED">已关闭</option>
+            <option value="ABNORMAL">异常</option>
+          </select>
+        </div>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>退款单号</TableHead>
               <TableHead>订单号</TableHead>
               <TableHead>金额(分)</TableHead>
+              <TableHead>状态</TableHead>
               <TableHead>原因类别</TableHead>
               <TableHead>说明</TableHead>
+              <TableHead>审批人 / 意见 / 时间</TableHead>
               <TableHead className="w-40">操作</TableHead>
             </TableRow>
           </TableHeader>
@@ -606,17 +628,39 @@ export default function WechatPay() {
                 <TableCell className="font-mono text-xs">{r.outRefundNo}</TableCell>
                 <TableCell className="font-mono text-xs">{r.outTradeNo}</TableCell>
                 <TableCell>{r.amount}</TableCell>
+                <TableCell>
+                  <StatusBadge status={r.status} />
+                </TableCell>
                 <TableCell>{r.reasonCode}</TableCell>
                 <TableCell>{r.reason}</TableCell>
+                <TableCell className="max-w-56 text-xs">
+                  {r.approverID ? (
+                    <div className="space-y-0.5">
+                      <div>{r.approverID}</div>
+                      {r.approveComment && (
+                        <div className="text-muted-foreground">{r.approveComment}</div>
+                      )}
+                      {r.approvedAt && (
+                        <div className="text-muted-foreground">
+                          {new Date(r.approvedAt).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
                 <TableCell>
-                  <div className="flex gap-1">
-                    <Button size="sm" onClick={() => openApprove(r, true)}>
-                      通过
-                    </Button>
-                    <Button size="sm" variant="destructive" onClick={() => openApprove(r, false)}>
-                      拒绝
-                    </Button>
-                  </div>
+                  {r.status === "PENDING" ? (
+                    <div className="flex gap-1">
+                      <Button size="sm" onClick={() => openApprove(r, true)}>
+                        通过
+                      </Button>
+                      <Button size="sm" variant="destructive" onClick={() => openApprove(r, false)}>
+                        拒绝
+                      </Button>
+                    </div>
+                  ) : null}
                 </TableCell>
               </TableRow>
             ))}
