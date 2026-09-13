@@ -635,5 +635,39 @@ func TestSyncRefundStatus(t *testing.T) {
 	}
 }
 
+func TestCreateJSAPIPaymentExpire(t *testing.T) {
+	const tenant = "wp-expire-1"
+	app := setupApp(t, tenant)
+	order, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
+		TenantID: tenant, UserID: "user-1", App: app, Description: "x", AmountFen: 600, ExpireMinutes: 30,
+	})
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	if order.ExpireAt == nil {
+		t.Fatal("expected expireAt set")
+	}
+	if got := int(time.Until(*order.ExpireAt).Minutes()); got < 28 || got > 31 {
+		t.Fatalf("unexpected expire window: %d minutes", got)
+	}
+	if fakeAPI.lastPrepay.TimeExpire.IsZero() || !fakeAPI.lastPrepay.TimeExpire.Equal(*order.ExpireAt) {
+		t.Fatalf("prepay TimeExpire not passed: %v", fakeAPI.lastPrepay.TimeExpire)
+	}
+
+	// 过期订单查单:远端确认未支付后本地关单
+	fakeAPI.queryResult = &TransactionResult{TradeState: "NOTPAY"}
+	past := time.Now().Add(-time.Minute)
+	if err := store.DB().Model(&PayOrder{}).Where("id = ?", order.ID).Update("expire_at", past).Error; err != nil {
+		t.Fatalf("set expire_at: %v", err)
+	}
+	got, err := SyncOrderStatus(context.Background(), tenant, "user-1", order.OutTradeNo)
+	if err != nil {
+		t.Fatalf("SyncOrderStatus: %v", err)
+	}
+	if got.Status != PayOrderClosed || got.TradeStateDesc != "订单已过期" {
+		t.Fatalf("expected expired close, got %#v", got)
+	}
+}
+
 // 编译期约束:确保 fakePayAPI 始终实现 PayAPI。
 var _ PayAPI = (*fakePayAPI)(nil)

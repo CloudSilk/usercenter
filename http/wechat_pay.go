@@ -17,6 +17,8 @@ type CreatePayOrderRequest struct {
 	Amount      int64  `json:"amount" binding:"required,gt=0"`
 	Attach      string `json:"attach" binding:"omitempty,max=100"`
 	OutTradeNo  string `json:"outTradeNo" binding:"omitempty,min=6,max=32"`
+	// ExpireMinutes 订单有效期(分钟),留空默认120,最长1440。
+	ExpireMinutes int `json:"expireMinutes" binding:"omitempty,gt=0,lte=1440"`
 }
 
 // PayOrderPayload 订单状态与调起支付所需数据。
@@ -25,6 +27,7 @@ type PayOrderPayload struct {
 	Status     string               `json:"status"`
 	TradeState string               `json:"tradeState,omitempty"`
 	Amount     int64                `json:"amount"`
+	ExpireAt   *time.Time           `json:"expireAt,omitempty"`
 	PaidAt     *time.Time           `json:"paidAt,omitempty"`
 	PayParams  *wechatpay.PayParams `json:"payParams,omitempty"`
 }
@@ -46,13 +49,14 @@ type PayOrderResponse struct {
 //	@Router /api/wechat/pay/order [post]
 func CreatePayOrder(c *gin.Context, req *CreatePayOrderRequest) (*PayOrderResponse, error) {
 	order, params, err := wechatpay.CreateJSAPIPayment(c.Request.Context(), wechatpay.CreateOrderInput{
-		TenantID:    middleware.GetTenantID(c),
-		UserID:      middleware.GetUserID(c),
-		App:         req.App,
-		Description: req.Description,
-		Attach:      req.Attach,
-		AmountFen:   req.Amount,
-		OutTradeNo:  req.OutTradeNo,
+		TenantID:      middleware.GetTenantID(c),
+		UserID:        middleware.GetUserID(c),
+		App:           req.App,
+		Description:   req.Description,
+		Attach:        req.Attach,
+		AmountFen:     req.Amount,
+		OutTradeNo:    req.OutTradeNo,
+		ExpireMinutes: req.ExpireMinutes,
 	})
 	if err != nil {
 		return &PayOrderResponse{Code: apipb.Code_BadRequest, Message: err.Error()}, nil
@@ -63,6 +67,7 @@ func CreatePayOrder(c *gin.Context, req *CreatePayOrderRequest) (*PayOrderRespon
 			OutTradeNo: order.OutTradeNo,
 			Status:     order.Status,
 			Amount:     order.Amount,
+			ExpireAt:   order.ExpireAt,
 			PayParams:  params,
 		},
 	}, nil
@@ -98,6 +103,7 @@ func GetPayOrder(c *gin.Context) {
 		Status:     order.Status,
 		TradeState: order.TradeState,
 		Amount:     order.Amount,
+		ExpireAt:   order.ExpireAt,
 		PaidAt:     order.PaidAt,
 	}
 	c.JSON(http.StatusOK, resp)

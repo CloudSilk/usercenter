@@ -53,6 +53,7 @@ type PayOrder struct {
 	Currency       string     `json:"currency" gorm:"size:8;default:CNY"`
 	Status         string     `json:"status" gorm:"size:16;index"`
 	PrepayID       string     `json:"prepayID" gorm:"size:64"`
+	ExpireAt       *time.Time `json:"expireAt" gorm:"comment:订单失效时间"`
 	TradeState     string     `json:"tradeState" gorm:"size:32;comment:微信侧最近一次交易状态"`
 	TradeStateDesc string     `json:"tradeStateDesc" gorm:"size:128"`
 	LastEvent      string     `json:"lastEvent" gorm:"size:64;comment:最近一次回调事件类型"`

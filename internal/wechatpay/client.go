@@ -30,6 +30,8 @@ type PrepayInput struct {
 	OpenID      string
 	AmountFen   int64
 	Currency    string
+	// TimeExpire 订单失效时间,零值表示不传,由微信侧使用默认有效期。
+	TimeExpire time.Time
 }
 
 // PayParams 调起小程序 wx.requestPayment 所需的签名参数。
@@ -141,6 +143,11 @@ func (p *sdkPayAPI) Prepay(ctx context.Context, in PrepayInput) (*PayParams, err
 	}
 	total := in.AmountFen
 	currency := in.Currency
+	var timeExpire *time.Time
+	if !in.TimeExpire.IsZero() {
+		t := in.TimeExpire
+		timeExpire = &t
+	}
 	svc := jsapi.JsapiApiService{Client: p.client}
 	resp, _, err := svc.PrepayWithRequestPayment(ctx, jsapi.PrepayRequest{
 		Appid:       core.String(in.AppID),
@@ -149,6 +156,7 @@ func (p *sdkPayAPI) Prepay(ctx context.Context, in PrepayInput) (*PayParams, err
 		OutTradeNo:  core.String(in.OutTradeNo),
 		NotifyUrl:   core.String(in.NotifyURL),
 		Attach:      core.String(in.Attach),
+		TimeExpire:  timeExpire,
 		Amount:      &jsapi.Amount{Total: &total, Currency: &currency},
 		Payer:       &jsapi.Payer{Openid: core.String(in.OpenID)},
 	})

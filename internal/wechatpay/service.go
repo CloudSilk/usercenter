@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/CloudSilk/pkg/utils/log"
+	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/CloudSilk/usercenter/internal/user"
 	"github.com/google/uuid"
 )
@@ -34,14 +35,18 @@ var refundNoPattern = regexp.MustCompile(`^[0-9A-Za-z_-]{6,64}$`)
 
 // CreateOrderInput JSAPI 下单业务入参。
 type CreateOrderInput struct {
-	TenantID    string
-	UserID      string
-	App         string
-	Description string
-	Attach      string
-	AmountFen   int64
-	OutTradeNo  string
+	TenantID      string
+	UserID        string
+	App           string
+	Description   string
+	Attach        string
+	AmountFen     int64
+	OutTradeNo    string
+	ExpireMinutes int // 订单有效期(分钟),<=0 使用默认值
 }
+
+// defaultOrderExpireMinutes 默认订单有效期:2小时。
+const defaultOrderExpireMinutes = 120
 
 func newOutTradeNo() string {
 	return strings.ReplaceAll(uuid.NewString(), "-", "")
@@ -99,6 +104,11 @@ func CreateJSAPIPayment(ctx context.Context, in CreateOrderInput) (*PayOrder, *P
 		return nil, nil, errors.New("当前用户未绑定该微信应用,请先通过微信登录")
 	}
 
+	if in.ExpireMinutes <= 0 {
+		in.ExpireMinutes = defaultOrderExpireMinutes
+	}
+	expireAt := time.Now().Add(time.Duration(in.ExpireMinutes) * time.Minute)
+
 	api, err := GetPayAPI(cfg)
 	if err != nil {
 		return nil, nil, err
@@ -112,6 +122,7 @@ func CreateJSAPIPayment(ctx context.Context, in CreateOrderInput) (*PayOrder, *P
 		Attach:      in.Attach,
 		OpenID:      openID,
 		AmountFen:   in.AmountFen,
+		TimeExpire:  expireAt,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("微信下单失败: %w", err)
@@ -132,13 +143,22 @@ func CreateJSAPIPayment(ctx context.Context, in CreateOrderInput) (*PayOrder, *P
 			Currency:       "CNY",
 			Status:         PayOrderCreated,
 			PrepayID:       params.PrepayID,
+			ExpireAt:       &expireAt,
 		}
 		if _, err := CreatePayOrder(order); err != nil {
 			return nil, nil, err
 		}
-	} else if order.PrepayID != params.PrepayID {
-		if err := UpdatePayOrderPrepay(order.ID, params.PrepayID); err != nil {
+	} else {
+		// 复用 CREATED 订单:对齐最新有效期
+		if err := store.DB().Model(&PayOrder{}).Where("id = ?", order.ID).
+			Update("expire_at", expireAt).Error; err != nil {
 			return nil, nil, err
+		}
+		order.ExpireAt = &expireAt
+		if order.PrepayID != params.PrepayID {
+			if err := UpdatePayOrderPrepay(order.ID, params.PrepayID); err != nil {
+				return nil, nil, err
+			}
 		}
 	}
 	return order, params, nil
@@ -190,7 +210,8 @@ func loadOrderWithOwnership(tenantID, userID, outTradeNo string) (*PayOrder, err
 	return order, nil
 }
 
-// SyncOrderStatus 查询订单状态;CREATED 状态下主动向微信侧查单对账。
+// SyncOrderStatus 查询订单状态;CREATED 订单先向微信侧查单对账,
+// 仍未支付且已过失效时间的订单做关单兜底。
 func SyncOrderStatus(ctx context.Context, tenantID, userID, outTradeNo string) (*PayOrder, error) {
 	order, err := loadOrderWithOwnership(tenantID, userID, outTradeNo)
 	if err != nil {
@@ -207,8 +228,18 @@ func SyncOrderStatus(ctx context.Context, tenantID, userID, outTradeNo string) (
 	if err != nil {
 		return order, nil
 	}
-	if tx, err := api.Query(ctx, cfg.MchID, outTradeNo); err == nil {
+	if tx, err := api.Query(ctx, cfg.MchID, outTradeNo); err == nil && tx != nil {
 		applyTransaction(order, tx)
+	}
+	// 过期兜底:远端确认未支付后本地关单(远端关单尽力而为)
+	if order.Status == PayOrderCreated && order.ExpireAt != nil && time.Now().After(*order.ExpireAt) {
+		_ = api.Close(ctx, cfg.MchID, outTradeNo)
+		if err := MarkOrderClosed(order.ID, "订单已过期"); err != nil {
+			log.Errorf(ctx, "订单 %s 过期关单失败:%v", outTradeNo, err)
+			return order, nil
+		}
+		order.Status = PayOrderClosed
+		order.TradeStateDesc = "订单已过期"
 	}
 	return order, nil
 }
