@@ -5,8 +5,28 @@ import (
 
 	"github.com/CloudSilk/usercenter/internal/wechatconfig"
 	apipb "github.com/CloudSilk/usercenter/proto"
+	"github.com/CloudSilk/usercenter/utils/middleware"
 	"github.com/gin-gonic/gin"
 )
+
+// requireWechatConfigSuperAdmin 微信应用配置属平台级敏感配置：仅超级管理员可读写。
+func requireWechatConfigSuperAdmin(c *gin.Context) bool {
+	ok, user := middleware.GetUser(c)
+	if !ok || user == nil {
+		return false
+	}
+	for _, r := range user.RoleIDs {
+		if r == "1" {
+			return true
+		}
+	}
+	return false
+}
+
+// denyWechatConfig 非超管访问的统一拒绝响应。
+func denyWechatConfig(c *gin.Context) {
+	c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "仅超级管理员可管理微信应用配置"})
+}
 
 // AddWechatConfig godoc
 // @Summary 新增
@@ -16,6 +36,9 @@ import (
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/wechat/config/add [post]
 func AddWechatConfig(c *gin.Context, req *apipb.WechatConfigInfo) (*apipb.CommonResponse, error) {
+	if !requireWechatConfigSuperAdmin(c) {
+		return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "仅超级管理员可管理微信应用配置"}, nil
+	}
 	id, err := wechatconfig.CreateWechatConfig(wechatconfig.PBToWechatConfig(req))
 	if err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
@@ -31,6 +54,9 @@ func AddWechatConfig(c *gin.Context, req *apipb.WechatConfigInfo) (*apipb.Common
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/wechat/config/update [put]
 func UpdateWechatConfig(c *gin.Context, req *apipb.WechatConfigInfo) (*apipb.CommonResponse, error) {
+	if !requireWechatConfigSuperAdmin(c) {
+		return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "仅超级管理员可管理微信应用配置"}, nil
+	}
 	current, err := wechatconfig.GetWechatConfigByID(req.Id)
 	if err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
@@ -58,6 +84,9 @@ func UpdateWechatConfig(c *gin.Context, req *apipb.WechatConfigInfo) (*apipb.Com
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/wechat/config/delete [delete]
 func DeleteWechatConfig(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonResponse, error) {
+	if !requireWechatConfigSuperAdmin(c) {
+		return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "仅超级管理员可管理微信应用配置"}, nil
+	}
 	if err := wechatconfig.DeleteWechatConfig(req.Id); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
 	}
@@ -73,6 +102,9 @@ func DeleteWechatConfig(c *gin.Context, req *apipb.DelRequest) (*apipb.CommonRes
 // @Success 200 {object} apipb.QueryWechatConfigResponse
 // @Router /api/core/wechat/config/query [get]
 func QueryWechatConfig(c *gin.Context, req *apipb.QueryWechatConfigRequest) (*apipb.QueryWechatConfigResponse, error) {
+	if !requireWechatConfigSuperAdmin(c) {
+		return &apipb.QueryWechatConfigResponse{Code: apipb.Code_NoPermission, Message: "仅超级管理员可查询微信应用配置"}, nil
+	}
 	resp := &apipb.QueryWechatConfigResponse{Code: apipb.Code_Success}
 	wechatconfig.QueryWechatConfig(req, resp, false)
 	for _, item := range resp.Data {
