@@ -456,3 +456,56 @@ func SetBillRetentionDays(days int) {
 	}
 	BillRetentionDays = days
 }
+
+// PaySummary 支付模块运营摘要。
+type PaySummary struct {
+	TotalOrders  int64   `json:"totalOrders"`
+	TotalPaid    int64   `json:"totalPaid"`
+	TotalRevenue int64   `json:"totalRevenue"`
+	TotalClosed  int64   `json:"totalClosed"`
+	TotalRefunds int64   `json:"totalRefunds"`
+	RefundAmount int64   `json:"refundAmount"`
+	RefundRate   float64 `json:"refundRate"`
+}
+
+// GetPaySummary 返回指定租户(或平台全量)的支付运营摘要。
+func GetPaySummary(tenantID string) (*PaySummary, error) {
+	summary := &PaySummary{}
+
+	// 总订单数
+	totalDb := store.DB().Model(&PayOrder{}).Where("tenant_id = ?", tenantID)
+	if err := totalDb.Count(&summary.TotalOrders).Error; err != nil {
+		return nil, err
+	}
+
+	// 已支付订单数
+	paidDb := store.DB().Model(&PayOrder{}).Where("status = ? AND tenant_id = ?", PayOrderPaid, tenantID)
+	if err := paidDb.Count(&summary.TotalPaid).Error; err != nil {
+		return nil, err
+	}
+
+	// 已关闭订单数
+	closedDb := store.DB().Model(&PayOrder{}).Where("status = ? AND tenant_id = ?", PayOrderClosed, tenantID)
+	if err := closedDb.Count(&summary.TotalClosed).Error; err != nil {
+		return nil, err
+	}
+
+	// 退款
+	refundDb := store.DB().Model(&PayRefund{}).Where("status IN ? AND tenant_id = ?",
+		[]string{RefundPending, RefundProcessing, RefundSuccess}, tenantID)
+	if err := refundDb.Count(&summary.TotalRefunds).Error; err != nil {
+		return nil, err
+	}
+
+	// 退款金额
+	amtDb := store.DB().Model(&PayRefund{}).Where("status = ? AND tenant_id = ?", RefundSuccess, tenantID)
+	if err := amtDb.Select("COALESCE(SUM(amount),0)").Scan(&summary.RefundAmount).Error; err != nil {
+		return nil, err
+	}
+
+	// 退款率
+	if summary.TotalPaid > 0 {
+		summary.RefundRate = float64(summary.TotalRefunds) / float64(summary.TotalPaid)
+	}
+	return summary, nil
+}
