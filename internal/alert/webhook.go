@@ -22,9 +22,9 @@ import (
 // 告警平台消费。推送异步、失败仅记日志，绝不阻塞业务。
 
 var (
-	webhookMu   sync.RWMutex
-	webhookURL  string
-	httpClient  = &http.Client{Timeout: 5 * time.Second}
+	webhookMu  sync.RWMutex
+	webhookURL string
+	httpClient = &http.Client{Timeout: 5 * time.Second}
 )
 
 // SetWebhookURL 设置告警 Webhook URL（空则禁用推送）。
