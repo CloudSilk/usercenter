@@ -311,17 +311,19 @@ export default function WechatPay() {
   const [billDays, setBillDays] = useState(30)
   const [billPage, setBillPage] = useState(1)
   const billPageSize = 10
+  // 服务端分页:pageIndex/pageSize 传给后端,pages 由响应返回
   const bills = useQuery({
-    queryKey: ["pay-bills", billConfigID, billDays],
+    queryKey: ["pay-bills", billConfigID, billDays, billPage],
     queryFn: () =>
       api.get<ListResp<BillFileItem>>(`${BILL}/list`, {
         configID: billConfigID || undefined,
         days: billDays,
+        pageIndex: billPage,
+        pageSize: billPageSize,
       }),
   })
-  const allBills = bills.data?.data || []
-  const totalPages = Math.max(1, Math.ceil(allBills.length / billPageSize))
-  const billRows = allBills.slice((billPage - 1) * billPageSize, billPage * billPageSize)
+  const billRows = bills.data?.data || []
+  const billTotalPages = Math.max(1, bills.data?.pages ?? 1)
 
   /** 手动拉取指定日期/类型的交易账单(实时调微信侧)。 */
   async function pullTradeBill() {
@@ -808,7 +810,7 @@ export default function WechatPay() {
         {/* 账单分页条 */}
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>
-            共 {allBills.length} 条 · 第 {billPage} / {totalPages} 页
+            共 {bills.data?.total ?? 0} 条 · 第 {billPage} / {billTotalPages} 页
           </span>
           <div className="flex gap-2">
             <Button
@@ -822,7 +824,7 @@ export default function WechatPay() {
             <Button
               size="sm"
               variant="outline"
-              disabled={billPage >= totalPages}
+              disabled={billPage >= billTotalPages}
               onClick={() => setBillPage(billPage + 1)}
             >
               下一页
