@@ -12,14 +12,14 @@ import (
 )
 
 type MFAFactor struct {
-	ID           string `json:"id" gorm:"primaryKey;size:36"`
-	PrincipalID  string `json:"principalID" gorm:"index;size:36"`
-	Type         string `json:"type" gorm:"size:20;index;comment:totp/webauthn/sms"`
-	SecretEnc    string `json:"-" gorm:"size:1000;comment:加密存储"`
-	Name         string `json:"name" gorm:"size:100;comment:设备名称"`
-	Enable       bool   `json:"enable" gorm:"index;default:true"`
-	CreatedAt    int64  `json:"createdAt"`
-	LastUsedAt   int64  `json:"lastUsedAt"`
+	ID          string `json:"id" gorm:"primaryKey;size:36"`
+	PrincipalID string `json:"principalID" gorm:"index;size:36"`
+	Type        string `json:"type" gorm:"size:20;index;comment:totp/webauthn/sms"`
+	SecretEnc   string `json:"-" gorm:"size:1000;comment:加密存储"`
+	Name        string `json:"name" gorm:"size:100;comment:设备名称"`
+	Enable      bool   `json:"enable" gorm:"index;default:true"`
+	CreatedAt   int64  `json:"createdAt"`
+	LastUsedAt  int64  `json:"lastUsedAt"`
 }
 
 func (MFAFactor) TableName() string { return "mfa_factor" }

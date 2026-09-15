@@ -6,18 +6,18 @@ package auth
 
 // OIDCDiscovery OIDC 发现文档
 type OIDCDiscovery struct {
-	Issuer                 string   `json:"issuer"`
-	AuthorizationEndpoint  string   `json:"authorization_endpoint"`
-	TokenEndpoint          string   `json:"token_endpoint"`
-	UserInfoEndpoint       string   `json:"userinfo_endpoint"`
-	RevocationEndpoint     string   `json:"revocation_endpoint"`
-	JWKSURI                string   `json:"jwks_uri"`
-	ResponseTypes          []string `json:"response_types_supported"`
-	SubjectTypes           []string `json:"subject_types_supported"`
-	IDTokenSigningAlgs     []string `json:"id_token_signing_alg_values_supported"`
-	Scopes                 []string `json:"scopes_supported"`
+	Issuer                   string   `json:"issuer"`
+	AuthorizationEndpoint    string   `json:"authorization_endpoint"`
+	TokenEndpoint            string   `json:"token_endpoint"`
+	UserInfoEndpoint         string   `json:"userinfo_endpoint"`
+	RevocationEndpoint       string   `json:"revocation_endpoint"`
+	JWKSURI                  string   `json:"jwks_uri"`
+	ResponseTypes            []string `json:"response_types_supported"`
+	SubjectTypes             []string `json:"subject_types_supported"`
+	IDTokenSigningAlgs       []string `json:"id_token_signing_alg_values_supported"`
+	Scopes                   []string `json:"scopes_supported"`
 	TokenEndpointAuthMethods []string `json:"token_endpoint_auth_methods_supported"`
-	Claims                 []string `json:"claims_supported"`
+	Claims                   []string `json:"claims_supported"`
 }
 
 // GetDiscovery 返回 OIDC 发现文档
@@ -25,18 +25,18 @@ type OIDCDiscovery struct {
 // (RSA 密钥未初始化时回退)。
 func GetDiscovery(issuer string) *OIDCDiscovery {
 	return &OIDCDiscovery{
-		Issuer:                issuer,
-		AuthorizationEndpoint: issuer + "/oauth/authorize",
-		TokenEndpoint:         issuer + "/oauth/token",
-		UserInfoEndpoint:      issuer + "/oauth/userinfo",
-		RevocationEndpoint:    issuer + "/oauth/revoke",
-		JWKSURI:               issuer + "/.well-known/jwks.json",
-		ResponseTypes:         []string{"code", "token", "id_token"},
-		SubjectTypes:          []string{"public"},
-		IDTokenSigningAlgs:    []string{"RS256", "HS256"},
-		Scopes:                []string{"openid", "profile", "email", "read", "write"},
+		Issuer:                   issuer,
+		AuthorizationEndpoint:    issuer + "/oauth/authorize",
+		TokenEndpoint:            issuer + "/oauth/token",
+		UserInfoEndpoint:         issuer + "/oauth/userinfo",
+		RevocationEndpoint:       issuer + "/oauth/revoke",
+		JWKSURI:                  issuer + "/.well-known/jwks.json",
+		ResponseTypes:            []string{"code", "token", "id_token"},
+		SubjectTypes:             []string{"public"},
+		IDTokenSigningAlgs:       []string{"RS256", "HS256"},
+		Scopes:                   []string{"openid", "profile", "email", "read", "write"},
 		TokenEndpointAuthMethods: []string{"client_secret_basic", "client_secret_post"},
-		Claims: []string{"sub", "iss", "aud", "exp", "iat", "name", "email", "tenant_id", "role_ids"},
+		Claims:                   []string{"sub", "iss", "aud", "exp", "iat", "name", "email", "tenant_id", "role_ids"},
 	}
 }
 
@@ -64,13 +64,13 @@ type TokenResponse struct {
 
 // RefreshToken refresh token 存储结构
 type RefreshToken struct {
-	Token        string `json:"token" gorm:"primaryKey;size:64"`
-	PrincipalID  string `json:"principalID" gorm:"index;size:36"`
-	TenantID     string `json:"tenantID" gorm:"index;size:36"`
-	ClientID     string `json:"clientID" gorm:"size:100"`
-	Scope        string `json:"scope" gorm:"size:500"`
-	ExpiresAt    int64  `json:"expiresAt"`
-	Revoked      bool   `json:"revoked" gorm:"index;default:false"`
+	Token       string `json:"token" gorm:"primaryKey;size:64"`
+	PrincipalID string `json:"principalID" gorm:"index;size:36"`
+	TenantID    string `json:"tenantID" gorm:"index;size:36"`
+	ClientID    string `json:"clientID" gorm:"size:100"`
+	Scope       string `json:"scope" gorm:"size:500"`
+	ExpiresAt   int64  `json:"expiresAt"`
+	Revoked     bool   `json:"revoked" gorm:"index;default:false"`
 }
 
 func (RefreshToken) TableName() string { return "refresh_token" }
@@ -90,13 +90,13 @@ func (OAuthClient) TableName() string { return "oauth_client" }
 
 // ConsentRecord 用户授权同意记录(Agent 委派 #10)
 type ConsentRecord struct {
-	ID           uint64 `json:"id" gorm:"primaryKey;autoIncrement"`
-	PrincipalID  string `json:"principalID" gorm:"index;size:36;comment:授权人"`
-	ClientID     string `json:"clientID" gorm:"index;size:64;comment:被授权的Agent/应用"`
-	Scope        string `json:"scope" gorm:"size:500;comment:授权范围"`
-	GrantedAt    int64  `json:"grantedAt"`
-	ExpiresAt    int64  `json:"expiresAt" gorm:"comment:0=永不过期"`
-	Revoked      bool   `json:"revoked" gorm:"index;default:false"`
+	ID          uint64 `json:"id" gorm:"primaryKey;autoIncrement"`
+	PrincipalID string `json:"principalID" gorm:"index;size:36;comment:授权人"`
+	ClientID    string `json:"clientID" gorm:"index;size:64;comment:被授权的Agent/应用"`
+	Scope       string `json:"scope" gorm:"size:500;comment:授权范围"`
+	GrantedAt   int64  `json:"grantedAt"`
+	ExpiresAt   int64  `json:"expiresAt" gorm:"comment:0=永不过期"`
+	Revoked     bool   `json:"revoked" gorm:"index;default:false"`
 }
 
 func (ConsentRecord) TableName() string { return "oauth_consent" }

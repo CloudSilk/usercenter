@@ -13,8 +13,8 @@ import (
 
 var (
 	numberReg      = regexp.MustCompile("\\d+")
-	lowerLetterReg  = regexp.MustCompile("[a-z]+")
-	upperLetterReg  = regexp.MustCompile("[A-Z]+")
+	lowerLetterReg = regexp.MustCompile("[a-z]+")
+	upperLetterReg = regexp.MustCompile("[A-Z]+")
 )
 
 // ValidPasswdStrength 校验密码强度(>=8位 + 数字 + 小写 + 大写)

@@ -22,20 +22,20 @@ const (
 
 // RiskScore 风险评分结果
 type RiskScore struct {
-	Level    RiskLevel
-	Reasons  []string
-	Action   string // "allow" / "step_up" / "deny"
+	Level   RiskLevel
+	Reasons []string
+	Action  string // "allow" / "step_up" / "deny"
 }
 
 // RiskSignals 风险信号(从请求上下文收集)
 type RiskSignals struct {
-	Principal    principal.Principal
-	CurrentIP    string
+	Principal     principal.Principal
+	CurrentIP     string
 	TokenIssuedIP string
-	UserAgent    string
-	TokenAge     time.Duration
-	NewDevice    bool
-	FailedAuths  int // 近期失败次数
+	UserAgent     string
+	TokenAge      time.Duration
+	NewDevice     bool
+	FailedAuths   int // 近期失败次数
 }
 
 // CalculateRiskScore 基于实时信号计算风险分

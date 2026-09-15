@@ -31,12 +31,12 @@ const defaultRSAKeyBits = 2048
 
 // SigningKey RSA 签名密钥(含 kid)
 type SigningKey struct {
-	Kid       string         `json:"kid"`
+	Kid       string          `json:"kid"`
 	Private   *rsa.PrivateKey `json:"-"`
 	Public    *rsa.PublicKey  `json:"-"`
-	Algorithm string         `json:"alg"`
-	CreatedAt time.Time      `json:"createdAt"`
-	IsActive  bool           `json:"isActive"`
+	Algorithm string          `json:"alg"`
+	CreatedAt time.Time       `json:"createdAt"`
+	IsActive  bool            `json:"isActive"`
 }
 
 // KeyManager RSA 密钥管理器(新旧密钥共存,grace period)

@@ -14,11 +14,11 @@ import (
 
 // WebAuthnCredential 存储格式(序列化为 JSON 存入 MFAFactor.SecretEnc)
 type WebAuthnCredential struct {
-	ID              []byte `json:"id"`
-	PublicKey       []byte `json:"publicKey"`
-	AttestationType string `json:"attestationType"`
+	ID              []byte   `json:"id"`
+	PublicKey       []byte   `json:"publicKey"`
+	AttestationType string   `json:"attestationType"`
 	Transport       []string `json:"transport,omitempty"`
-	SignCount       uint32  `json:"signCount"`
+	SignCount       uint32   `json:"signCount"`
 }
 
 // WebAuthnUser 实现 webauthn.User 接口
@@ -29,11 +29,11 @@ type WebAuthnUser struct {
 	Credentials []webauthn.Credential
 }
 
-func (u *WebAuthnUser) WebAuthnID() []byte           { return u.ID }
-func (u *WebAuthnUser) WebAuthnName() string         { return u.Name }
-func (u *WebAuthnUser) WebAuthnDisplayName() string  { return u.DisplayName }
+func (u *WebAuthnUser) WebAuthnID() []byte                         { return u.ID }
+func (u *WebAuthnUser) WebAuthnName() string                       { return u.Name }
+func (u *WebAuthnUser) WebAuthnDisplayName() string                { return u.DisplayName }
 func (u *WebAuthnUser) WebAuthnCredentials() []webauthn.Credential { return u.Credentials }
-func (u *WebAuthnUser) WebAuthnIcon() string         { return "" }
+func (u *WebAuthnUser) WebAuthnIcon() string                       { return "" }
 
 // WebAuthnConfig RP 配置(从 systemconfig 加载)
 type WebAuthnConfig struct {
@@ -127,8 +127,8 @@ func DeserializeCredentials(jsonStrs []string) ([]webauthn.Credential, error) {
 		creds = append(creds, webauthn.Credential{
 			ID: wc.ID, PublicKey: wc.PublicKey,
 			AttestationType: wc.AttestationType,
-			Transport: transports,
-			Authenticator: webauthn.Authenticator{SignCount: wc.SignCount},
+			Transport:       transports,
+			Authenticator:   webauthn.Authenticator{SignCount: wc.SignCount},
 		})
 	}
 	return creds, nil
