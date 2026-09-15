@@ -1251,6 +1251,13 @@ await request('GET', `/api/wechat/pay/order?outTradeNo=${res.data.outTradeNo}`)
 | `/api/core/wechat/pay/order/trade-bill/range` | GET | 管理端 | 按日期范围批量拉取账单并合并 CSV（跨度上限 31 天） |
 | `/api/core/wechat/pay/stats/daily` | GET | 管理端 | 对账日报：按日聚合下单/支付/关单/退款 |
 | `/api/core/wechat/pay/stats/refund-reason` | GET | 管理端 | 退款原因类别统计（金额降序） |
+| `/api/core/wechat/pay/stats/refund-reason/trend` | GET | 管理端 | 退款原因月度趋势（months=1-24，租户可选） |
+| `/api/core/wechat/pay/stats/loop-status` | GET | 管理端 | 对账循环运行状态与参数快照 |
+| `/api/core/wechat/pay/stats/reconcile-now` | POST | 管理端 | 立即执行一轮对账，返回处理笔数 |
+| `/api/core/wechat/pay/stats/config` | PUT | 管理端 | 运行时更新对账参数（即时生效并持久化） |
+| `/api/core/wechat/pay/stats/config` | DELETE | 管理端 | 重置参数为 Nacos 基线 |
+| `/api/core/wechat/pay/bill/list` | GET | 管理端 | 已归档交易账单列表（days 过滤，不含内容） |
+| `/api/core/wechat/pay/bill/download` | GET | 管理端 | 下载已归档账单 CSV |
 | `/api/core/wechat/pay/refund/apply` | POST | 管理端 | 退款申请 |
 | `/api/core/wechat/pay/refund/approve` | POST | 管理端 | 退款审核（通过=提交微信；拒绝=REJECTED） |
 | `/api/core/wechat/pay/refund/query` | GET | 管理端 | 退款单分页查询 |
@@ -1342,6 +1349,11 @@ curl -X DELETE /api/core/wechat/pay/stats/config
 
 各参数钳制边界：轮询间隔最小 10s、扫描窗口/告警阈值/静默窗口最小 1(分/时/分)、
 批次 1–1000、账单保留期最小 7 天。参数持久化失败时参数本身已生效,响应 `message` 会给出警告。
+
+**管理后台可视化入口**：「可视化管理后台 → 系统集成 → 微信支付 / 支付设置」两个页面
+(`/web/admin/wechatpay`、`/web/admin/wechatpay/settings`)覆盖上述全部管理操作:
+商户配置 CRUD、订单查询/导出/批量关单、退款审核(意见输入)、
+退款原因趋势图、已归档账单列表/下载、对账参数编辑与一键重置、立即对账。
 
 > 运维提示：生产环境需保证出网可达 `api.mch.weixin.qq.com`；
 > 首次下单时 SDK 会自动下载微信平台证书并周期轮换。
