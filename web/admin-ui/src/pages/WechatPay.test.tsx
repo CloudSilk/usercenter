@@ -170,3 +170,54 @@ describe("WechatPay page", () => {
     })
   })
 })
+
+describe("WechatPay page - manual bill pull", () => {
+  it("pull button is disabled when config id is empty", async () => {
+    renderPage()
+    const pullBtn = await screen.findByRole("button", { name: /手动拉取账单/ })
+    // config id 输入框为空,按钮应禁用(不触发后端请求)
+    expect(pullBtn).toBeDisabled()
+  })
+
+  it("pull button is enabled after filling config id", async () => {
+    renderPage()
+    const pullBtn = await screen.findByRole("button", { name: /手动拉取账单/ })
+    const configInput = screen.getAllByPlaceholderText("configID")[0]
+    await userEvent.type(configInput, "cfg-1")
+    await waitFor(() => {
+      expect(pullBtn).toBeEnabled()
+    })
+  })
+
+  it("pull button triggers download with query params", async () => {
+    const originalFetch = globalThis.fetch
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      headers: new Map([["Content-Type", "text/csv; charset=utf-8"]]),
+      blob: async () => new Blob(["csv"]),
+    }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    // URL.createObjectURL stub
+    const realCreate = URL.createObjectURL
+    ;(URL as unknown as { createObjectURL: () => string }).createObjectURL = () => "blob:x"
+
+    renderPage()
+    // 等页面渲染完成
+    await screen.findByText("商户配置")
+    // 找到手动拉取的 config 输入框并填写
+    const inputs = screen.getAllByPlaceholderText("configID")
+    await userEvent.type(inputs[0], "cfg-manual-1")
+    // 点击拉取
+    const pullBtn = screen.getByRole("button", { name: /手动拉取账单/ })
+    await userEvent.click(pullBtn)
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled()
+    })
+    const call = (fetchMock as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(String(call[0])).toContain("/api/core/wechat/pay/order/trade-bill")
+    expect(String(call[0])).toContain("configID=cfg-manual-1")
+    expect(String(call[0])).toContain("billType=ALL")
+    ;(URL as unknown as { createObjectURL: () => string }).createObjectURL = realCreate
+    globalThis.fetch = originalFetch
+  })
+})
