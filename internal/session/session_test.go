@@ -388,3 +388,74 @@ func TestRecordLoginPersistsAllFields(t *testing.T) {
 		t.Fatalf("unexpected record: %+v", got)
 	}
 }
+
+func TestRecordSessionErrorPath(t *testing.T) {
+	// store 未初始化时 RecordSession 不 panic
+	original := store.DB()
+	store.SetDB(nil)
+	RecordSession(mkSession("err-p", "err-sig", false))
+	if original != nil {
+		store.SetDB(db.NewDBClient(original, false))
+	}
+}
+
+func TestQuerySessionsKeywordSearch(t *testing.T) {
+	createNameTables(t)
+	t.Cleanup(func() {
+		_ = store.DB().Where("principal_id LIKE ?", "kw-q-%").Delete(&Session{}).Error
+		_ = store.DB().Exec(`DELETE FROM users WHERE id = 'kw-q-user'`).Error
+		_ = store.DB().Exec(`DELETE FROM tenants WHERE id = 'kw-q-t'`).Error
+	})
+	if err := store.DB().Exec(`INSERT INTO users (id, user_name, nickname, real_name) VALUES ('kw-q-user','kwsearch','','')`).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if err := store.DB().Exec(`INSERT INTO tenants (id, name) VALUES ('kw-q-t','KWSearchTenant')`).Error; err != nil {
+		t.Fatalf("seed tenant: %v", err)
+	}
+	s := &Session{PrincipalID: "kw-q-user", TenantID: "kw-q-t", TokenSig: "kw-q-sig",
+		DeviceName: "TestDevice", IP: "10.0.0.1"}
+	if err := CreateSession(s); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	// keyword 匹配 IP
+	_, total, err := QuerySessions(Query{Keyword: "10.0.0.1"})
+	if err != nil {
+		t.Fatalf("search by IP: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected 1 match by IP, got %d", total)
+	}
+	// keyword 匹配设备名
+	_, total, err = QuerySessions(Query{Keyword: "TestDevice"})
+	if err != nil {
+		t.Fatalf("search by device: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected 1 match by device name, got %d", total)
+	}
+	// keyword 匹配用户名(users 表联查)
+	_, total, err = QuerySessions(Query{Keyword: "kwsearch"})
+	if err != nil {
+		t.Fatalf("search by user name: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected 1 match by user name, got %d", total)
+	}
+	// keyword 匹配租户名(tenants 表联查)
+	_, total, err = QuerySessions(Query{Keyword: "KWSearchTenant"})
+	if err != nil {
+		t.Fatalf("search by tenant name: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected 1 match by tenant name, got %d", total)
+	}
+	// keyword 无匹配
+	_, total, err = QuerySessions(Query{Keyword: "zzz-no-match-keyword"})
+	if err != nil {
+		t.Fatalf("search no match: %v", err)
+	}
+	if total != 0 {
+		t.Fatalf("expected 0 for no match keyword, got %d", total)
+	}
+}
