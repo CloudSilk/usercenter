@@ -503,23 +503,45 @@ func GetBillFileByID(id string) (*BillFile, error) {
 	return m, err
 }
 
-// ListBillFiles 列出某配置最近 days 天的账单元数据(不含内容)。
-func ListBillFiles(tenantID, configID string, days int) ([]*BillFile, error) {
-	if days <= 0 {
-		days = 30
+// BillFileQuery 归档账单查询条件。
+// PageIndex/PageSize 均为 0 时返回全量(兼容旧调用方)。
+type BillFileQuery struct {
+	TenantID  string
+	ConfigID  string
+	Days      int
+	PageIndex int
+	PageSize  int
+}
+
+// ListBillFiles 按条件列出归档账单元数据(bill_date 倒序),可选分页。
+// 返回列表与符合条件的总条数。
+func ListBillFiles(q BillFileQuery) ([]*BillFile, int64, error) {
+	if q.Days <= 0 {
+		q.Days = 30
 	}
-	if days > 365 {
-		days = 365
+	if q.Days > 365 {
+		q.Days = 365
 	}
-	start := time.Now().AddDate(0, 0, -days)
+	start := time.Now().AddDate(0, 0, -q.Days)
 	db := store.DB().Model(&BillFile{}).Where("created_at >= ?", start)
-	if configID != "" {
-		db = db.Where("config_id = ?", configID)
+	if q.ConfigID != "" {
+		db = db.Where("config_id = ?", q.ConfigID)
 	}
-	if tenantID != "" {
-		db = db.Where("tenant_id = ?", tenantID)
+	if q.TenantID != "" {
+		db = db.Where("tenant_id = ?", q.TenantID)
+	}
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	db = db.Omit("content").Order("bill_date DESC")
+	if q.PageSize > 0 {
+		if q.PageIndex <= 0 {
+			q.PageIndex = 1
+		}
+		db = db.Offset((q.PageIndex - 1) * q.PageSize).Limit(q.PageSize)
 	}
 	var list []*BillFile
-	err := db.Omit("content").Order("bill_date DESC").Find(&list).Error
-	return list, err
+	err := db.Find(&list).Error
+	return list, total, err
 }

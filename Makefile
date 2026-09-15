@@ -37,6 +37,6 @@ doc-check:
 cover-gate:
 	go run ./cmd/covercheck
 
-# test 纳入 doc-check 门禁:文档落后于代码注解时测试先失败
-test: doc-check
+# test 纳入 doc-check 与 cover-gate 门禁:文档过期或覆盖率回退时测试先失败
+test: doc-check cover-gate
 	go test ./...

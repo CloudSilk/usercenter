@@ -648,6 +648,9 @@ type BillFileQueryRequest struct {
 	// Days 查询最近 N 天,默认 30,范围 1-365。
 	Days     int    `form:"days" binding:"omitempty,gt=0,lte=365"`
 	TenantID string `form:"tenantID"`
+	// PageIndex/PageSize 可选分页,均不传时返回全量。
+	PageIndex int `form:"pageIndex" binding:"omitempty,gt=0"`
+	PageSize  int `form:"pageSize" binding:"omitempty,gt=0,lte=500"`
 }
 
 // BillFileItem 账单元数据视图(不含内容)。
@@ -664,20 +667,31 @@ type BillFileListResponse struct {
 	Code    apipb.Code      `json:"code"`
 	Message string          `json:"message,omitempty"`
 	Data    []*BillFileItem `json:"data,omitempty"`
+	Records int64           `json:"records"`
+	Pages   int64           `json:"pages"`
+	Total   int64           `json:"total"`
 }
 
-// QueryWechatBillFiles 分页列出已归档的交易账单(元数据)。
+// QueryWechatBillFiles 列出已归档的交易账单(元数据),支持可选分页。
 //
 //	@Summary 已归档交易账单列表
 //	@Tags 微信支付订单管理
 //	@Param authorization header string true "jwt token"
 //	@Param configID query string false "商户配置ID"
 //	@Param days query int false "最近 N 天,默认 30"
+//	@Param pageIndex query int false "页码,从 1 开始"
+//	@Param pageSize query int false "每页条数,上限 500"
 //	@Success 200 {object} BillFileListResponse
 //	@Router /api/core/wechat/pay/bill/list [get]
 func QueryWechatBillFiles(c *gin.Context, req *BillFileQueryRequest) (*BillFileListResponse, error) {
 	resp := &BillFileListResponse{Code: apipb.Code_Success, Data: []*BillFileItem{}}
-	list, err := wechatpay.ListBillFiles(req.TenantID, req.ConfigID, req.Days)
+	list, total, err := wechatpay.ListBillFiles(wechatpay.BillFileQuery{
+		TenantID:  req.TenantID,
+		ConfigID:  req.ConfigID,
+		Days:      req.Days,
+		PageIndex: req.PageIndex,
+		PageSize:  req.PageSize,
+	})
 	if err != nil {
 		resp.Code = apipb.Code_InternalServerError
 		resp.Message = err.Error()
@@ -689,6 +703,11 @@ func QueryWechatBillFiles(c *gin.Context, req *BillFileQueryRequest) (*BillFileL
 			BillDate: b.BillDate, BillType: b.BillType,
 		})
 	}
+	pages := int64(1)
+	if req.PageSize > 0 {
+		pages = (total + int64(req.PageSize) - 1) / int64(req.PageSize)
+	}
+	resp.Records, resp.Total, resp.Pages = total, total, pages
 	return resp, nil
 }
 

@@ -1937,9 +1937,9 @@ func TestCleanupExpiredBills(t *testing.T) {
 	if deleted != 1 {
 		t.Fatalf("expected 1 deleted, got %d", deleted)
 	}
-	// 新鲜账单保留
-	if _, err := ListBillFiles(tenant, "", 365); err != nil {
-		t.Fatalf("list bills: %v", err)
+	// 新鲜账单(昨日)应保留
+	if list, total, err := ListBillFiles(BillFileQuery{TenantID: tenant, Days: 365}); err != nil || total != 1 || len(list) != 1 {
+		t.Fatalf("fresh bill should remain: %v total=%d len=%d", err, total, len(list))
 	}
 	var remain int64
 	if err := store.DB().Model(&BillFile{}).Where("tenant_id = ?", tenant).Count(&remain).Error; err != nil {
@@ -2314,12 +2314,12 @@ func TestQueryPayRefundsAndBillFiles(t *testing.T) {
 	if err != nil || string(got.Content) != "c1" {
 		t.Fatalf("expected original content preserved, got %+v err=%v", got, err)
 	}
-	list, err := ListBillFiles(tenant, "cfg-cov", 30)
-	if err != nil || len(list) != 1 {
+	list, total, err := ListBillFiles(BillFileQuery{TenantID: tenant, ConfigID: "cfg-cov", Days: 30})
+	if err != nil || total != 1 || len(list) != 1 {
 		t.Fatalf("list bills: %v %+v", err, list)
 	}
-	if list, err := ListBillFiles("no-such-tenant", "", 30); err != nil || len(list) != 0 {
-		t.Fatalf("tenant filter: %v %+v", err, list)
+	if _, _, err := ListBillFiles(BillFileQuery{TenantID: "no-such-tenant", Days: 30}); err != nil {
+		t.Fatalf("tenant filter: %v", err)
 	}
 }
 
