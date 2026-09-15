@@ -10,7 +10,7 @@ func TestValidPasswdStrength(t *testing.T) {
 	valid := []string{
 		"Abcdefg1",     // 8 位恰好
 		"Passw0rdLong", // 长密码
-		"中Aa1密码强度测试",    // rune 计数(中文按 1 字符)
+		"中Aa1密码强度测试",   // rune 计数(中文按 1 字符)
 	}
 	for _, p := range valid {
 		if !ValidPasswdStrength(p) {
