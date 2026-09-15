@@ -315,3 +315,76 @@ func TestRecordLoginNilAndStoreNil(t *testing.T) {
 		store.SetDB(db.NewDBClient(original, false))
 	}
 }
+
+func TestQuerySessionsKeywordByName(t *testing.T) {
+	createNameTables(t)
+	t.Cleanup(func() {
+		_ = store.DB().Where("principal_id = ?", "kw-p1").Delete(&Session{}).Error
+		_ = store.DB().Exec(`DELETE FROM users WHERE id = 'kw-p1'`).Error
+	})
+	// 用户名通过 users 表关联查询(关键字搜索依赖 users.tenants 联查)
+	if err := store.DB().Exec(`INSERT INTO users (id, user_name, nickname, real_name) VALUES ('kw-p1','kwuser','','')`).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	s := mkSession("kw-p1", "kw-sig-1", false)
+	s.TenantID = "kw-t"
+	if err := CreateSession(s); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// 按用户名搜索
+	_, total, err := QuerySessions(Query{Keyword: "kwuser"})
+	if err != nil {
+		t.Fatalf("search by user name: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected 1 by user name keyword, got %d", total)
+	}
+	// 按设备名搜索
+	_, total, err = QuerySessions(Query{Keyword: "Chrome"})
+	if err != nil {
+		t.Fatalf("search by device: %v", err)
+	}
+	// 按租户名搜索(需 tenant 表)
+	if err := store.DB().Exec(`INSERT INTO tenants (id, name) VALUES ('kw-t','KW Tenant')`).Error; err != nil {
+		t.Fatalf("seed tenant: %v", err)
+	}
+	_, total, err = QuerySessions(Query{Keyword: "KW Tenant"})
+	if err != nil {
+		t.Fatalf("search by tenant name: %v", err)
+	}
+}
+
+func TestRecordLoginNilRecord(t *testing.T) {
+	t.Cleanup(func() {
+		_ = store.DB().Where("principal_id LIKE ?", "rec-nil-%").Delete(&LoginRecord{}).Error
+	})
+	RecordLogin(nil)
+	var count int64
+	store.DB().Model(&LoginRecord{}).Where("principal_id LIKE ?", "rec-nil-%").Count(&count)
+	if count != 0 {
+		t.Fatalf("nil record should not create any row, got %d", count)
+	}
+}
+
+func TestRecordLoginPersistsAllFields(t *testing.T) {
+	t.Cleanup(func() {
+		_ = store.DB().Where("principal_id LIKE ?", "rec-all-%").Delete(&LoginRecord{}).Error
+	})
+	rec := &LoginRecord{
+		PrincipalID: "rec-all-p", TenantID: "rec-all-t", UserName: "all-user",
+		SessionID: "sess-all", AuthMethod: "password", MFAUsed: true,
+		DeviceType: 1, DeviceName: "iPhone 15", IP: "10.0.0.99",
+		UserAgent: "Mozilla/5.0", Location: "北京",
+		Result: LoginResultSuccess, ResultCode: 20000, Message: "ok",
+		Abnormal: false, PreviousIP: "10.0.0.98", RequestID: "req-all-1",
+	}
+	RecordLogin(rec)
+	var got LoginRecord
+	if err := store.DB().First(&got, "principal_id = ?", "rec-all-p").Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got.AuthMethod != "password" || !got.MFAUsed || got.ResultCode != 20000 ||
+		got.PreviousIP != "10.0.0.98" || got.RequestID != "req-all-1" {
+		t.Fatalf("unexpected record: %+v", got)
+	}
+}
