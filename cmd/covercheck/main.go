@@ -23,6 +23,7 @@ var gates = map[string]float64{
 	"internal/audit":        90,
 	"internal/wechatconfig": 40,
 	"internal/systemconfig": 40,
+	"internal/session":      70,
 }
 
 func main() {
