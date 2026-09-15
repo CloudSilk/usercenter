@@ -2,10 +2,12 @@ package session
 
 import (
 	"strings"
-
-	"github.com/CloudSilk/usercenter/internal/store"
 	"testing"
+
 	"time"
+
+	"github.com/CloudSilk/pkg/db"
+	"github.com/CloudSilk/usercenter/internal/store"
 )
 
 // createNameTables 建立 QuerySessions 关键字搜索与名称解析所需的 User/Tenant 表。
@@ -204,3 +206,27 @@ func TestRecordLoginAndQuery(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func TestRecordSessionAndStoreUnavailable(t *testing.T) {
+	t.Cleanup(func() {
+		_ = store.DB().Where("principal_id LIKE ?", "q-rec-sess-%").Delete(&Session{}).Error
+	})
+	// RecordSession 正常落库
+	s := &Session{PrincipalID: "q-rec-sess-p", TenantID: "t", TokenSig: "rec-sess-sig",
+		DeviceName: "TestDev", IP: "1.1.1.1"}
+	RecordSession(s)
+	var count int64
+	store.DB().Model(&Session{}).Where("token_sig = ?", "rec-sess-sig").Count(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 session record, got %d", count)
+	}
+
+	// store 不可用时 QuerySessions 返回 errStoreUnavailable
+	original := store.DB()
+	defer func() { store.SetDB(db.NewDBClient(original, false)) }()
+	store.SetDB(nil)
+	_, _, err := QuerySessions(Query{PrincipalID: "x"})
+	if err == nil || err.Error() != errStoreUnavailable.Error() {
+		t.Fatalf("expected store unavailable error, got %v", err)
+	}
+}
