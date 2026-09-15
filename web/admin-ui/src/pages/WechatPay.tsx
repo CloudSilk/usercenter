@@ -272,30 +272,6 @@ export default function WechatPay() {
     queryFn: () => api.get<LoopStatus>("/api/core/wechat/pay/stats/loop-status"),
     refetchInterval: 30_000,
   })
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settings, setSettings] = useState<StatsConfigUpdate>({})
-  const saveSettings = useMutation({
-    mutationFn: (v: StatsConfigUpdate) => api.put("/api/core/wechat/pay/stats/config", v),
-    onSuccess: () => {
-      toast.success("对账参数已更新")
-      setSettingsOpen(false)
-      qc.invalidateQueries({ queryKey: ["pay-loop-status"] })
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-  function openSettings() {
-    const s = loopStatus.data
-    if (s) {
-      setSettings({
-        intervalSeconds: s.intervalSeconds,
-        scanAgeMinutes: s.scanAgeMinutes,
-        batchSize: s.batchSize,
-        alertAgeHours: s.alertAgeHours,
-        billRetentionDays: s.billRetentionDays,
-      })
-    }
-    setSettingsOpen(true)
-  }
   const reconcileNow = useMutation({
     mutationFn: () =>
       api.post<{ processed: number }>("/api/core/wechat/pay/stats/reconcile-now"),
@@ -303,15 +279,6 @@ export default function WechatPay() {
       toast.success(`对账完成:本轮处理 ${r.processed} 笔`)
       qc.invalidateQueries({ queryKey: ["pay-loop-status"] })
       qc.invalidateQueries({ queryKey: ["pay-orders"] })
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-  const resetConfig = useMutation({
-    mutationFn: () => api.del("/api/core/wechat/pay/stats/config"),
-    onSuccess: () => {
-      toast.success("已恢复 Nacos 基线")
-      setSettingsOpen(false)
-      qc.invalidateQueries({ queryKey: ["pay-loop-status"] })
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -444,62 +411,13 @@ export default function WechatPay() {
           >
             {reconcileNow.isPending ? "对账中..." : "立即对账"}
           </Button>
-          <Button size="sm" variant="outline" onClick={openSettings}>
-            <Settings className="mr-1 h-4 w-4" /> 设置
+          <Button size="sm" variant="outline" asChild>
+            <a href="/web/admin/wechatpay/settings">
+              <Settings className="mr-1 h-4 w-4" /> 设置
+            </a>
           </Button>
         </div>
       )}
-
-      {/* 对账参数设置对话框 */}
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>对账参数设置(运行时生效)</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            {(
-              [
-                ["intervalSeconds", "轮询间隔(秒)", 10],
-                ["scanAgeMinutes", "扫描窗口(分钟)", 1],
-                ["batchSize", "单轮批次上限", 1],
-                ["alertAgeHours", "滞留告警阈值(小时)", 1],
-                ["alertSilenceMinutes", "告警静默窗口(分钟)", 1],
-                ["billRetentionDays", "账单保留期(天)", 7],
-              ] as [keyof StatsConfigUpdate, string, number][]
-            ).map(([key, label, min]) => (
-              <div key={key} className="space-y-1">
-                <Label>{label}</Label>
-                <Input
-                  type="number"
-                  min={min}
-                  value={settings[key] ?? ""}
-                  onChange={(e) =>
-                    setSettings({ ...settings, [key]: Number(e.target.value) || undefined })
-                  }
-                />
-              </div>
-            ))}
-            <p className="col-span-2 text-xs text-muted-foreground">
-              参数即时生效,持久化保存后重启仍优先于 Nacos 基线;轮询间隔最小 10s,批次上限 1000,账单保留期最小 7 天。
-            </p>
-          </div>
-          <DialogFooter className="gap-2">
-              <Button
-                variant="ghost"
-                disabled={resetConfig.isPending}
-                onClick={() => resetConfig.mutate()}
-              >
-                恢复 Nacos 基线
-              </Button>
-              <Button variant="outline" onClick={() => setSettingsOpen(false)}>
-                取消
-              </Button>
-              <Button disabled={saveSettings.isPending} onClick={() => saveSettings.mutate(settings)}>
-                保存
-              </Button>
-            </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* 商户配置 */}
       <section className="space-y-2">

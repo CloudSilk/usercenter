@@ -1357,7 +1357,9 @@ func TestQueryDailyPayStats(t *testing.T) {
 func TestMaybePushDailyReport(t *testing.T) {
 	const tenant = "wp-daily-report"
 	setupApp(t, tenant)
-	now := time.Now()
+	// 合成时刻与时钟解耦:固定 12 点,避免真实运行时刻(如恰好 23 点)导致
+	// "未到推送时刻"用例间歇性失败
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.Local)
 
 	oldEnabled, oldHour := DailyReportEnabled, DailyReportHour
 	dailyReportLastDate = ""
@@ -1404,7 +1406,7 @@ func TestMaybePushDailyReport(t *testing.T) {
 		_ = store.DB().Unscoped().Delete(&PayConfig{}, "tenant_id = ?", otherTenant).Error
 	})
 	// 活跃租户是全库口径(含其他测试残留的当日订单租户),预期条数动态计算
-	activeTenants, err := ListActivePayTenantIDs(2)
+	activeTenants, err := ListActivePayTenantIDs(now, 2)
 	if err != nil {
 		t.Fatalf("list active tenants: %v", err)
 	}

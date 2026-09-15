@@ -28,6 +28,7 @@ const UserManagement = lazy(() => import("@/pages/UserManagement"))
 const RoleManagement = lazy(() => import("@/pages/RoleManagement"))
 const Webhooks = lazy(() => import("@/pages/Webhooks"))
 const WechatPay = lazy(() => import("@/pages/WechatPay"))
+const WechatPaySettings = lazy(() => import("@/pages/WechatPaySettings"))
 
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -249,6 +250,14 @@ const routes: RouteObject[] = [
         element: (
           <SuspenseWrapper>
             <WechatPay />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "wechatpay/settings",
+        element: (
+          <SuspenseWrapper>
+            <WechatPaySettings />
           </SuspenseWrapper>
         ),
       },

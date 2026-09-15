@@ -193,7 +193,7 @@ func maybePushDailyReport(ctx context.Context, now time.Time) {
 		recordAlertAudit("pay_daily_report", payload)
 	}
 	pushOne("", reportDate) // 平台汇总
-	tenantIDs, err := ListActivePayTenantIDs(2)
+	tenantIDs, err := ListActivePayTenantIDs(now, 2)
 	if err != nil {
 		log.Errorf(ctx, "对账日报租户列表查询失败:%v", err)
 		return
@@ -209,10 +209,10 @@ func maybePushDailyReport(ctx context.Context, now time.Time) {
 	log.Infof(ctx, "支付对账日报已推送(%s):平台 1 条,分租户 %d 条", reportDate, pushed)
 }
 
-// ListActivePayTenantIDs 取最近 days 天有下单活动的租户ID列表。
-func ListActivePayTenantIDs(days int) ([]string, error) {
-	start := time.Now().AddDate(0, 0, -(days - 1))
-	start = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
+// ListActivePayTenantIDs 取 [now-days+1, now] 窗口内有下单活动的租户ID列表。
+// now 由调用方传入(生产传 time.Now(),测试传合成时间以解耦时钟)。
+func ListActivePayTenantIDs(now time.Time, days int) ([]string, error) {
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days - 1))
 	var ids []string
 	err := store.DB().Model(&PayOrder{}).
 		Where("created_at >= ?", start).

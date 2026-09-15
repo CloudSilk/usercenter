@@ -86,6 +86,7 @@ const navGroups: NavGroup[] = [
       { label: "SCIM", path: "/scim", icon: <Share2 className="h-4 w-4" /> },
       { label: "Webhooks", path: "/webhooks", icon: <Webhook className="h-4 w-4" /> },
       { label: "微信支付", path: "/wechatpay", icon: <Wallet className="h-4 w-4" /> },
+      { label: "支付设置", path: "/wechatpay/settings", icon: <Settings className="h-4 w-4" /> },
       { label: "Config", path: "/config", icon: <Settings className="h-4 w-4" /> },
       { label: "API Tester", path: "/tester", icon: <Play className="h-4 w-4" /> },
     ],
