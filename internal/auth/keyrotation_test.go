@@ -169,3 +169,14 @@ func TestParseRSAPrivatePEM(t *testing.T) {
 		t.Fatalf("empty should auto generate: %v", err)
 	}
 }
+
+func TestGetJWKSMapEmpty(t *testing.T) {
+	ResetKeys()
+	m := GetJWKSMap()
+	if _, ok := m["keys"]; !ok {
+		t.Fatal("empty keys should still expose keys field")
+	}
+	if len(GetJWKS()) != 0 {
+		t.Fatal("expected empty JWKS array after reset")
+	}
+}

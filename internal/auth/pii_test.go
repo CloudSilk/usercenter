@@ -74,3 +74,31 @@ func TestMaskPII(t *testing.T) {
 		}
 	}
 }
+
+func TestSetPIIKeyDirect(t *testing.T) {
+	t.Cleanup(func() { piiKey = nil })
+
+	// 32 字节 key:接受(截取前 32)
+	key32 := make([]byte, 40)
+	for i := range key32 {
+		key32[i] = byte(i + 1)
+	}
+	SetPIIKey(key32)
+	if len(piiKey) != 32 {
+		t.Fatalf("expected 32-byte key, got %d", len(piiKey))
+	}
+	enc, err := EncryptPII("13800138000")
+	if err != nil {
+		t.Fatalf("encrypt with direct key: %v", err)
+	}
+	if dec, err := DecryptPII(enc); err != nil || dec != "13800138000" {
+		t.Fatalf("round trip: %q err=%v", dec, err)
+	}
+
+	// 短于 32 字节:忽略,key 保持不变
+	short := []byte("short")
+	SetPIIKey(short)
+	if len(piiKey) != 32 {
+		t.Fatalf("short key should be ignored, key len=%d", len(piiKey))
+	}
+}
