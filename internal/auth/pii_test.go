@@ -64,8 +64,8 @@ func TestMaskPII(t *testing.T) {
 		{"13800138000", "mobile", "138****8000"},
 		{"ab@example.com", "email", "ab***@example.com"},
 		{"110101199001011234", "idCard", "110101********1234"},
-		{"12345", "mobile", "12***45"},          // 过短按通用规则截断
-		{"a@b.com", "email", "a@***om"},         // @ 前不足 2 字符不脱敏
+		{"12345", "mobile", "12***45"},         // 过短按通用规则截断
+		{"a@b.com", "email", "a@***om"},        // @ 前不足 2 字符不脱敏
 		{"whatever", "unknownType", "wh***er"}, // 未知类型走通用截断
 	}
 	for _, tc := range cases {

@@ -1275,7 +1275,13 @@ func TestApproveRefundAudit(t *testing.T) {
 func TestQueryDailyPayStats(t *testing.T) {
 	const tenant = "wp-stats-1"
 	setupApp(t, tenant)
-	today := time.Now()
+	// 合成时钟解耦:统计与种子数据都基于固定"今日",午夜边界运行也稳定
+	fixedNow := time.Date(2026, 9, 13, 12, 0, 0, 0, time.Local)
+	oldNowFunc := nowFunc
+	nowFunc = func() time.Time { return fixedNow }
+	defer func() { nowFunc = oldNowFunc }()
+
+	today := fixedNow
 	todayStr := today.Format("2006-01-02")
 	yesterday := today.AddDate(0, 0, -1)
 
@@ -1294,7 +1300,11 @@ func TestQueryDailyPayStats(t *testing.T) {
 			t.Fatalf("create order: %v", err)
 		}
 	}
-	// 把 o3 的下单时间改到昨日
+	// 把 o3 的下单时间改到昨日,o1/o2 回填到合成今日(与真实运行时刻解耦)
+	if err := store.DB().Model(&PayOrder{}).Where("id IN ?", []string{o1.ID, o2.ID}).
+		Update("created_at", today).Error; err != nil {
+		t.Fatalf("backdate orders: %v", err)
+	}
 	if err := store.DB().Model(&PayOrder{}).Where("id = ?", o3.ID).
 		Update("created_at", yesterday).Error; err != nil {
 		t.Fatalf("backdate order: %v", err)
@@ -1303,6 +1313,11 @@ func TestQueryDailyPayStats(t *testing.T) {
 		OutRefundNo: "stats-refund-1", Amount: 100, Total: 500, Status: RefundSuccess}
 	if _, err := CreatePayRefund(refund); err != nil {
 		t.Fatalf("create refund: %v", err)
+	}
+	// 退款下单时间回填到合成今日
+	if err := store.DB().Model(&PayRefund{}).Where("out_refund_no = ?", "stats-refund-1").
+		Update("created_at", today).Error; err != nil {
+		t.Fatalf("backdate refund: %v", err)
 	}
 	// 一笔已拒绝退款,不计入统计
 	if _, err := CreatePayRefund(&PayRefund{TenantID: tenant, PayOrderID: o2.ID,

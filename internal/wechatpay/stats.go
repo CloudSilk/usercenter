@@ -37,6 +37,9 @@ type dailyRow struct {
 	Total int64  `json:"total"`
 }
 
+// nowFunc 时钟注入点(统计/归档清理/日报任务的"当前时间"),测试可替换。
+var nowFunc = time.Now
+
 // QueryDailyPayStats 查询最近 days 天(含今日)的按日汇总,缺数据的天补零。
 // tenantID 为空表示全租户汇总(平台侧)。
 func QueryDailyPayStats(tenantID string, days int) ([]*DailyPayStat, error) {
@@ -46,7 +49,7 @@ func QueryDailyPayStats(tenantID string, days int) ([]*DailyPayStat, error) {
 	if days > 90 {
 		days = 90
 	}
-	today := time.Now()
+	today := nowFunc()
 	start := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location()).
 		AddDate(0, 0, -(days - 1))
 	dayKey := "date(created_at)"
