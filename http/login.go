@@ -53,7 +53,7 @@ func wechatMiniLogin(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	result, err := miniProgramConfig.MiniProgram.GetAuth().Code2Session(req.JsCode)
+	result, err := wechat.Code2SessionDirect(miniProgramConfig.MiniAppConfig.AppID, miniProgramConfig.MiniAppConfig.Secret, req.JsCode)
 	if err != nil {
 		resp.Code = apipb.Code_BadRequest
 		resp.Message = err.Error()
@@ -149,7 +149,7 @@ func wechatMiniCheckRegister(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	result, err := miniProgram.MiniProgram.GetAuth().Code2Session(req.JsCode)
+	result, err := wechat.Code2SessionDirect(miniProgram.MiniAppConfig.AppID, miniProgram.MiniAppConfig.Secret, req.JsCode)
 	if err != nil {
 		resp.Code = cmodel.BadRequest
 		resp.Message = err.Error()
