@@ -33,6 +33,10 @@ gen-doc:
 doc-check:
 	go run ./cmd/doccheck
 
+# 覆盖率门禁:支付域包(wechatpay/auth/token/pricing/audit)覆盖率低于阈值则失败
+cover-gate:
+	go run ./cmd/covercheck
+
 # test 纳入 doc-check 门禁:文档落后于代码注解时测试先失败
 test: doc-check
 	go test ./...
