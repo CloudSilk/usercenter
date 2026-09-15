@@ -29,6 +29,10 @@ type WechatConfig struct {
 }
 
 func CreateWechatConfig(m *WechatConfig) (string, error) {
+	// app_name 唯一索引连带软删除行：重建同名应用前先物理清除软删行
+	store.DB().Unscoped().
+		Where("app_name = ? AND deleted_at IS NOT NULL", m.AppName).
+		Delete(&WechatConfig{})
 	err := store.DB().Create(m).Error
 	return m.ID, err
 }
