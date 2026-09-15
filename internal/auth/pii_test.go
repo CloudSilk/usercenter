@@ -102,3 +102,20 @@ func TestSetPIIKeyDirect(t *testing.T) {
 		t.Fatalf("short key should be ignored, key len=%d", len(piiKey))
 	}
 }
+
+func TestItoa(t *testing.T) {
+	cases := []struct {
+		in   uint32
+		want string
+	}{
+		{0, "0"},
+		{7, "7"},
+		{65536, "65536"},
+		{4294967295, "4294967295"},
+	}
+	for _, tc := range cases {
+		if got := itoa(tc.in); got != tc.want {
+			t.Fatalf("itoa(%d) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

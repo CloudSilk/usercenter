@@ -180,3 +180,30 @@ func TestGetJWKSMapEmpty(t *testing.T) {
 		t.Fatal("expected empty JWKS array after reset")
 	}
 }
+
+func TestGetJWKSWithMultipleKeys(t *testing.T) {
+	ResetKeys()
+	SetGracePeriod(24 * 365 * time.Hour)
+	if _, err := InitKeyManager(""); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if _, err := RotateKey(genPEM(t)); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	jwks := GetJWKS()
+	if len(jwks) != 2 {
+		t.Fatalf("expected 2 keys (active+grace), got %d", len(jwks))
+	}
+	// 每条 JWK 的字段完整性
+	for _, k := range jwks {
+		if k.Kty != "RSA" || k.Alg != "RS256" || k.Use != "sig" || k.Kid == "" || k.N == "" {
+			t.Fatalf("incomplete JWK: %+v", k)
+		}
+	}
+	// 多密钥场景 GetJWKSMap 与 GetJWKS 一致
+	m := GetJWKSMap()
+	if len(m["keys"].([]RSAJWK)) != len(jwks) {
+		t.Fatal("JWKSMap mismatch with GetJWKS")
+	}
+	t.Cleanup(ResetKeys)
+}
