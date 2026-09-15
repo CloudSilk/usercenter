@@ -123,7 +123,7 @@ func GetUsageByModel(tenantID string, startTime, endTime int64) (map[string]*Usa
 		SuccessCount int64   `json:"success_count"`
 	}
 	var results []modelAgg
-	err := db.Select("model_name as model, SUM(total_tokens) as total_tokens, SUM(cost) as total_cost, COUNT(*) as request_count, COUNT(CASE WHEN success THEN 1 END) as success_count").
+	err := db.Select("model_name, SUM(total_tokens) as total_tokens, SUM(cost) as total_cost, COUNT(*) as request_count, COUNT(CASE WHEN success THEN 1 END) as success_count").
 		Group("model_name").Order("total_tokens desc").Find(&results).Error
 	if err != nil {
 		return nil, err
