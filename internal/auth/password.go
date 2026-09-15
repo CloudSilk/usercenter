@@ -81,5 +81,26 @@ func GeneratePasswd(length int, pwdStrength PwdStrength) string {
 		}
 		passwd[i] = sourceStr[idx.Int64()]
 	}
+	// 混合/高级强度：保证数字+小写+大写至少各一（满足 ValidPasswdStrength 策略）
+	if length >= 3 && (pwdStrength == PwdStrengthMix || pwdStrength == PwdStrengthAdvance) {
+		passwd[0] = NUmStr[randInt(len(NUmStr))]
+		passwd[1] = CharStr[randInt(len(CharStr))]
+		passwd[2] = upperByte(CharStr[randInt(len(CharStr))])
+	}
 	return string(passwd)
+}
+
+func randInt(n int) int {
+	idx, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return 0
+	}
+	return int(idx.Int64())
+}
+
+func upperByte(b byte) byte {
+	if b >= 'a' && b <= 'z' {
+		return b - 32
+	}
+	return b
 }
