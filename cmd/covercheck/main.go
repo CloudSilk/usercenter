@@ -16,11 +16,13 @@ import (
 // gate 包路径 → 最低覆盖率阈值(百分比)。阈值取当前实测值向下取整,
 // 只允许提升不允许回退;提升覆盖率后应同步上调阈值。
 var gates = map[string]float64{
-	"internal/wechatpay":  75,
-	"internal/auth":       32,
-	"internal/auth/token": 65,
-	"internal/pricing":    85,
-	"internal/audit":      90,
+	"internal/wechatpay":    75,
+	"internal/auth":         32,
+	"internal/auth/token":   65,
+	"internal/pricing":      85,
+	"internal/audit":        90,
+	"internal/wechatconfig": 40,
+	"internal/systemconfig": 40,
 }
 
 func main() {
