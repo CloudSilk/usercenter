@@ -2,6 +2,7 @@ package wechat
 
 import (
 	"context"
+	"sync"
 
 	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/CloudSilk/usercenter/internal/wechatconfig"
@@ -13,6 +14,7 @@ import (
 
 var (
 	miniPrograms = make(map[string]*MiniProgramConfig)
+	miniMu       sync.RWMutex
 )
 
 type MiniProgramConfig struct {
@@ -50,5 +52,18 @@ func InitWechat() {
 }
 
 func GetMiniProgram(app string) *MiniProgramConfig {
+	miniMu.RLock()
+	defer miniMu.RUnlock()
 	return miniPrograms[app]
+}
+
+// ReloadMiniPrograms 热重载小程序配置：清空后重新从数据库装载。
+// 供嵌入式宿主在配置增删改后调用（并发安全）。
+func ReloadMiniPrograms() {
+	miniMu.Lock()
+	defer miniMu.Unlock()
+	for k := range miniPrograms {
+		delete(miniPrograms, k)
+	}
+	InitWechat()
 }
