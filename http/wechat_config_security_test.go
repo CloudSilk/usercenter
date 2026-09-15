@@ -28,6 +28,11 @@ func TestWechatConfigReadIsRedactedAndBlankUpdatePreservesSecrets(t *testing.T) 
 	})
 
 	router := gin.New()
+	// 注入超管用户上下文(requireWechatConfigSuperAdmin 需要 RoleIDs 包含 "1")
+	router.Use(func(c *gin.Context) {
+		c.Set("User", &apipb.CurrentUser{Id: "admin-test", RoleIDs: []string{"1"}})
+		c.Next()
+	})
 	userhttp.RegisterWechatConfigRouter(router)
 	detail := httptest.NewRecorder()
 	router.ServeHTTP(detail, httptest.NewRequest(

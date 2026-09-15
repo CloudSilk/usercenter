@@ -186,6 +186,7 @@ func RegisterWechatPayOrderRouter(r *gin.Engine) {
 	s.PUT("config", AutoHandler(UpdateWechatPayStatsConfig))
 	s.DELETE("config", ResetWechatPayStatsConfig)
 	s.POST("reconcile-now", ReconcileNow)
+	s.GET("summary", AutoQueryHandler(QueryWechatPaySummary))
 	s.GET("refund-reason", AutoQueryHandler(QueryWechatRefundReasonStats))
 	s.GET("refund-reason/trend", AutoQueryHandler(QueryWechatRefundReasonTrend))
 }
@@ -868,4 +869,38 @@ func ResetWechatPayStatsConfig(c *gin.Context) {
 	status := wechatpay.GetLoopStatus()
 	resp.Data = &status
 	c.JSON(http.StatusOK, resp)
+}
+
+// PaySummaryRequest 统计摘要请求。
+type PaySummaryRequest struct {
+	TenantID string `form:"tenantID"`
+	Days     int    `form:"days" binding:"omitempty,gt=0,lte=90"`
+}
+
+// PaySummaryResponse 统计摘要响应。
+type PaySummaryResponse struct {
+	Code    apipb.Code                `json:"code"`
+	Message string                    `json:"message,omitempty"`
+	Data    []*wechatpay.DailyPayStat `json:"data,omitempty"`
+}
+
+// QueryWechatPaySummary 查询支付统计摘要(按日聚合)。
+//
+//	@Summary 支付统计摘要(按日聚合)
+//	@Tags 微信支付订单管理
+//	@Param authorization header string true "jwt token"
+//	@Param tenantID query string false "租户ID"
+//	@Param days query int false "最近 N 天(含今日),默认 7,范围 1-90"
+//	@Success 200 {object} PaySummaryResponse
+//	@Router /api/core/wechat/pay/stats/summary [get]
+func QueryWechatPaySummary(c *gin.Context, req *PaySummaryRequest) (*PaySummaryResponse, error) {
+	resp := &PaySummaryResponse{Code: apipb.Code_Success}
+	stats, err := wechatpay.QueryDailyPayStats(req.TenantID, req.Days)
+	if err != nil {
+		resp.Code = apipb.Code_InternalServerError
+		resp.Message = err.Error()
+		return resp, nil
+	}
+	resp.Data = stats
+	return resp, nil
 }

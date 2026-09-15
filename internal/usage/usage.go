@@ -48,14 +48,14 @@ type UsageSummary struct {
 // UsageBudget 预算配额
 type UsageBudget struct {
 	commonmodel.Model
-	TenantID           string  `json:"tenantID" gorm:"index;size:36"`
-	PrincipalID        string  `json:"principalID" gorm:"index;size:36;comment:主体ID(空=租户级)"`
-	ModelName          string  `json:"model" gorm:"size:100;comment:模型(空=全部)"`
-	DailyTokenLimit    int64   `json:"dailyTokenLimit"`
-	DailyCostLimit     float64 `json:"dailyCostLimit"`
-	MonthlyTokenLimit  int64   `json:"monthlyTokenLimit"`
-	MonthlyCostLimit   float64 `json:"monthlyCostLimit"`
-	Enable             bool    `json:"enable" gorm:"index;default:true"`
+	TenantID          string  `json:"tenantID" gorm:"index;size:36"`
+	PrincipalID       string  `json:"principalID" gorm:"index;size:36;comment:主体ID(空=租户级)"`
+	ModelName         string  `json:"model" gorm:"size:100;comment:模型(空=全部)"`
+	DailyTokenLimit   int64   `json:"dailyTokenLimit"`
+	DailyCostLimit    float64 `json:"dailyCostLimit"`
+	MonthlyTokenLimit int64   `json:"monthlyTokenLimit"`
+	MonthlyCostLimit  float64 `json:"monthlyCostLimit"`
+	Enable            bool    `json:"enable" gorm:"index;default:true"`
 }
 
 func (UsageBudget) TableName() string { return "usage_budget" }
@@ -116,11 +116,11 @@ func GetUsageByModel(tenantID string, startTime, endTime int64) (map[string]*Usa
 		db = db.Where("created_at <= ?", time.Unix(endTime, 0))
 	}
 	type modelAgg struct {
-		ModelName     string  `json:"model"`
-		TotalTokens   int64   `json:"total_tokens"`
-		TotalCost     float64 `json:"total_cost"`
-		RequestCount  int64   `json:"request_count"`
-		SuccessCount  int64   `json:"success_count"`
+		ModelName    string  `json:"model"`
+		TotalTokens  int64   `json:"total_tokens"`
+		TotalCost    float64 `json:"total_cost"`
+		RequestCount int64   `json:"request_count"`
+		SuccessCount int64   `json:"success_count"`
 	}
 	var results []modelAgg
 	err := db.Select("model_name as model, SUM(total_tokens) as total_tokens, SUM(cost) as total_cost, COUNT(*) as request_count, COUNT(CASE WHEN success THEN 1 END) as success_count").
