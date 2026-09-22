@@ -170,6 +170,7 @@ func isPublicAuthPath(path string) bool {
 		"/api/social/providers",
 		"/api/core/auth/login/options",
 		"/api/core/auth/user/login",
+		"/api/core/auth/user/register",
 		"/api/core/auth/user/mfa/verify",
 		"/api/core/auth/user/phone/status",
 		"/api/core/auth/user/phone/code",

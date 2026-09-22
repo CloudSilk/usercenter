@@ -451,6 +451,56 @@ func AddUser(c *gin.Context, req *apipb.UserInfo) (*apipb.CommonResponse, error)
 // AddUserHandler 泛型路由注册入口
 var AddUserHandler = AutoHandler(AddUser)
 
+// SelfRegisterHandler 自助注册（教师/家长通用）：手机号+密码，创建即启用。
+// 公开接口（auth 白名单）；账号即手机号，昵称缺省取尾号。
+func SelfRegisterHandler(c *gin.Context) {
+	var req struct {
+		Mobile   string `json:"mobile"`
+		Password string `json:"password"`
+		Nickname string `json:"nickname"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_BadRequest, Message: err.Error()})
+		return
+	}
+	req.Mobile = strings.TrimSpace(req.Mobile)
+	if len(req.Mobile) != 11 || !strings.HasPrefix(req.Mobile, "1") {
+		c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_BadRequest, Message: "请输入正确的 11 位手机号"})
+		return
+	}
+	for _, ch := range req.Mobile {
+		if ch < '0' || ch > '9' {
+			c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_BadRequest, Message: "请输入正确的 11 位手机号"})
+			return
+		}
+	}
+	if len(req.Password) < 8 {
+		c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_BadRequest, Message: "密码至少 8 位"})
+		return
+	}
+	nickname := strings.TrimSpace(req.Nickname)
+	if nickname == "" {
+		nickname = "用户" + req.Mobile[len(req.Mobile)-4:]
+	}
+	u := user.User{
+		UserName: req.Mobile,
+		Mobile:   req.Mobile,
+		Nickname: nickname,
+		Enable:   true,
+	}
+	u.TenantID = constants.PlatformTenantID
+	u.Password = req.Password
+	if err := user.CreateUser(&u, false); err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "Duplication") || strings.Contains(msg, "duplicate") {
+			msg = "该手机号已注册，请直接登录"
+		}
+		c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: msg})
+		return
+	}
+	c.JSON(http.StatusOK, &apipb.CommonResponse{Code: apipb.Code_Success, Message: "注册成功"})
+}
+
 // UpdateUser godoc
 // @Summary 更新用户
 // @Tags 用户管理
@@ -933,6 +983,7 @@ func GetBasicsByToken(c *gin.Context) {
 func RegisterUserRouter(r *gin.Engine) {
 	userGroup := r.Group("/api/core/auth/user")
 	userGroup.POST("login", Login)
+	userGroup.POST("register", SelfRegisterHandler)
 	userGroup.POST("mfa/verify", MFALoginVerify)
 	registerUserMFARoutes(userGroup)
 	userGroup.POST("logout", Logout)
