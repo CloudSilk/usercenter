@@ -48,6 +48,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	constants.SetPlatformTenantID(platformTenant)
+	constants.SetSuperAdminRoleID("1")
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
@@ -1840,7 +1841,7 @@ func TestAPIResourceMutationRebuildsPoliciesAndRejectsBoundDelete(t *testing.T) 
 
 func TestResetPwdAcceptsExplicitStrongPassword(t *testing.T) {
 	targetID := mustCreateUser(t, "explicit-reset", platformTenant, "Abc12345")
-	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
+	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin", RoleIDs: []string{"1"}}
 	r := newTestEngine(current)
 
 	resp := decodeCommonResponse(t, doJSONRequest(t, r, http.MethodPost, "/api/core/auth/user/resetpwd", map[string]any{
@@ -1867,7 +1868,7 @@ func TestUpdateUserWithoutRoleFieldsPreservesExistingRoles(t *testing.T) {
 	if err := store.DB().Create(roleLink).Error; err != nil {
 		t.Fatalf("create user role: %v", err)
 	}
-	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
+	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin", RoleIDs: []string{"1"}}
 
 	resp := decodeCommonResponse(t, doJSONRequest(t, newTestEngine(current), http.MethodPut, "/api/core/auth/user/update", map[string]any{
 		"id": targetID, "tenantID": platformTenant, "userName": "role-preserving-update",
@@ -1896,7 +1897,7 @@ func TestUpdateUserRolesUsesDedicatedTenantScopedEndpointAndAudit(t *testing.T) 
 	if err := store.DB().Create(&roles).Error; err != nil {
 		t.Fatalf("create roles: %v", err)
 	}
-	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
+	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin", RoleIDs: []string{"1"}}
 	w := doJSONRequest(t, newTestEngine(current), http.MethodPut, "/api/core/auth/user/roles", map[string]any{
 		"id": targetID, "roleIDs": []string{"dedicated-role-2", "dedicated-role-1"},
 	})
@@ -1965,7 +1966,7 @@ func TestUpdateUserRolesRejectsCrossTenantManagerAndForeignRole(t *testing.T) {
 		t.Fatalf("cross-tenant manager should be denied, got %v", crossTenant.Code)
 	}
 
-	platformManager := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
+	platformManager := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin", RoleIDs: []string{"1"}}
 	foreignAssignment := decodeCommonResponse(t, doJSONRequest(
 		t,
 		newTestEngine(platformManager),
@@ -1992,14 +1993,20 @@ func TestResetPwdRejectsCrossTenant(t *testing.T) {
 	}
 }
 
-// A2: 平台租户可重置任意租户用户密码
+// A2: 平台超管可重置任意租户用户密码；平台租户普通用户无用户管理权
 func TestResetPwdAllowsPlatformTenant(t *testing.T) {
 	target := mustCreateUser(t, "platformtarget", "tenant-B", "Abc12345")
-	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
+	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin", RoleIDs: []string{"1"}}
 
 	resp := doResetPwd(t, newTestEngine(current), target)
 	if resp.Code != commonmodel.Success {
-		t.Fatalf("expected success for platform tenant reset, got %v (%s)", resp.Code, resp.Message)
+		t.Fatalf("expected success for platform super admin reset, got %v (%s)", resp.Code, resp.Message)
+	}
+
+	plainPlatformUser := &apipb.CurrentUser{Id: "platform-plain", TenantID: platformTenant, UserName: "platform-plain"}
+	denied := doResetPwd(t, newTestEngine(plainPlatformUser), target)
+	if denied.Code != commonmodel.NoPermission {
+		t.Fatalf("platform tenant user without super admin role must be denied, got %v (%s)", denied.Code, denied.Message)
 	}
 }
 

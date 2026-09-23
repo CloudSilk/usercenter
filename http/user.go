@@ -58,10 +58,27 @@ func requestedUserTenantID(c *gin.Context, bound string) string {
 	return bound
 }
 
+// callerIsPlatformSuperAdmin 当前登录用户是否持有平台超级管理员角色。
+func callerIsPlatformSuperAdmin(c *gin.Context) bool {
+	exists, u := middleware.GetUser(c)
+	if !exists || u == nil {
+		return false
+	}
+	for _, r := range u.RoleIDs {
+		if r == constants.SuperAdminRoleID {
+			return true
+		}
+	}
+	return false
+}
+
+// canManageUser 平台租户内全部业务账号同租户，若仅按租户判定，任意登录用户
+// 都能重置/停用他人（含管理员）账号——平台租户的用户管理收敛为超管专属；
+// 非平台租户维持同租户可管理语义。
 func canManageUser(c *gin.Context, userID string) bool {
 	current := middleware.GetTenantID(c)
 	if current == constants.PlatformTenantID {
-		return true
+		return callerIsPlatformSuperAdmin(c)
 	}
 	target, err := user.GetUserTenantID(userID)
 	return err == nil && target == current
@@ -441,6 +458,11 @@ func UpdateProfile(c *gin.Context) {
 // @Success 200 {object} apipb.CommonResponse
 // @Router /api/core/auth/user/add [post]
 func AddUser(c *gin.Context, req *apipb.UserInfo) (*apipb.CommonResponse, error) {
+	// /add 接受完整 UserInfo（含角色、租户），等价于账号管理操作：
+	// 平台租户语境下仅超管可调用，普通注册一律走公开的 /register。
+	if middleware.GetTenantID(c) == constants.PlatformTenantID && !callerIsPlatformSuperAdmin(c) {
+		return &apipb.CommonResponse{Code: apipb.Code_NoPermission, Message: "仅超级管理员可创建用户，普通注册请使用 register"}, nil
+	}
 	req.TenantID = scopedUserTenantID(c, req.TenantID)
 	if err := user.CreateUser(user.PBToUser(req), false); err != nil {
 		return &apipb.CommonResponse{Code: apipb.Code_InternalServerError, Message: err.Error()}, nil
