@@ -199,7 +199,7 @@ describe("WechatPay page - manual bill pull", () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch
     // URL.createObjectURL stub
     const realCreate = URL.createObjectURL
-    ;(URL as unknown as { createObjectURL: () => string }).createObjectURL = () => "blob:x"
+    ;(URL as unknown as { createObjectURL: typeof URL.createObjectURL }).createObjectURL = () => "blob:x"
 
     renderPage()
     // 等页面渲染完成
@@ -217,7 +217,7 @@ describe("WechatPay page - manual bill pull", () => {
     expect(String(call[0])).toContain("/api/core/wechat/pay/order/trade-bill")
     expect(String(call[0])).toContain("configID=cfg-manual-1")
     expect(String(call[0])).toContain("billType=ALL")
-    ;(URL as unknown as { createObjectURL: () => string }).createObjectURL = realCreate
+    ;(URL as unknown as { createObjectURL: typeof URL.createObjectURL }).createObjectURL = realCreate
     globalThis.fetch = originalFetch
   })
 })
