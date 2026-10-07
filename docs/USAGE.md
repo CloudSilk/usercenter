@@ -1452,3 +1452,21 @@ curl "/api/core/wechat/pay/order/trade-bill?configID=<商户配置ID>&billDate=2
 
 错误(日期非法、越权、微信侧无账单等)以 `{"code":..., "message":...}` JSON 返回。
 账单为商户号粒度:同一商户配置下多应用共享账单。
+
+## 18. 内嵌应用的后台 AI 任务
+
+同进程任务调度器可使用 `pkg/server.NewBackgroundAITransport(resolve)` 作为 `http.Client.Transport`，以 OpenAI 格式调用 `/v1/chat/completions` 或读取 `/v1/models`。调用前完成数据库、常量初始化及 AI 网关注册。
+
+`resolve(context.Context)` 必须从宿主持久化、已授权入队的任务返回 `(userID, tenantID)`，不能读取可伪造的 HTTP 身份头。每次调用由 UserCenter 检查用户与租户状态，重新读取当前启用角色并执行 API 授权；停用用户、禁用角色或撤销权限可阻止排队任务继续调用。宿主应为相应业务角色注册所需 `/v1` 权限。
+
+该传输仅供受信进程内部使用，缓冲后台响应，不能作为网络鉴权中间件暴露。它不签发可复用 token，也不向宿主返回模型密钥；厂商路由、加密 Key、额度、用量和网关日志继续由原有 AI handler 处理。浏览器会话注销不等同于取消已入队任务，业务取消仍由宿主调度器负责。
+
+跨进程调用使用既有 `Authorization: Bearer <token>` 或 `X-API-Key: <UserCenter service key>`。服务 API Key 不应放在 Bearer 头中，上游厂商 Key 也不能用于认证 UserCenter。
+
+## 嵌入式 Prompt 访问与版本固定
+
+宿主使用 `pkg/server.Prompts(db, tenantID)` 读取或编辑模板；`db` 可以是宿主事务句柄，`tenantID` 必须来自已认证身份。租户可读取本租户和空租户的平台模板，写入只限自身范围。宿主领域表保存模板 ID、版本 ID 和业务绑定，不能另外建立同名模板表。
+
+`Create` 与 `UpdateWithNote` 将当前行和历史快照放在同一事务中。`PinCurrent` 返回启用模板及不可变版本，供异步任务固定输入；`GetVersionByID` 同时验证模板、版本关联与租户可见性。`SnapshotCurrent` 只供迁移保存包括停用模板在内的已知当前状态，任务入队应调用 `PinCurrent`。旧数据缺失的历史不会根据当前内容伪造。
+
+版本表已包含在启动迁移中；版本快照失败会使模板写入整体失败。回滚产生新版本，并保留当前启用状态。

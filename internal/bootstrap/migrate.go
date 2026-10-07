@@ -72,7 +72,7 @@ func AutoMigrate() error {
 		&usage.UsageRecord{}, &usage.UsageBudget{},
 		&session.Session{}, &session.LoginRecord{},
 		&auth.MFAFactor{}, &auth.RefreshToken{}, &auth.OAuthClient{}, &auth.ConsentRecord{},
-		&prompt.PromptTemplate{},
+		&prompt.PromptTemplate{}, &prompt.PromptVersion{},
 		&identity.UserExternalIdentity{},
 		&pricing.ModelPrice{},
 		// AI 网关增强：对话会话、请求日志、语义缓存。

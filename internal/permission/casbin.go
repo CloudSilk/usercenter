@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CloudSilk/pkg/constants"
 	"github.com/CloudSilk/pkg/utils/log"
 	"github.com/CloudSilk/usercenter/internal/store"
 	"github.com/casbin/casbin/v2"
@@ -126,6 +127,7 @@ func NewEnforcer() *casbin.Enforcer {
 		panic(fmt.Sprintf("创建 Casbin Enforcer 失败: %v", err))
 	}
 	e.AddFunction("ParamsMatch", ParamsMatchFunc)
+	e.AddFunction("IsSuperAdmin", isConfiguredSuperAdmin)
 	e.EnableAutoSave(false)
 	_ = e.LoadPolicy()
 
@@ -213,6 +215,24 @@ func ParamsMatchFunc(args ...interface{}) (interface{}, error) {
 	return ParamsMatch(name1, name2), nil
 }
 
+// Read configuration at enforcement time: embedded hosts commonly initialize
+// Casbin during migration, then call InitConstants. ID 1 is the legacy default
+// only when no super-admin ID has been configured.
+func isConfiguredSuperAdmin(args ...interface{}) (interface{}, error) {
+	if len(args) != 1 {
+		return false, errors.New("IsSuperAdmin expects one subject")
+	}
+	subject, ok := args[0].(string)
+	if !ok || subject == "" || subject == "-1" || subject == "0" {
+		return false, nil
+	}
+	configured := strings.TrimSpace(constants.SuperAdminRoleID)
+	if configured == "" {
+		configured = "1"
+	}
+	return subject == configured, nil
+}
+
 const rbacModel = `
 [request_definition]
 r = sub, obj, act
@@ -227,7 +247,7 @@ g = _, _
 e = some(where (p.eft == allow))
 
 [matchers]
-m = r.sub=="1" || (r.sub == p.sub && ParamsMatch(r.obj,p.obj) && r.act == p.act)`
+m = IsSuperAdmin(r.sub) || (r.sub == p.sub && ParamsMatch(r.obj,p.obj) && r.act == p.act)`
 
 // --- 鉴权缓存（从 model/auth.go 迁入，属于权限判定基础设施）---
 
@@ -242,7 +262,7 @@ func EnforceCached(sub, obj, act string) (ok bool, err error) {
 			ok = false
 		}
 	}()
-	key := sub + "|" + obj + "|" + act
+	key := constants.SuperAdminRoleID + "|" + sub + "|" + obj + "|" + act
 	if v, ok := authResultCache.Get(key); ok {
 		return v.(bool), nil
 	}
