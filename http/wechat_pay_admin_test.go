@@ -15,6 +15,7 @@ import (
 )
 
 func TestWechatPayOrderAdminQuery(t *testing.T) {
+	isolate(t)
 	const tenant = "payorder-admin-tenant"
 	order := &wechatpay.PayOrder{
 		TenantID: tenant, UserID: "admin-query-user", WechatConfigID: "wc-x",
@@ -65,6 +66,7 @@ func TestWechatPayOrderAdminQuery(t *testing.T) {
 }
 
 func TestWechatPayOrderExport(t *testing.T) {
+	isolate(t)
 	const tenant = "payorder-export-tenant"
 	orders := []*wechatpay.PayOrder{
 		{TenantID: tenant, UserID: "u1", WechatConfigID: "wc-e", AppID: "wx-e", MchID: "1900000777",

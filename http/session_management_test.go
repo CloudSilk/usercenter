@@ -18,6 +18,7 @@ import (
 )
 
 func TestSessionManagementRecordsLoginAnomalyAndForceLogout(t *testing.T) {
+	isolate(t)
 	const (
 		tenantID = "tenant-session-management"
 		userName = "session-management-user"

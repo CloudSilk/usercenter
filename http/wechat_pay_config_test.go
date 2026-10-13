@@ -33,6 +33,7 @@ func newTestPrivateKeyPEM(t *testing.T) string {
 }
 
 func TestWechatPayConfigReadIsRedactedAndBlankUpdatePreservesSecrets(t *testing.T) {
+	isolate(t)
 	privateKey := newTestPrivateKeyPEM(t)
 	apiV3Key := strings.Repeat("z", 32)
 	config := &wechatpay.PayConfig{
@@ -91,6 +92,7 @@ func TestWechatPayConfigReadIsRedactedAndBlankUpdatePreservesSecrets(t *testing.
 }
 
 func TestWechatPayConfigAddRejectsInvalidPrivateKey(t *testing.T) {
+	isolate(t)
 	router := gin.New()
 	userhttp.RegisterWechatPayConfigRouter(router)
 

@@ -6,6 +6,7 @@ import (
 )
 
 func TestExtractChatEnhancements(t *testing.T) {
+	isolate(t)
 	body := []byte(`{
 		"model": "gpt-4",
 		"stream": true,
@@ -65,6 +66,7 @@ func TestExtractChatEnhancements(t *testing.T) {
 }
 
 func TestExtractChatEnhancements_NoEnhancements(t *testing.T) {
+	isolate(t)
 	body := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`)
 	_, enh, model, stream, err := extractChatEnhancements(body)
 	if err != nil {
@@ -82,6 +84,7 @@ func TestExtractChatEnhancements_NoEnhancements(t *testing.T) {
 }
 
 func TestExtractChatEnhancements_InvalidJSON(t *testing.T) {
+	isolate(t)
 	body := []byte(`{invalid json}`)
 	_, _, _, _, err := extractChatEnhancements(body)
 	if err == nil {
@@ -90,6 +93,7 @@ func TestExtractChatEnhancements_InvalidJSON(t *testing.T) {
 }
 
 func TestExtractLastUserMessage(t *testing.T) {
+	isolate(t)
 	body := []byte(`{"messages":[
 		{"role":"system","content":"you are helpful"},
 		{"role":"user","content":"what is 2+2"},
@@ -103,6 +107,7 @@ func TestExtractLastUserMessage(t *testing.T) {
 }
 
 func TestExtractLastUserMessage_NoUser(t *testing.T) {
+	isolate(t)
 	body := []byte(`{"messages":[{"role":"system","content":"hi"}]}`)
 	msg := extractLastUserMessage(body)
 	if msg != "" {
@@ -111,6 +116,7 @@ func TestExtractLastUserMessage_NoUser(t *testing.T) {
 }
 
 func TestExtractAssistantContent(t *testing.T) {
+	isolate(t)
 	body := []byte(`{
 		"choices": [{"message": {"content": "Hello there!"}}],
 		"usage": {"completion_tokens": 3}
@@ -122,6 +128,7 @@ func TestExtractAssistantContent(t *testing.T) {
 }
 
 func TestExtractAssistantContent_NoChoices(t *testing.T) {
+	isolate(t)
 	body := []byte(`{"choices":[]}`)
 	content := extractAssistantContent(body)
 	if content != "" {
@@ -130,6 +137,7 @@ func TestExtractAssistantContent_NoChoices(t *testing.T) {
 }
 
 func TestTruncateStr(t *testing.T) {
+	isolate(t)
 	if got := truncateStr("hello", 10); got != "hello" {
 		t.Fatalf("expected 'hello', got %q", got)
 	}

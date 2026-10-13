@@ -60,7 +60,7 @@ func TestDevAuthRequiredAcceptsServiceAPIKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(
-		sqlite.Open("file:dev-auth-api-key?mode=memory&cache=shared"),
+		sqlite.Open(memDSN("dev-auth-api-key")),
 		&gorm.Config{},
 	)
 	if err != nil {
@@ -116,7 +116,7 @@ func TestDevAuthRequiredRejectsRevokedLoginSession(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	database, err := gorm.Open(
-		sqlite.Open("file:dev-auth-revoked-session?mode=memory&cache=shared"),
+		sqlite.Open(memDSN("dev-auth-revoked-session")),
 		&gorm.Config{},
 	)
 	if err != nil {

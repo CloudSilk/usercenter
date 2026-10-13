@@ -15,6 +15,7 @@ import (
 )
 
 func TestSelfServiceAuthorizationIsSeededForProductionAuth(t *testing.T) {
+	isolate(t)
 	definitions := []struct {
 		method string
 		path   string
@@ -56,6 +57,7 @@ func TestSelfServiceAuthorizationIsSeededForProductionAuth(t *testing.T) {
 }
 
 func TestDeleteOwnAccountRequiresBoundReauthAndDeletesOnlyCurrentUser(t *testing.T) {
+	isolate(t)
 	currentID := mustCreateUser(t, "delete-self", "delete-tenant", "Delete12345")
 	foreignID := mustCreateUser(t, "delete-foreign", "delete-tenant", "Foreign12345")
 	current := &apipb.CurrentUser{Id: currentID, TenantID: "delete-tenant", UserName: "delete-self"}
@@ -84,6 +86,7 @@ func TestDeleteOwnAccountRequiresBoundReauthAndDeletesOnlyCurrentUser(t *testing
 }
 
 func TestPhoneRegisteredAccountCanReverifyWithBoundPhoneCode(t *testing.T) {
+	isolate(t)
 	const phone = "13800138888"
 	currentID := mustCreateUser(t, "phone-reauth-self", "phone-reauth-tenant", "Internal12345")
 	if err := store.DB().Model(&user.User{}).Where("id = ?", currentID).Update("mobile", phone).Error; err != nil {
@@ -114,6 +117,7 @@ func TestPhoneRegisteredAccountCanReverifyWithBoundPhoneCode(t *testing.T) {
 }
 
 func TestUpdateProfileOnlyChangesCurrentUserAndRecordsAudit(t *testing.T) {
+	isolate(t)
 	currentID := mustCreateUser(t, "profile-current", "profile-tenant", "Old12345")
 	foreignID := mustCreateUser(t, "profile-foreign", "profile-tenant", "Bee12345")
 	current := &apipb.CurrentUser{
@@ -168,6 +172,7 @@ func TestUpdateProfileOnlyChangesCurrentUserAndRecordsAudit(t *testing.T) {
 }
 
 func TestChangePasswordClearsForceChangeFlagAndRecordsAudit(t *testing.T) {
+	isolate(t)
 	currentID := mustCreateUser(t, "self-password", "password-tenant", "Old12345")
 	if err := store.DB().Model(&user.User{}).
 		Where("id = ?", currentID).
@@ -216,6 +221,7 @@ func TestChangePasswordClearsForceChangeFlagAndRecordsAudit(t *testing.T) {
 }
 
 func TestMFAUserRoutesConfirmListAndEnforceOwnerBoundary(t *testing.T) {
+	isolate(t)
 	auth.SetPIIKeyFrom("account-self-service-test-key")
 	currentID := mustCreateUser(t, "mfa-self", "mfa-tenant", "Old12345")
 	foreignID := mustCreateUser(t, "mfa-foreign", "mfa-tenant", "Bee12345")

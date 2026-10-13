@@ -7,6 +7,7 @@ import (
 
 // TestCompareArgon2EdgeCases 补齐 CompareArgon2 的边界分支覆盖。
 func TestCompareArgon2EdgeCases(t *testing.T) {
+	isolate(t)
 	hash, _ := EncryptedPasswordArgon2("testpass")
 
 	// 正确密码
@@ -35,6 +36,7 @@ func TestCompareArgon2EdgeCases(t *testing.T) {
 
 // TestIsArgon2AndScryptHash 补齐格式判断分支。
 func TestIsArgon2AndScryptHash(t *testing.T) {
+	isolate(t)
 	cases := []struct {
 		input    string
 		isArgon2 bool
@@ -56,6 +58,7 @@ func TestIsArgon2AndScryptHash(t *testing.T) {
 
 // TestGenerateTOTPSecretUniqueness 补齐 TOTP 密钥唯一性验证。
 func TestGenerateTOTPSecretUniqueness(t *testing.T) {
+	isolate(t)
 	seen := make(map[string]bool)
 	for i := 0; i < 10; i++ {
 		secret, err := GenerateTOTPSecret()
@@ -71,6 +74,7 @@ func TestGenerateTOTPSecretUniqueness(t *testing.T) {
 
 // TestGenerateTOTPURIMultiple 测试 URI 生成格式。
 func TestGenerateTOTPURIMultiple(t *testing.T) {
+	isolate(t)
 	uri := GenerateTOTPURI("ABC234DEF", "bob@corp.io", "MyApp")
 	for _, want := range []string{
 		"otpauth://totp/MyApp:bob@corp.io",
@@ -85,6 +89,7 @@ func TestGenerateTOTPURIMultiple(t *testing.T) {
 
 // TestRequiredACRForActionAllActions 补齐所有 action 分支。
 func TestRequiredACRForActionAllActions(t *testing.T) {
+	isolate(t)
 	level2Actions := []string{"delete_user", "reset_password", "change_password", "update_role"}
 	for _, a := range level2Actions {
 		if got := RequiredACRForAction(a); got != ACRLevel2 {

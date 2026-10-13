@@ -22,6 +22,7 @@ func (loginOptionsSender) SendPhoneCode(context.Context, string, string, int) er
 }
 
 func TestLoginOptionsArePublicAndSecretFree(t *testing.T) {
+	isolate(t)
 	const tenantID = "login-options-tenant"
 	configs := []*wechatconfig.WechatConfig{
 		{

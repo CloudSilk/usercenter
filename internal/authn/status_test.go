@@ -1,7 +1,6 @@
 package authn
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -139,7 +138,7 @@ func TestValidatePrincipalStatusDoesNotTreatMachinesAsUsers(t *testing.T) {
 
 func newStatusTestDB(t *testing.T, name string, now time.Time) *gorm.DB {
 	t.Helper()
-	database, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:authn-status-%s?mode=memory&cache=shared", name)), &gorm.Config{})
+	database, err := gorm.Open(sqlite.Open(memDSN("authn-status-"+name)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

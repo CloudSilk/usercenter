@@ -106,6 +106,7 @@ func newAIGatewayEngine(userID, tenantID string) *gin.Engine {
 }
 
 func TestChatCompletionsRoutesSameAliasByTenantAndRewritesUpstreamModel(t *testing.T) {
+	isolate(t)
 	const alias = "shared-smart-text-alias"
 	type capturedRequest struct {
 		model string
@@ -171,6 +172,7 @@ func TestChatCompletionsRoutesSameAliasByTenantAndRewritesUpstreamModel(t *testi
 // TestChatCompletions_E2E 端到端验证整条链路：
 // 请求 → 限流 → 解析 → 配额 → 路由选 Key(解密) → 转发 mock 上游 → 计量/日志落库。
 func TestChatCompletions_E2E(t *testing.T) {
+	isolate(t)
 	// mock 上游：记录收到的鉴权头，返回固定 OpenAI 响应
 	var gotAuth string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -235,6 +237,7 @@ func TestChatCompletions_E2E(t *testing.T) {
 }
 
 func TestAudioTranscriptions_E2E_ForwardsMultipartBodyAndBoundary(t *testing.T) {
+	isolate(t)
 	const (
 		modelName    = "mock-transcription-model"
 		audioName    = "sample.wav"
@@ -310,6 +313,7 @@ func TestAudioTranscriptions_E2E_ForwardsMultipartBodyAndBoundary(t *testing.T) 
 // stream:true → streamProxy 逐行透传 SSE + 累积 delta.content + 从最后一块提取 usage → 用量落库。
 // 这是此前 P0 双写 bug 所在路径，必须有覆盖。
 func TestChatCompletions_E2E_CacheBypassSkipsReadAndWrite(t *testing.T) {
+	isolate(t)
 	aicache.Init(aicache.CacheConfig{Enabled: true})
 	aicache.Clear()
 	defer aicache.Clear()
@@ -347,6 +351,7 @@ func TestChatCompletions_E2E_CacheBypassSkipsReadAndWrite(t *testing.T) {
 }
 
 func TestChatCompletions_E2E_Streaming(t *testing.T) {
+	isolate(t)
 	sse := []byte("data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n" +
 		"data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n" +
 		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":2}}\n\n" +
@@ -408,6 +413,7 @@ func TestChatCompletions_E2E_Streaming(t *testing.T) {
 
 // TestChatCompletions_E2E_NoRoute 验证无可用路由时返回 502（forwardWithRetry 失败链路）。
 func TestChatCompletions_E2E_NoRoute(t *testing.T) {
+	isolate(t)
 	r := newAIGatewayEngine("u2", platformTenant)
 	// 不播种任何 provider/route → SelectKey 失败 → 502
 
@@ -424,6 +430,7 @@ func TestChatCompletions_E2E_NoRoute(t *testing.T) {
 
 // TestChatCompletions_E2E_MissingModel 验证缺 model 字段返回 400。
 func TestChatCompletions_E2E_MissingModel(t *testing.T) {
+	isolate(t)
 	r := newAIGatewayEngine("u3", platformTenant)
 
 	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
@@ -441,6 +448,7 @@ func TestChatCompletions_E2E_MissingModel(t *testing.T) {
 // 修复前 CheckBudget 查询列名写成 model（实际为 model_name），导致 SQL 报错被当作
 // "无预算"放行 —— 配额被静默绕过。此用例在修复前会失败（allowed=true），修复后通过。
 func TestCheckBudget_EnforcesModelBudget(t *testing.T) {
+	isolate(t)
 	// 种子：平台租户 + 模型日 token 上限 10
 	budget := &usage.UsageBudget{
 		TenantID:        platformTenant,
@@ -470,6 +478,7 @@ func TestCheckBudget_EnforcesModelBudget(t *testing.T) {
 
 // TestChatCompletions_E2E_SessionPersistence 验证带 session_id 时 user + assistant 消息落库。
 func TestChatCompletions_E2E_SessionPersistence(t *testing.T) {
+	isolate(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"session-reply"}}],"usage":{"prompt_tokens":3,"completion_tokens":1}}`))
@@ -514,6 +523,7 @@ func TestChatCompletions_E2E_SessionPersistence(t *testing.T) {
 
 // TestChatCompletions_E2E_RateLimited 验证超出令牌桶 burst 时返回 429（限流先于路由/配额）。
 func TestChatCompletions_E2E_RateLimited(t *testing.T) {
+	isolate(t)
 	// 为专用 principal 设低 burst=2，使第 3 个请求即被限流
 	ratelimit.Default.SetConfig("rateuser", 1, 2)
 	r := newAIGatewayEngine("rateuser", platformTenant)
@@ -537,6 +547,7 @@ func TestChatCompletions_E2E_RateLimited(t *testing.T) {
 // TestChatCompletions_E2E_PromptTemplateInjection 验证 prompt_template_id 渲染注入 system message，
 // 且增强字段从转发给上游的 body 中剥离。
 func TestChatCompletions_E2E_PromptTemplateInjection(t *testing.T) {
+	isolate(t)
 	tpl := &prompt.PromptTemplate{
 		TenantID:  platformTenant,
 		Name:      "test-tpl",

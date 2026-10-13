@@ -16,7 +16,7 @@ import (
 
 func registrationFacadeTestDB(t *testing.T, name string) *gorm.DB {
 	t.Helper()
-	database, err := gorm.Open(sqlite.Open("file:"+name+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	database, err := gorm.Open(sqlite.Open(memDSN(name)), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}

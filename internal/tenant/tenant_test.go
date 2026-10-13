@@ -1,6 +1,8 @@
 package tenant
 
 import (
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,16 +14,35 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		panic(err)
-	}
-	_ = gdb.AutoMigrate(&Tenant{}, &TenantMenu{}, &TenantCertificate{})
-	store.SetDB(db.NewDBClient(gdb, false))
 	m.Run()
 }
 
+var testDBSeq atomic.Int64
+
+// isolate 为每个用例提供独立的命名内存库(cache=shared 让连接池内的连接共享同一份数据),
+// 结束后关闭并还原全局 store,使用例与执行顺序、-count 重复次数无关。
+func isolate(t *testing.T) {
+	t.Helper()
+	dsn := fmt.Sprintf("file:tenant-test-%d?mode=memory&cache=shared", testDBSeq.Add(1))
+	gdb, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	if err := gdb.AutoMigrate(&Tenant{}, &TenantMenu{}, &TenantCertificate{}); err != nil {
+		t.Fatalf("migrate test db: %v", err)
+	}
+	prev := store.Client()
+	store.SetDB(db.NewDBClient(gdb, false))
+	t.Cleanup(func() {
+		store.SetDB(prev)
+		if sqlDB, err := gdb.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+}
+
 func TestCreateAndGetTenant(t *testing.T) {
+	isolate(t)
 	tnt := &Tenant{
 		Name:      "test-org",
 		Enable:    true,
@@ -45,6 +66,7 @@ func TestCreateAndGetTenant(t *testing.T) {
 }
 
 func TestUpdateTenant(t *testing.T) {
+	isolate(t)
 	tnt := &Tenant{
 		Name:      "old",
 		Enable:    true,
@@ -67,6 +89,7 @@ func TestUpdateTenant(t *testing.T) {
 }
 
 func TestTenantMetadataMutationsCannotOverwriteMenuAuthorization(t *testing.T) {
+	isolate(t)
 	tnt := &Tenant{
 		Name:      "authorization-boundary",
 		Enable:    true,
@@ -119,6 +142,7 @@ func TestTenantMetadataMutationsCannotOverwriteMenuAuthorization(t *testing.T) {
 }
 
 func TestDeleteTenant(t *testing.T) {
+	isolate(t)
 	tnt := &Tenant{
 		Name:      "todel",
 		Enable:    true,
@@ -137,6 +161,7 @@ func TestDeleteTenant(t *testing.T) {
 }
 
 func TestGetAllTenant(t *testing.T) {
+	isolate(t)
 	_ = CreateTenant(&Tenant{Name: "a", Enable: true, UserCount: 10, Expired: time.Now().Add(time.Hour)})
 	_ = CreateTenant(&Tenant{Name: "b", Enable: true, UserCount: 20, Expired: time.Now().Add(time.Hour)})
 	all, err := GetAllTenant()
@@ -149,6 +174,7 @@ func TestGetAllTenant(t *testing.T) {
 }
 
 func TestQueryTenant(t *testing.T) {
+	isolate(t)
 	_ = CreateTenant(&Tenant{Name: "query-me", Enable: true, UserCount: 5, Expired: time.Now().Add(time.Hour), Province: "GD"})
 
 	req := &apipb.QueryTenantRequest{Province: "GD"}

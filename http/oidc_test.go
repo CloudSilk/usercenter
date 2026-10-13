@@ -12,6 +12,7 @@ import (
 )
 
 func TestVerifyPKCE_S256(t *testing.T) {
+	isolate(t)
 	verifier := "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 	sum := sha256.Sum256([]byte(verifier))
 	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
@@ -34,6 +35,7 @@ func TestVerifyPKCE_S256(t *testing.T) {
 }
 
 func TestClientSecret_BcryptRoundTrip(t *testing.T) {
+	isolate(t)
 	plain := "super-secret-123"
 	hashed, err := hashClientSecret(plain)
 	if err != nil {
@@ -49,6 +51,7 @@ func TestClientSecret_BcryptRoundTrip(t *testing.T) {
 }
 
 func TestIssueIDToken_SignsWithActiveKey(t *testing.T) {
+	isolate(t)
 	_, err := auth.InitKeyManager("")
 	if err != nil {
 		t.Fatal(err)
@@ -82,6 +85,7 @@ func TestIssueIDToken_SignsWithActiveKey(t *testing.T) {
 }
 
 func TestJWKS_ExposesActiveKey(t *testing.T) {
+	isolate(t)
 	_, err := auth.InitKeyManager("")
 	if err != nil {
 		t.Fatal(err)
@@ -105,6 +109,7 @@ func TestJWKS_ExposesActiveKey(t *testing.T) {
 }
 
 func TestURIAllowed(t *testing.T) {
+	isolate(t)
 	if !uriAllowed("https://a.com/cb,https://b.com/cb", "https://a.com/cb") {
 		t.Fatal("白名单内应通过")
 	}

@@ -6,6 +6,7 @@ import (
 )
 
 func TestPIIKeyFromInput(t *testing.T) {
+	isolate(t)
 	if SetPIIKeyFrom("") {
 		t.Fatal("empty input should return false")
 	}
@@ -16,6 +17,7 @@ func TestPIIKeyFromInput(t *testing.T) {
 }
 
 func TestEncryptDecryptPIIRoundTrip(t *testing.T) {
+	isolate(t)
 	SetPIIKeyFrom("master-secret")
 	t.Cleanup(func() { piiKey = nil })
 
@@ -35,6 +37,7 @@ func TestEncryptDecryptPIIRoundTrip(t *testing.T) {
 }
 
 func TestEncryptDecryptPIIWithoutKey(t *testing.T) {
+	isolate(t)
 	piiKey = nil
 	if _, err := EncryptPII("x"); err == nil || !strings.Contains(err.Error(), "key not set") {
 		t.Fatalf("expected key-not-set error, got %v", err)
@@ -45,6 +48,7 @@ func TestEncryptDecryptPIIWithoutKey(t *testing.T) {
 }
 
 func TestDecryptPIITampered(t *testing.T) {
+	isolate(t)
 	SetPIIKeyFrom("master-secret")
 	t.Cleanup(func() { piiKey = nil })
 	enc, _ := EncryptPII("secret")
@@ -58,6 +62,7 @@ func TestDecryptPIITampered(t *testing.T) {
 }
 
 func TestMaskPII(t *testing.T) {
+	isolate(t)
 	cases := []struct {
 		in, typ, want string
 	}{
@@ -76,6 +81,7 @@ func TestMaskPII(t *testing.T) {
 }
 
 func TestSetPIIKeyDirect(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() { piiKey = nil })
 
 	// 32 字节 key:接受(截取前 32)
@@ -104,6 +110,7 @@ func TestSetPIIKeyDirect(t *testing.T) {
 }
 
 func TestItoa(t *testing.T) {
+	isolate(t)
 	cases := []struct {
 		in   uint32
 		want string

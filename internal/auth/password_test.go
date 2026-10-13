@@ -7,6 +7,7 @@ import (
 )
 
 func TestValidPasswdStrength(t *testing.T) {
+	isolate(t)
 	valid := []string{
 		"Abcdefg1",     // 8 位恰好
 		"Passw0rdLong", // 长密码
@@ -33,6 +34,7 @@ func TestValidPasswdStrength(t *testing.T) {
 }
 
 func TestEncryptedPasswordRoundTrip(t *testing.T) {
+	isolate(t)
 	hash, err := EncryptedPassword("s3cret")
 	if err != nil {
 		t.Fatalf("encrypt: %v", err)
@@ -47,6 +49,7 @@ func TestEncryptedPasswordRoundTrip(t *testing.T) {
 }
 
 func TestGeneratePasswd(t *testing.T) {
+	isolate(t)
 	// 长度正确
 	for _, length := range []int{1, 8, 16, 64} {
 		if got := GeneratePasswd(length, PwdStrengthMix); len(got) != length {

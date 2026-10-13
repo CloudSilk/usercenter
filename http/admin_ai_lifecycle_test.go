@@ -145,6 +145,7 @@ func createRouteThroughAdmin(t *testing.T, r *gin.Engine, body map[string]any) s
 }
 
 func TestAdminAIManagementLifecycle(t *testing.T) {
+	isolate(t)
 	const tenantID = "admin-ai-lifecycle"
 	const forgedTenantID = "admin-ai-forged"
 	const firstSecret = "sk-lifecycle-1234567890"
@@ -302,6 +303,7 @@ func TestAdminAIManagementLifecycle(t *testing.T) {
 }
 
 func TestAdminAIManagementTenantAndSystemBoundaries(t *testing.T) {
+	isolate(t)
 	const tenantA = "admin-ai-boundary-a"
 	const tenantB = "admin-ai-boundary-b"
 

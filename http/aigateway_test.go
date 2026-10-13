@@ -16,6 +16,7 @@ import (
 )
 
 func TestBuildUpstreamRequestWithContextPropagatesCancellation(t *testing.T) {
+	isolate(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	sel := &apikey.KeySelection{
@@ -34,6 +35,7 @@ func TestBuildUpstreamRequestWithContextPropagatesCancellation(t *testing.T) {
 
 // TestBufferedProxy_ParseUsage 验证整包转发时从 OpenAI usage 字段提取 token 用量。
 func TestBufferedProxy_ParseUsage(t *testing.T) {
+	isolate(t)
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -56,6 +58,7 @@ func TestBufferedProxy_ParseUsage(t *testing.T) {
 
 // TestStreamProxy_PassthroughAndUsage 验证 SSE 流式透传 + 从最后一块捕获 usage。
 func TestStreamProxy_PassthroughAndUsage(t *testing.T) {
+	isolate(t)
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -93,6 +96,7 @@ func TestStreamProxy_PassthroughAndUsage(t *testing.T) {
 
 // TestBuildUpstreamRequest_Auth 验证按 AuthType 注入鉴权与 URL 拼装。
 func TestBuildUpstreamRequest_Auth(t *testing.T) {
+	isolate(t)
 	cases := []struct {
 		name      string
 		auth      string
@@ -150,6 +154,7 @@ func TestBuildUpstreamRequest_Auth(t *testing.T) {
 // TestForwardWithRetrySameKeyBackoffAbsorbsUpstream529 验证唯一 Key 场景下，
 // 上游连续 529 时 forwardWithRetry 通过退避轮复用同 Key，吸收瞬时过载后成功。
 func TestForwardWithRetrySameKeyBackoffAbsorbsUpstream529(t *testing.T) {
+	isolate(t)
 	var calls int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := atomic.AddInt32(&calls, 1)
@@ -201,6 +206,7 @@ func TestForwardWithRetrySameKeyBackoffAbsorbsUpstream529(t *testing.T) {
 
 // TestForwardWithRetrySameKeyBackoffExhausted 验证退避轮耗尽后仍返回最后的上游错误。
 func TestForwardWithRetrySameKeyBackoffExhausted(t *testing.T) {
+	isolate(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(529)
 	}))

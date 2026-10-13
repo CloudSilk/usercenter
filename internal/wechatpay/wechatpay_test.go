@@ -100,14 +100,57 @@ func (f *fakePayAPI) DownloadTradeBill(ctx context.Context, billDate, billType s
 var fakeAPI *fakePayAPI
 
 func TestMain(m *testing.M) {
-	gdb, err := gorm.Open(glebsqlite.Open(":memory:"), &gorm.Config{})
+	m.Run()
+}
+
+var testDBSeq atomic.Int64
+
+// newTestDB 每个用例独享一个命名内存库(cache=shared 保证连接池内多连接看到同一份数据)。
+func newTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	dsn := fmt.Sprintf("file:wechatpay-test-%d?mode=memory&cache=shared", testDBSeq.Add(1))
+	gdb, err := gorm.Open(glebsqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
-		panic(err)
+		t.Fatalf("open test db: %v", err)
 	}
 	if err := gdb.AutoMigrate(&wechatconfig.WechatConfig{}, &PayConfig{}, &PayOrder{}, &PayRefund{}, &BillFile{}, &systemconfig.SystemConfig{}); err != nil {
-		panic(err)
+		t.Fatalf("migrate test db: %v", err)
 	}
-	store.SetDB(db.NewDBClient(gdb, false))
+	t.Cleanup(func() {
+		if sqlDB, err := gdb.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	return gdb
+}
+
+// isolate 为当前用例准备隔离环境:独立数据库、全新的上游替身,并在用例结束后
+// 还原所有被测试改写的包级配置/状态,使用例与执行顺序、重复次数无关。
+func isolate(t *testing.T) {
+	t.Helper()
+	prevDB := store.Client()
+	store.SetDB(db.NewDBClient(newTestDB(t), false))
+
+	saved := struct {
+		scanAge, loopInterval, alertAge, alertSilence time.Duration
+		batch, reportHour, retention                  int
+		reportOn, billOn                              bool
+		reportLast, billLast, cleanupLast             string
+		alertFire                                     any
+		auditRecorder                                 any
+		resolver                                      func(string, string) (string, error)
+		now                                           func() time.Time
+		baseline                                      *StatsConfigSnapshot
+		lastAt                                        time.Time
+		lastOK                                        bool
+		lastCnt                                       int
+	}{ReconcileScanAge, ReconcileLoopInterval, ReconcileAlertAge, ReconcileAlertSilence,
+		ReconcileBatchSize, DailyReportHour, BillRetentionDays,
+		DailyReportEnabled, BillDownloadEnabled,
+		dailyReportLastDate, billDownloadLastDate, billCleanupLastDate,
+		nil, nil, OpenIDResolver, nowFunc, nacosBaseline, lastReconcileAt, lastReconcileOK, lastProcessedCnt}
+	savedFire, savedAudit := alertFire, auditRecorder
+
 	fakeAPI = &fakePayAPI{prepayParams: &PayParams{
 		AppID: "wx123", TimeStamp: "1700000000", NonceStr: "nonce",
 		Package: "prepay_id=wx1", SignType: "RSA", PaySign: "sig", PrepayID: "wx1",
@@ -116,7 +159,24 @@ func TestMain(m *testing.M) {
 	OpenIDResolver = func(userID, wechatConfigID string) (string, error) {
 		return "openid-" + userID, nil
 	}
-	m.Run()
+	reconcileMu.Lock()
+	alertSilenceLast = map[string]time.Time{}
+	reconcileMu.Unlock()
+
+	t.Cleanup(func() {
+		StopReconcileLoop()
+		ReconcileScanAge, ReconcileLoopInterval, ReconcileAlertAge, ReconcileAlertSilence = saved.scanAge, saved.loopInterval, saved.alertAge, saved.alertSilence
+		ReconcileBatchSize, DailyReportHour, BillRetentionDays = saved.batch, saved.reportHour, saved.retention
+		DailyReportEnabled, BillDownloadEnabled = saved.reportOn, saved.billOn
+		dailyReportLastDate, billDownloadLastDate, billCleanupLastDate = saved.reportLast, saved.billLast, saved.cleanupLast
+		alertFire, auditRecorder = savedFire, savedAudit
+		OpenIDResolver, nowFunc, nacosBaseline = saved.resolver, saved.now, saved.baseline
+		reconcileMu.Lock()
+		lastReconcileAt, lastReconcileOK, lastProcessedCnt = saved.lastAt, saved.lastOK, saved.lastCnt
+		alertSilenceLast = map[string]time.Time{}
+		reconcileMu.Unlock()
+		store.SetDB(prevDB)
+	})
 }
 
 // setupApp 建一套 微信应用+商户配置,返回 appName。
@@ -147,6 +207,7 @@ func setupApp(t *testing.T, tenant string) string {
 }
 
 func TestCreateJSAPIPaymentHappyPath(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-tenant-1"
 	app := setupApp(t, tenant)
 
@@ -171,6 +232,7 @@ func TestCreateJSAPIPaymentHappyPath(t *testing.T) {
 }
 
 func TestCreateJSAPIPaymentValidatesInput(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-tenant-2"
 	app := setupApp(t, tenant)
 
@@ -194,6 +256,7 @@ func TestCreateJSAPIPaymentValidatesInput(t *testing.T) {
 }
 
 func TestCreateJSAPIPaymentRequiresOpenID(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-tenant-3"
 	app := setupApp(t, tenant)
 	old := OpenIDResolver
@@ -208,6 +271,7 @@ func TestCreateJSAPIPaymentRequiresOpenID(t *testing.T) {
 }
 
 func TestCreateJSAPIPaymentReusesCreatedOrder(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-tenant-4"
 	app := setupApp(t, tenant)
 	in := CreateOrderInput{
@@ -232,6 +296,7 @@ func TestCreateJSAPIPaymentReusesCreatedOrder(t *testing.T) {
 }
 
 func TestCreateJSAPIPaymentRejectsForeignTenant(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-tenant-5"
 	app := setupApp(t, tenant)
 	if _, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
@@ -242,6 +307,7 @@ func TestCreateJSAPIPaymentRejectsForeignTenant(t *testing.T) {
 }
 
 func TestHandlePayNotifyMarksOrderPaidIdempotently(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-tenant-6"
 	app := setupApp(t, tenant)
 	order, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
@@ -283,6 +349,7 @@ func TestHandlePayNotifyMarksOrderPaidIdempotently(t *testing.T) {
 }
 
 func TestHandlePayNotifyUnknownOrder(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-tenant-7"
 	app := setupApp(t, tenant)
 	fakeAPI.notify = &NotifyContent{
@@ -296,6 +363,7 @@ func TestHandlePayNotifyUnknownOrder(t *testing.T) {
 }
 
 func TestHandlePayNotifyRecordEventsWithoutStatusChange(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-tenant-8"
 	app := setupApp(t, tenant)
 	order, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
@@ -322,6 +390,7 @@ func TestHandlePayNotifyRecordEventsWithoutStatusChange(t *testing.T) {
 }
 
 func TestSyncOrderStatusUpdatesFromRemote(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-tenant-9"
 	app := setupApp(t, tenant)
 	order, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
@@ -350,6 +419,7 @@ func TestSyncOrderStatusUpdatesFromRemote(t *testing.T) {
 }
 
 func TestClosePayOrderLifecycle(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-tenant-10"
 	app := setupApp(t, tenant)
 	order, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
@@ -387,6 +457,7 @@ func TestClosePayOrderLifecycle(t *testing.T) {
 }
 
 func TestPayAPIClientCache(t *testing.T) {
+	isolate(t)
 	var builds int32
 	payAPIMu.Lock()
 	originalFactory := payAPIFactory
@@ -433,6 +504,7 @@ func TestPayAPIClientCache(t *testing.T) {
 // TestLoadPrivateKeyRequiresPKCS8 验证配置校验使用的 SDK 私钥解析行为:
 // 仅接受 PKCS8 "PRIVATE KEY" PEM,用于约束管理端保存合法密钥。
 func TestLoadPrivateKeyRequiresPKCS8(t *testing.T) {
+	isolate(t)
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
@@ -452,6 +524,7 @@ func TestLoadPrivateKeyRequiresPKCS8(t *testing.T) {
 
 // TestQueryPayOrders 验证管理端订单分页查询的过滤条件。
 func TestQueryPayOrders(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-tenant-query"
 	setupApp(t, tenant)
 	tradeNos := map[string]string{}
@@ -510,6 +583,7 @@ func markOrderPaidDirect(t *testing.T, tenant, app string, in CreateOrderInput) 
 }
 
 func TestApplyRefundHappyPath(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-refund-1"
 	app := setupApp(t, tenant)
 	order := markOrderPaidDirect(t, tenant, app, CreateOrderInput{
@@ -547,6 +621,7 @@ func TestApplyRefundHappyPath(t *testing.T) {
 }
 
 func TestApplyRefundGuards(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-refund-2"
 	app := setupApp(t, tenant)
 	unpaid, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
@@ -576,6 +651,7 @@ func TestApplyRefundGuards(t *testing.T) {
 }
 
 func TestRefundNotifyUpdatesStatusIdempotently(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-refund-3"
 	app := setupApp(t, tenant)
 	order := markOrderPaidDirect(t, tenant, app, CreateOrderInput{
@@ -628,6 +704,7 @@ func TestRefundNotifyUpdatesStatusIdempotently(t *testing.T) {
 }
 
 func TestSyncRefundStatus(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-refund-4"
 	app := setupApp(t, tenant)
 	order := markOrderPaidDirect(t, tenant, app, CreateOrderInput{
@@ -669,6 +746,7 @@ func TestSyncRefundStatus(t *testing.T) {
 }
 
 func TestCreateJSAPIPaymentExpire(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-expire-1"
 	app := setupApp(t, tenant)
 	order, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
@@ -703,6 +781,7 @@ func TestCreateJSAPIPaymentExpire(t *testing.T) {
 }
 
 func TestListUserOrders(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-mylist-1"
 	setupApp(t, tenant)
 	for i := 0; i < 3; i++ {
@@ -751,6 +830,7 @@ func ageOrder(t *testing.T, id string) {
 }
 
 func TestReconcileStaleOrders(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-reconcile-1"
 	app := setupApp(t, tenant)
 	wc, err := wechatconfig.GetWechatConfigByAppName(app)
@@ -825,6 +905,7 @@ func TestReconcileStaleOrders(t *testing.T) {
 }
 
 func TestApplyRefundUsesDedicatedRefundNotifyURL(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-refund-notify"
 	app := setupApp(t, tenant)
 	wc, err := wechatconfig.GetWechatConfigByAppName(app)
@@ -870,6 +951,7 @@ func enableRefundApproval(t *testing.T, app string) {
 }
 
 func TestRefundApprovalFlow(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-approval-1"
 	app := setupApp(t, tenant)
 	enableRefundApproval(t, app)
@@ -948,6 +1030,7 @@ func TestRefundApprovalFlow(t *testing.T) {
 }
 
 func TestRefundApprovalTenantGuard(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-approval-2"
 	app := setupApp(t, tenant)
 	enableRefundApproval(t, app)
@@ -974,6 +1057,7 @@ func TestRefundApprovalTenantGuard(t *testing.T) {
 }
 
 func TestReconcileConfigAndLoop(t *testing.T) {
+	isolate(t)
 	// 参数应用与钳制
 	oldInterval, oldAge, oldBatch, oldAlert, oldSilence := ReconcileLoopInterval, ReconcileScanAge, ReconcileBatchSize, ReconcileAlertAge, ReconcileAlertSilence
 	defer func() {
@@ -1077,6 +1161,7 @@ func collectAudits() (func() []audit.AuditLog, func()) {
 }
 
 func TestReconcileAlerts(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-alert-1"
 	app := setupApp(t, tenant)
 	wc, err := wechatconfig.GetWechatConfigByAppName(app)
@@ -1174,6 +1259,7 @@ func TestReconcileAlerts(t *testing.T) {
 }
 
 func TestAlertSilenceWindow(t *testing.T) {
+	isolate(t)
 	oldSilence := ReconcileAlertSilence
 	defer func() { ReconcileAlertSilence = oldSilence }()
 
@@ -1208,6 +1294,7 @@ func TestAlertSilenceWindow(t *testing.T) {
 var _ PayAPI = (*fakePayAPI)(nil)
 
 func TestApproveRefundAudit(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-approve-audit"
 	app := setupApp(t, tenant)
 	enableRefundApproval(t, app)
@@ -1273,6 +1360,7 @@ func TestApproveRefundAudit(t *testing.T) {
 }
 
 func TestQueryDailyPayStats(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-stats-1"
 	setupApp(t, tenant)
 	// 合成时钟解耦:统计与种子数据都基于固定"今日",午夜边界运行也稳定
@@ -1370,6 +1458,7 @@ func TestQueryDailyPayStats(t *testing.T) {
 }
 
 func TestMaybePushDailyReport(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-daily-report"
 	setupApp(t, tenant)
 	// 合成时刻与时钟解耦:固定 12 点,避免真实运行时刻(如恰好 23 点)导致
@@ -1478,6 +1567,7 @@ func TestMaybePushDailyReport(t *testing.T) {
 }
 
 func TestRefundReasonCode(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-reason-1"
 	app := setupApp(t, tenant)
 	enableRefundApproval(t, app)
@@ -1539,6 +1629,7 @@ func TestRefundReasonCode(t *testing.T) {
 }
 
 func TestQueryRefundReasonStats(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-reason-stats"
 	setupApp(t, tenant)
 	order := &PayOrder{TenantID: tenant, UserID: "u", WechatConfigID: "wc", AppID: "wx", MchID: "m",
@@ -1596,6 +1687,7 @@ func TestQueryRefundReasonStats(t *testing.T) {
 }
 
 func TestQueryRefundReasonTrend(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-reason-trend"
 	setupApp(t, tenant)
 	order := &PayOrder{TenantID: tenant, UserID: "u", WechatConfigID: "wc", AppID: "wx", MchID: "m",
@@ -1668,6 +1760,7 @@ func TestQueryRefundReasonTrend(t *testing.T) {
 }
 
 func TestBatchCloseOrders(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-batch-close"
 	app := setupApp(t, tenant)
 	wc, err := wechatconfig.GetWechatConfigByAppName(app)
@@ -1746,6 +1839,7 @@ func TestBatchCloseOrders(t *testing.T) {
 }
 
 func TestGetTradeBill(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-trade-bill"
 	app := setupApp(t, tenant)
 	wc, err := wechatconfig.GetWechatConfigByAppName(app)
@@ -1799,6 +1893,7 @@ func TestGetTradeBill(t *testing.T) {
 }
 
 func TestGetTradeBillRange(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-bill-range"
 	app := setupApp(t, tenant)
 	enableRefundApproval(t, app) // 无实际作用,仅为保持 setup 一致
@@ -1858,6 +1953,7 @@ func TestGetTradeBillRange(t *testing.T) {
 }
 
 func TestMaybeDownloadDailyBills(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-bill-task"
 	setupApp(t, tenant)
 	oldEnabled, oldHour := DailyReportEnabled, DailyReportHour
@@ -1923,6 +2019,7 @@ func TestMaybeDownloadDailyBills(t *testing.T) {
 }
 
 func TestCleanupExpiredBills(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-bill-cleanup"
 	setupApp(t, tenant)
 	oldRetention := BillRetentionDays
@@ -1977,6 +2074,7 @@ func TestCleanupExpiredBills(t *testing.T) {
 }
 
 func TestGetLoopStatus(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-loop-status"
 	app := setupApp(t, tenant)
 	wc, err := wechatconfig.GetWechatConfigByAppName(app)
@@ -2016,6 +2114,7 @@ func TestGetLoopStatus(t *testing.T) {
 }
 
 func TestReconcileSettersClamp(t *testing.T) {
+	isolate(t)
 	old := GetLoopStatus()
 	defer func() {
 		SetReconcileScanAge(old.ScanAgeMinutes)
@@ -2048,6 +2147,7 @@ func TestReconcileSettersClamp(t *testing.T) {
 }
 
 func TestStatsConfigPersistence(t *testing.T) {
+	isolate(t)
 	// 保存快照 → 修改运行时参数 → 应用快照 → 参数恢复
 	old := GetLoopStatus()
 	defer func() {
@@ -2092,6 +2192,7 @@ func TestStatsConfigPersistence(t *testing.T) {
 }
 
 func TestResetStatsConfigToBaseline(t *testing.T) {
+	isolate(t)
 	old := GetLoopStatus()
 	defer func() {
 		SetReconcileScanAge(old.ScanAgeMinutes)
@@ -2129,6 +2230,7 @@ func TestResetStatsConfigToBaseline(t *testing.T) {
 }
 
 func TestDerefString(t *testing.T) {
+	isolate(t)
 	if derefString(nil) != "" {
 		t.Fatal("nil should map to empty string")
 	}
@@ -2140,6 +2242,7 @@ func TestDerefString(t *testing.T) {
 
 // TestModelAndListCoverage 补齐模型层 CRUD 与列表函数的覆盖。
 func TestModelAndListCoverage(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-coverage"
 	app := setupApp(t, tenant)
 	wc, err := wechatconfig.GetWechatConfigByAppName(app)
@@ -2218,6 +2321,7 @@ func TestModelAndListCoverage(t *testing.T) {
 // TestEdgeBranches 集中覆盖错误分支:缺失配置/应用、回调解析失败、
 // 批量空列表、远端关单失败、账单范围倒置等。
 func TestEdgeBranches(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-edge"
 	app := setupApp(t, tenant)
 	wc, err := wechatconfig.GetWechatConfigByAppName(app)
@@ -2283,6 +2387,7 @@ func TestEdgeBranches(t *testing.T) {
 }
 
 func TestQueryPayRefundsAndBillFiles(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-refund-bill-cov"
 	setupApp(t, tenant)
 	order := &PayOrder{TenantID: tenant, UserID: "u", WechatConfigID: "wc", AppID: "wx", MchID: "m",
@@ -2346,6 +2451,7 @@ func TestQueryPayRefundsAndBillFiles(t *testing.T) {
 }
 
 func TestHandlePayNotifyAmountMismatchWarnsButSucceeds(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-mismatch"
 	app := setupApp(t, tenant)
 	order, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
@@ -2369,6 +2475,7 @@ func TestHandlePayNotifyAmountMismatchWarnsButSucceeds(t *testing.T) {
 }
 
 func TestBuildDailyReportPayloadUnknownDate(t *testing.T) {
+	isolate(t)
 	payload, err := buildDailyReportPayload("", "1999-01-01")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2379,6 +2486,7 @@ func TestBuildDailyReportPayloadUnknownDate(t *testing.T) {
 }
 
 func TestCreateJSAPIPaymentRemainingBranches(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-create-branches"
 	app := setupApp(t, tenant)
 	wc, err := wechatconfig.GetWechatConfigByAppName(app)
@@ -2421,6 +2529,7 @@ func TestCreateJSAPIPaymentRemainingBranches(t *testing.T) {
 }
 
 func TestHandlePayNotifyClientInitFailed(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-notify-initfail"
 	app := setupApp(t, tenant)
 	order, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{
@@ -2465,6 +2574,7 @@ func TestHandlePayNotifyClientInitFailed(t *testing.T) {
 }
 
 func TestSyncOrderStatusQueryErrorKeepsCreated(t *testing.T) {
+	isolate(t)
 	const tenant = "wp-sync-err"
 	app := setupApp(t, tenant)
 	order, _, err := CreateJSAPIPayment(context.Background(), CreateOrderInput{

@@ -1,6 +1,8 @@
 package session
 
 import (
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,15 +13,31 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	gdb, err := gorm.Open(glebsqlite.Open(":memory:"), &gorm.Config{})
+	m.Run()
+}
+
+var testDBSeq atomic.Int64
+
+// isolate 为每个用例提供独立的命名内存库(cache=shared 让连接池内的连接共享同一份数据),
+// 结束后关闭并还原全局 store,使用例与执行顺序、-count 重复次数无关。
+func isolate(t *testing.T) {
+	t.Helper()
+	dsn := fmt.Sprintf("file:session-test-%d?mode=memory&cache=shared", testDBSeq.Add(1))
+	gdb, err := gorm.Open(glebsqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
-		panic(err)
+		t.Fatalf("open test db: %v", err)
 	}
 	if err := gdb.AutoMigrate(&Session{}, &LoginRecord{}); err != nil {
-		panic(err)
+		t.Fatalf("migrate test db: %v", err)
 	}
+	prev := store.Client()
 	store.SetDB(db.NewDBClient(gdb, false))
-	m.Run()
+	t.Cleanup(func() {
+		store.SetDB(prev)
+		if sqlDB, err := gdb.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 }
 
 func mkSession(principalID, sig string, revoked bool) *Session {
@@ -36,6 +54,7 @@ func mkSession(principalID, sig string, revoked bool) *Session {
 }
 
 func TestSessionLifecycle(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "sess-life-%").Delete(&Session{}).Error
 	})
@@ -73,6 +92,7 @@ func TestSessionLifecycle(t *testing.T) {
 }
 
 func TestRevokeSessionForPrincipal(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "sess-self-%").Delete(&Session{}).Error
 	})
@@ -104,6 +124,7 @@ func TestRevokeSessionForPrincipal(t *testing.T) {
 }
 
 func TestRevokeByTokenSig(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "sess-sig-%").Delete(&Session{}).Error
 	})
@@ -121,6 +142,7 @@ func TestRevokeByTokenSig(t *testing.T) {
 }
 
 func TestRotateTokenSignature(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "sess-rot-%").Delete(&Session{}).Error
 	})
@@ -147,6 +169,7 @@ func TestRotateTokenSignature(t *testing.T) {
 }
 
 func TestCreateSessionWithoutStore(t *testing.T) {
+	isolate(t)
 	// 临时清空 store,验证显式错误而非 panic
 	original := store.DB()
 	store.SetDB(nil)
@@ -165,6 +188,7 @@ func TestCreateSessionWithoutStore(t *testing.T) {
 // --- 全量视图/吊销全部/活跃刷新/过期清理/异地检测 ---
 
 func TestRevokeAllByPrincipal(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "revoke-all-%").Delete(&Session{}).Error
 	})
@@ -197,6 +221,7 @@ func TestRevokeAllByPrincipal(t *testing.T) {
 }
 
 func TestUpdateActivityAndIsRevoked(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "ua-%").Delete(&Session{}).Error
 	})
@@ -238,6 +263,7 @@ func TestUpdateActivityAndIsRevoked(t *testing.T) {
 }
 
 func TestCleanExpiredSessions(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "clean-%").Delete(&Session{}).Error
 	})
@@ -271,6 +297,7 @@ func TestCleanExpiredSessions(t *testing.T) {
 }
 
 func TestDetectAnomaly(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "anomaly-%").Delete(&Session{}).Error
 	})
@@ -306,6 +333,7 @@ func TestDetectAnomaly(t *testing.T) {
 }
 
 func TestRecordLoginNilAndStoreNil(t *testing.T) {
+	isolate(t)
 	RecordLogin(nil) // nil 记录无操作不 panic
 
 	original := store.DB()
@@ -317,6 +345,7 @@ func TestRecordLoginNilAndStoreNil(t *testing.T) {
 }
 
 func TestQuerySessionsKeywordByName(t *testing.T) {
+	isolate(t)
 	createNameTables(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id = ?", "kw-p1").Delete(&Session{}).Error
@@ -355,6 +384,7 @@ func TestQuerySessionsKeywordByName(t *testing.T) {
 }
 
 func TestRecordLoginNilRecord(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "rec-nil-%").Delete(&LoginRecord{}).Error
 	})
@@ -367,6 +397,7 @@ func TestRecordLoginNilRecord(t *testing.T) {
 }
 
 func TestRecordLoginPersistsAllFields(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "rec-all-%").Delete(&LoginRecord{}).Error
 	})
@@ -390,6 +421,7 @@ func TestRecordLoginPersistsAllFields(t *testing.T) {
 }
 
 func TestRecordSessionErrorPath(t *testing.T) {
+	isolate(t)
 	// store 未初始化时 RecordSession 不 panic
 	original := store.DB()
 	store.SetDB(nil)
@@ -400,6 +432,7 @@ func TestRecordSessionErrorPath(t *testing.T) {
 }
 
 func TestQuerySessionsKeywordSearch(t *testing.T) {
+	isolate(t)
 	createNameTables(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "kw-q-%").Delete(&Session{}).Error

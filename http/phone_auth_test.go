@@ -59,6 +59,7 @@ func performJSON(r *gin.Engine, method, path string, body any) *httptest.Respons
 }
 
 func TestPublicPhoneAuthRoutesIssueCodeAndNativeToken(t *testing.T) {
+	isolate(t)
 	const phone = "13400134000"
 	const tenantID = "phone-http-tenant"
 	_ = store.DB().Unscoped().Where("mobile = ?", phone).Delete(&user.User{}).Error
@@ -132,6 +133,7 @@ func TestPublicPhoneAuthRoutesIssueCodeAndNativeToken(t *testing.T) {
 }
 
 func TestPublicPhoneAuthRouteRejectsMalformedInput(t *testing.T) {
+	isolate(t)
 	sender := &httpPhoneSender{}
 	configureHTTPPhoneAuth(t, sender, "phone-http-tenant")
 	r := gin.New()

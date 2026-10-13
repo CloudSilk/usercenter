@@ -9,6 +9,7 @@ import (
 )
 
 func TestWebAuthnUserInterface(t *testing.T) {
+	isolate(t)
 	u := &WebAuthnUser{ID: []byte("user-id-1"), Name: "alice",
 		DisplayName: "Alice", Credentials: []webauthn.Credential{{ID: []byte("cred")}}}
 	if string(u.WebAuthnID()) != "user-id-1" {
@@ -26,6 +27,7 @@ func TestWebAuthnUserInterface(t *testing.T) {
 }
 
 func TestInitWebAuthn(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() { webAuthnInstance = nil })
 
 	// nil / 空 RPID:不启用且不报错
@@ -54,6 +56,7 @@ func TestInitWebAuthn(t *testing.T) {
 }
 
 func TestWebAuthnDisabledGuards(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() { webAuthnInstance = nil })
 	webAuthnInstance = nil
 
@@ -74,6 +77,7 @@ func TestWebAuthnDisabledGuards(t *testing.T) {
 }
 
 func TestSerializeDeserializeCredential(t *testing.T) {
+	isolate(t)
 	cred := &webauthn.Credential{
 		ID:              []byte("cred-id-bytes"),
 		PublicKey:       []byte("pub-key-bytes"),

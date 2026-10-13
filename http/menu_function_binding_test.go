@@ -16,6 +16,7 @@ import (
 )
 
 func TestMenuFunctionBindingsAtomicallyRebuildPoliciesAndPruneSelections(t *testing.T) {
+	isolate(t)
 	const prefix = "menu-function-bindings"
 	const projectID = "wenshu"
 

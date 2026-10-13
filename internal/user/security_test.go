@@ -1,8 +1,9 @@
 package user_test
 
 import (
+	"fmt"
 	"os"
-	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,26 +25,34 @@ import (
 // 依赖真实 MySQL 的集成测试原 model/*_test.go（build tag: integration）随 model 包删除而移除；
 // 这里的单元测试覆盖登录失败/锁定、staff_no 免密回归、重置/修改口令等纯内存路径。
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "usercenter_user_test_")
-	if err != nil {
-		panic(err)
-	}
-	// 使用 pure-Go 的 glebarez/sqlite，避免依赖 CGO（mattn/go-sqlite3）
-	gdb, err := gorm.Open(glebsqlite.Open(filepath.Join(dir, "test.db")), &gorm.Config{})
-	if err != nil {
-		panic(err)
-	}
 	// 初始化 token 缓存（内存模式，不依赖 Redis）；提供非空密钥以满足启动校验
 	token.InitTokenCache("test-secret-key", "", "", "", 120)
 	// 初始化 PII 加密密钥（MFA factor secret 用 AES-GCM 加密）
 	auth.SetPIIKeyFrom("test-secret-key")
-	store.SetDB(db.NewDBClient(gdb, false))
-	if err := bootstrap.RunMigration(); err != nil {
-		panic(err)
+	os.Exit(m.Run())
+}
+
+var testDBSeq atomic.Int64
+
+// isolate 为每个用例提供独立的 sqlite 库（pure-Go glebarez/sqlite，避免依赖 CGO）并执行完整迁移，
+// 结束后还原全局 store，使用例与执行顺序、-count 重复次数无关。
+func isolate(t *testing.T) {
+	t.Helper()
+	gdb, err := gorm.Open(glebsqlite.Open(fmt.Sprintf("file:user-test-%d?mode=memory&cache=shared", testDBSeq.Add(1))), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
 	}
-	code := m.Run()
-	os.RemoveAll(dir)
-	os.Exit(code)
+	prev := store.Client()
+	store.SetDB(db.NewDBClient(gdb, false))
+	t.Cleanup(func() {
+		store.SetDB(prev)
+		if sqlDB, err := gdb.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	if err := bootstrap.RunMigration(); err != nil {
+		t.Fatalf("migrate test db: %v", err)
+	}
 }
 
 // mustCreateUser 直接写入一条启用用户（绕过 CreateUser 的租户/密码强度业务规则），
@@ -67,6 +76,7 @@ func mustCreateUser(t *testing.T, userName, password string) *user.User {
 }
 
 func TestGeneratePasswordRandomAndInCharset(t *testing.T) {
+	isolate(t)
 	seen := make(map[string]bool)
 	for i := 0; i < 20; i++ {
 		p := auth.GeneratePasswd(16, auth.PwdStrengthAdvance)
@@ -81,6 +91,7 @@ func TestGeneratePasswordRandomAndInCharset(t *testing.T) {
 }
 
 func TestLoginSuccessClearsFailures(t *testing.T) {
+	isolate(t)
 	u := mustCreateUser(t, "okuser", "Abc12345")
 	// 先制造一次失败
 	user.Login(&apipb.LoginRequest{UserName: "okuser", Password: "wrong"}, &apipb.LoginResponse{})
@@ -98,6 +109,7 @@ func TestLoginSuccessClearsFailures(t *testing.T) {
 }
 
 func TestRefreshTokenRotatesCacheAndManageableSession(t *testing.T) {
+	isolate(t)
 	u := mustCreateUser(t, "refreshuser", "Abc12345")
 	const sessionID = "refresh-session"
 	oldToken, err := token.EncodeToken(&apipb.CurrentUser{
@@ -143,6 +155,7 @@ func TestRefreshTokenRotatesCacheAndManageableSession(t *testing.T) {
 }
 
 func TestLoginLockoutAfterMaxFailures(t *testing.T) {
+	isolate(t)
 	u := mustCreateUser(t, "lockuser", "Abc12345")
 	wrong := &apipb.LoginRequest{UserName: "lockuser", Password: "wrong"}
 
@@ -170,6 +183,7 @@ func TestLoginLockoutAfterMaxFailures(t *testing.T) {
 }
 
 func TestLoginByStaffNoRequiresPassword(t *testing.T) {
+	isolate(t)
 	// S1 回归：修复前 staff_no 入口免密即可登录；修复后必须校验密码
 	u := mustCreateUser(t, "staffuser", "Abc12345")
 	store.DB().Model(&user.User{}).Where("id = ?", u.ID).Update("staff_no", "staff001")
@@ -190,6 +204,7 @@ func TestLoginByStaffNoRequiresPassword(t *testing.T) {
 }
 
 func TestResetPwdForcesChangeAndAllowsNewPassword(t *testing.T) {
+	isolate(t)
 	u := mustCreateUser(t, "resetuser", "Abc12345")
 	newPwd := "Xyz98765"
 	if err := user.ResetPwd(u.ID, newPwd); err != nil {
@@ -216,6 +231,7 @@ func TestResetPwdForcesChangeAndAllowsNewPassword(t *testing.T) {
 }
 
 func TestResetPwdRandomWhenDefaultEmpty(t *testing.T) {
+	isolate(t)
 	u := mustCreateUser(t, "resetuser2", "Abc12345")
 	saved := user.DefaultPwd
 	user.DefaultPwd = ""
@@ -235,6 +251,7 @@ func TestResetPwdRandomWhenDefaultEmpty(t *testing.T) {
 }
 
 func TestUpdatePwdRejectsWeakPassword(t *testing.T) {
+	isolate(t)
 	u := mustCreateUser(t, "weakpwduser", "Abc12345")
 	// 弱密码（纯数字，无大小写）应被拒绝
 	if err := user.UpdatePwd(u.ID, "Abc12345", "12345678"); err == nil {
@@ -247,6 +264,7 @@ func TestUpdatePwdRejectsWeakPassword(t *testing.T) {
 }
 
 func TestUpdateUserRolesReplacesLinksAndInvalidatesActiveContext(t *testing.T) {
+	isolate(t)
 	u := mustCreateUser(t, "role-assignment-user", "Abc12345")
 	if err := store.DB().Model(&user.User{}).Where("id = ?", u.ID).Update("tenant_id", "tenant-role-a").Error; err != nil {
 		t.Fatalf("set user tenant: %v", err)
@@ -314,6 +332,7 @@ func TestUpdateUserRolesReplacesLinksAndInvalidatesActiveContext(t *testing.T) {
 }
 
 func TestUpdateUserRolesRejectsForeignTenantRoleWithoutChangingLinks(t *testing.T) {
+	isolate(t)
 	u := mustCreateUser(t, "role-assignment-tenant-user", "Abc12345")
 	if err := store.DB().Model(&user.User{}).Where("id = ?", u.ID).Update("tenant_id", "tenant-role-owner").Error; err != nil {
 		t.Fatalf("set user tenant: %v", err)
@@ -342,6 +361,7 @@ func TestUpdateUserRolesRejectsForeignTenantRoleWithoutChangingLinks(t *testing.
 }
 
 func TestDisabledRoleRevokesAccessAndCannotBeAssigned(t *testing.T) {
+	isolate(t)
 	u := mustCreateUser(t, "disabled-role-user", "Abc12345")
 	if err := store.DB().Model(&user.User{}).Where("id = ?", u.ID).Update("tenant_id", "tenant-disabled-role").Error; err != nil {
 		t.Fatalf("set user tenant: %v", err)
@@ -442,6 +462,7 @@ func TestDisabledRoleRevokesAccessAndCannotBeAssigned(t *testing.T) {
 }
 
 func TestGetUserTenantID(t *testing.T) {
+	isolate(t)
 	u := mustCreateUser(t, "tenantuser", "Abc12345")
 	store.DB().Model(&user.User{}).Where("id = ?", u.ID).Update("tenant_id", "tenant-xyz")
 
@@ -456,6 +477,7 @@ func TestGetUserTenantID(t *testing.T) {
 }
 
 func TestDeleteUserUsesOneTransactionAndRemovesRoleLinks(t *testing.T) {
+	isolate(t)
 	u := mustCreateUser(t, "deleteuser", "Abc12345")
 	if err := store.DB().Model(&user.User{}).Where("id = ?", u.ID).Update("can_del", true).Error; err != nil {
 		t.Fatalf("mark user deletable: %v", err)
@@ -486,6 +508,7 @@ func TestDeleteUserUsesOneTransactionAndRemovesRoleLinks(t *testing.T) {
 }
 
 func TestUserToPBRedactsPasswordAndKeepsManagementFields(t *testing.T) {
+	isolate(t)
 	now := time.Now().Truncate(time.Second)
 	u := &user.User{
 		TenantModel: commonmodel.TenantModel{
@@ -514,6 +537,7 @@ func TestUserToPBRedactsPasswordAndKeepsManagementFields(t *testing.T) {
 }
 
 func TestEnforceCacheHitIsConsistent(t *testing.T) {
+	isolate(t)
 	// 同一 (sub,obj,act) 连续判定两次，结果应一致（命中缓存或未命中都应一致）
 	url := "/api/cachecheck/test"
 	c1, err1 := permission.EnforceCached("nonexistent-role", url, "GET")

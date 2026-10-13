@@ -163,6 +163,7 @@ func createPermissionEffectivenessFixture(t *testing.T, prefix, tenantID string)
 }
 
 func TestPermissionEffectivenessProjectionCheckAndAudit(t *testing.T) {
+	isolate(t)
 	const prefix = "permission-effectiveness"
 	userID, enabledRoleID, allowedAPIID, deniedAPIID := createPermissionEffectivenessFixture(t, prefix, platformTenant)
 	engine := newPermissionEffectivenessTestEngine(&apipb.CurrentUser{
@@ -266,6 +267,7 @@ func TestPermissionEffectivenessProjectionCheckAndAudit(t *testing.T) {
 }
 
 func TestPermissionEffectivenessTenantBoundaryAndSelfContext(t *testing.T) {
+	isolate(t)
 	const prefix = "permission-effectiveness-boundary"
 	userID, enabledRoleID, _, _ := createPermissionEffectivenessFixture(t, prefix, platformTenant)
 

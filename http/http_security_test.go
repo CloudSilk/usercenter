@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/CloudSilk/pkg/db"
 	commonmodel "github.com/CloudSilk/pkg/model"
 	userhttp "github.com/CloudSilk/usercenter/http"
+	"github.com/CloudSilk/usercenter/internal/aicache"
 	"github.com/CloudSilk/usercenter/internal/audit"
 	"github.com/CloudSilk/usercenter/internal/auth/token"
 	"github.com/CloudSilk/usercenter/internal/bootstrap"
@@ -33,25 +35,39 @@ import (
 const platformTenant = "platform-test"
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "usercenter_http_test_")
-	if err != nil {
-		panic(err)
-	}
 	gin.SetMode(gin.TestMode)
-	gdb, err := gorm.Open(glebsqlite.Open(filepath.Join(dir, "test.db")), &gorm.Config{})
-	if err != nil {
-		panic(err)
-	}
 	token.InitTokenCache("test-secret-key", "", "", "", 120)
-	store.SetDB(db.NewDBClient(gdb, false))
-	if err := bootstrap.RunMigration(); err != nil {
-		panic(err)
-	}
 	constants.SetPlatformTenantID(platformTenant)
 	constants.SetSuperAdminRoleID("1")
-	code := m.Run()
-	os.RemoveAll(dir)
-	os.Exit(code)
+	userhttp.SetTestIsolator(isolate)
+	os.Exit(m.Run())
+}
+
+var testDBSeq atomic.Int64
+
+// isolate 为每个用例提供独立的命名内存库并执行完整迁移，结束后还原全局 store，
+// 使用例与执行顺序、-count 重复次数无关。
+func isolate(t *testing.T) {
+	t.Helper()
+	dsn := fmt.Sprintf("file:http-test-%d?mode=memory&cache=shared", testDBSeq.Add(1))
+	gdb, err := gorm.Open(glebsqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	prev := store.Client()
+	store.SetDB(db.NewDBClient(gdb, false))
+	t.Cleanup(func() {
+		if aicache.Default != nil {
+			aicache.Default.Flush()
+		}
+		store.SetDB(prev)
+		if sqlDB, err := gdb.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	if err := bootstrap.RunMigration(); err != nil {
+		t.Fatalf("migrate test db: %v", err)
+	}
 }
 
 // newTestEngine 用注入 currentUser 的测试中间件替代全局 AuthRequired，
@@ -192,6 +208,7 @@ func decodeCommonResponse(t *testing.T, w *httptest.ResponseRecorder) *apipb.Com
 }
 
 func TestPlatformUserQueryDefaultsToCurrentTenantAndRedactsPassword(t *testing.T) {
+	isolate(t)
 	ownID := mustCreateUser(t, "platform-query-own", platformTenant, "Abc12345")
 	mustCreateUser(t, "platform-query-other", "tenant-query-other", "Abc12345")
 	if err := store.DB().Model(&user.User{}).Where("id = ?", ownID).Updates(map[string]any{
@@ -223,6 +240,7 @@ func TestPlatformUserQueryDefaultsToCurrentTenantAndRedactsPassword(t *testing.T
 }
 
 func TestPlatformUserQueryCanExplicitlySelectAnotherTenant(t *testing.T) {
+	isolate(t)
 	targetID := mustCreateUser(t, "platform-explicit-target", "tenant-query-explicit", "Abc12345")
 	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin"}
 	path := "/api/core/auth/user/query?pageIndex=1&pageSize=100&tenantID=tenant-query-explicit&keyword=platform-explicit"
@@ -237,6 +255,7 @@ func TestPlatformUserQueryCanExplicitlySelectAnotherTenant(t *testing.T) {
 }
 
 func TestUserQueryKeywordAndStatusFilters(t *testing.T) {
+	isolate(t)
 	enabledID := mustCreateUser(t, "filter-enabled", platformTenant, "Abc12345")
 	disabledID := mustCreateUser(t, "filter-disabled", platformTenant, "Abc12345")
 	if err := store.DB().Model(&user.User{}).Where("id = ?", enabledID).Update("mobile", "13900001234").Error; err != nil {
@@ -270,6 +289,7 @@ func TestUserQueryKeywordAndStatusFilters(t *testing.T) {
 }
 
 func TestUserManagementRejectsCrossTenantTargets(t *testing.T) {
+	isolate(t)
 	targetID := mustCreateUser(t, "cross-tenant-managed", "tenant-managed-B", "Abc12345")
 	current := &apipb.CurrentUser{Id: "tenant-admin-a", TenantID: "tenant-managed-A", UserName: "tenant-admin-a"}
 	r := newTestEngine(current)
@@ -324,6 +344,7 @@ func TestUserManagementRejectsCrossTenantTargets(t *testing.T) {
 }
 
 func TestRoleManagementEnforcesTenantScopeAndPreservesAuthorization(t *testing.T) {
+	isolate(t)
 	if err := tenant.CreateTenant(&tenant.Tenant{
 		Model:     commonmodel.Model{ID: "managed-role-tenant-a"},
 		Name:      "managed-role-tenant-a",
@@ -664,6 +685,7 @@ func decodeRoleAuthorizationEnvelope(t *testing.T, response *httptest.ResponseRe
 }
 
 func TestRoleAuthorizationPreviewAndPublishLifecycle(t *testing.T) {
+	isolate(t)
 	fixture := createRoleAuthorizationFixture(t, "role-auth-lifecycle")
 	role := &permission.Role{
 		Model:         commonmodel.Model{ID: "role-auth-lifecycle-role"},
@@ -874,6 +896,7 @@ func TestRoleAuthorizationPreviewAndPublishLifecycle(t *testing.T) {
 }
 
 func TestRoleAuthorizationEnforcesTenantAndHierarchyBoundaries(t *testing.T) {
+	isolate(t)
 	fixture := createRoleAuthorizationFixture(t, "role-auth-boundary")
 	tenantA := &tenant.Tenant{
 		Model:     commonmodel.Model{ID: "role-auth-tenant-a"},
@@ -1040,6 +1063,7 @@ func TestRoleAuthorizationEnforcesTenantAndHierarchyBoundaries(t *testing.T) {
 }
 
 func TestDeleteMenuRebuildsRoleAuthorizationAndRevokesSessions(t *testing.T) {
+	isolate(t)
 	const prefix = "role-auth-menu-delete"
 	fixture := createRoleAuthorizationFixture(t, prefix)
 	role := &permission.Role{
@@ -1136,6 +1160,7 @@ func TestDeleteMenuRebuildsRoleAuthorizationAndRevokesSessions(t *testing.T) {
 }
 
 func TestMenuManagementEnforcesTenantHierarchyAndProtection(t *testing.T) {
+	isolate(t)
 	const prefix = "menu-management-boundary"
 	tenantAdmin := &apipb.CurrentUser{Id: prefix + "-admin", TenantID: prefix + "-tenant"}
 	engine := newMenuTestEngine(tenantAdmin)
@@ -1418,6 +1443,7 @@ func TestMenuManagementEnforcesTenantHierarchyAndProtection(t *testing.T) {
 }
 
 func TestMenuReorderSwapsOnlyTenantScopedSiblings(t *testing.T) {
+	isolate(t)
 	const prefix = "menu-reorder"
 	tenantID := prefix + "-tenant"
 	parent := &permission.Menu{
@@ -1514,6 +1540,7 @@ func TestMenuReorderSwapsOnlyTenantScopedSiblings(t *testing.T) {
 }
 
 func TestAPIResourceManagementEnforcesTenantValidationAndAtomicDuplicates(t *testing.T) {
+	isolate(t)
 	const prefix = "api-resource-boundary"
 	tenantAdmin := &apipb.CurrentUser{Id: prefix + "-admin", TenantID: prefix + "-tenant"}
 	engine := newAPITestEngine(tenantAdmin)
@@ -1660,6 +1687,7 @@ func TestAPIResourceManagementEnforcesTenantValidationAndAtomicDuplicates(t *tes
 }
 
 func TestAPIResourceMutationRebuildsPoliciesAndRejectsBoundDelete(t *testing.T) {
+	isolate(t)
 	const prefix = "api-resource-policy"
 	api := &permission.API{
 		Model:       commonmodel.Model{ID: prefix + "-api"},
@@ -1840,6 +1868,7 @@ func TestAPIResourceMutationRebuildsPoliciesAndRejectsBoundDelete(t *testing.T) 
 }
 
 func TestResetPwdAcceptsExplicitStrongPassword(t *testing.T) {
+	isolate(t)
 	targetID := mustCreateUser(t, "explicit-reset", platformTenant, "Abc12345")
 	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin", RoleIDs: []string{"1"}}
 	r := newTestEngine(current)
@@ -1863,6 +1892,7 @@ func TestResetPwdAcceptsExplicitStrongPassword(t *testing.T) {
 }
 
 func TestUpdateUserWithoutRoleFieldsPreservesExistingRoles(t *testing.T) {
+	isolate(t)
 	targetID := mustCreateUser(t, "role-preserving-update", platformTenant, "Abc12345")
 	roleLink := &user.UserRole{UserID: targetID, RoleID: "role-preserved"}
 	if err := store.DB().Create(roleLink).Error; err != nil {
@@ -1889,6 +1919,7 @@ func TestUpdateUserWithoutRoleFieldsPreservesExistingRoles(t *testing.T) {
 }
 
 func TestUpdateUserRolesUsesDedicatedTenantScopedEndpointAndAudit(t *testing.T) {
+	isolate(t)
 	targetID := mustCreateUser(t, "dedicated-role-target", platformTenant, "Abc12345")
 	roles := []*permission.Role{
 		{Model: commonmodel.Model{ID: "dedicated-role-1"}, TenantID: platformTenant, Name: "起草人员"},
@@ -1944,6 +1975,7 @@ func TestUpdateUserRolesUsesDedicatedTenantScopedEndpointAndAudit(t *testing.T) 
 }
 
 func TestUpdateUserRolesRejectsCrossTenantManagerAndForeignRole(t *testing.T) {
+	isolate(t)
 	targetID := mustCreateUser(t, "role-boundary-target", "role-boundary-a", "Abc12345")
 	foreignRole := &permission.Role{
 		Model:    commonmodel.Model{ID: "role-boundary-foreign"},
@@ -1981,6 +2013,7 @@ func TestUpdateUserRolesRejectsCrossTenantManagerAndForeignRole(t *testing.T) {
 
 // A2: 非平台租户调用方重置其他租户用户密码 → 应被拒绝，且目标密码不变
 func TestResetPwdRejectsCrossTenant(t *testing.T) {
+	isolate(t)
 	target := mustCreateUser(t, "crosstenant", "tenant-B", "Abc12345")
 	current := &apipb.CurrentUser{Id: "admin-a", TenantID: "tenant-A", UserName: "admin-a"}
 
@@ -1995,6 +2028,7 @@ func TestResetPwdRejectsCrossTenant(t *testing.T) {
 
 // A2: 平台超管可重置任意租户用户密码；平台租户普通用户无用户管理权
 func TestResetPwdAllowsPlatformTenant(t *testing.T) {
+	isolate(t)
 	target := mustCreateUser(t, "platformtarget", "tenant-B", "Abc12345")
 	current := &apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant, UserName: "platform-admin", RoleIDs: []string{"1"}}
 
@@ -2012,6 +2046,7 @@ func TestResetPwdAllowsPlatformTenant(t *testing.T) {
 
 // A2: 非平台租户调用方重置本租户用户密码 → 允许
 func TestResetPwdAllowsSameTenant(t *testing.T) {
+	isolate(t)
 	target := mustCreateUser(t, "sametenant", "tenant-A", "Abc12345")
 	current := &apipb.CurrentUser{Id: "admin-a", TenantID: "tenant-A", UserName: "admin-a"}
 
@@ -2023,6 +2058,7 @@ func TestResetPwdAllowsSameTenant(t *testing.T) {
 
 // A3: ChangePwd 必须忽略请求体中的 id，只改当前登录用户自己的密码
 func TestChangePwdIgnoresForeignID(t *testing.T) {
+	isolate(t)
 	userA := mustCreateUser(t, "pwda", "tenant-A", "Old12345")
 	userB := mustCreateUser(t, "pwdb", "tenant-A", "Bee12345")
 	current := &apipb.CurrentUser{Id: userA, TenantID: "tenant-A", UserName: "pwda"}

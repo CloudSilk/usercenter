@@ -6,6 +6,7 @@ import (
 )
 
 func TestSetPwdMaxAgeZeroMeansNeverExpire(t *testing.T) {
+	isolate(t)
 	SetPwdMaxAge(0)
 	defer SetPwdMaxAge(0)
 	if IsPwdExpired(time.Now().AddDate(0, 0, -3650).Unix()) {
@@ -14,6 +15,7 @@ func TestSetPwdMaxAgeZeroMeansNeverExpire(t *testing.T) {
 }
 
 func TestIsPwdExpired(t *testing.T) {
+	isolate(t)
 	SetPwdMaxAge(30) // 30 天
 	defer SetPwdMaxAge(0)
 

@@ -12,7 +12,7 @@ import (
 
 func TestSystemConfigValueCompareAndSwap(t *testing.T) {
 	db, err := gorm.Open(
-		sqlite.Open("file:server-system-config-cas?mode=memory&cache=shared"),
+		sqlite.Open(memDSN("server-system-config-cas")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)},
 	)
 	if err != nil {
@@ -101,7 +101,7 @@ func TestSystemConfigValueRejectsBlankKey(t *testing.T) {
 
 func TestListSystemConfigValuesScopesAndSortsPrefix(t *testing.T) {
 	db, err := gorm.Open(
-		sqlite.Open("file:server-system-config-prefix?mode=memory&cache=shared"),
+		sqlite.Open(memDSN("server-system-config-prefix")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)},
 	)
 	if err != nil {

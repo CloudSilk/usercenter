@@ -19,7 +19,7 @@ func TestAuthenticateRequiredPrincipalPreservesAgentDelegation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode agent token: %v", err)
 	}
-	database, err := gorm.Open(sqlite.Open("file:authn-agent-delegation?mode=memory&cache=shared"), &gorm.Config{})
+	database, err := gorm.Open(sqlite.Open(memDSN("authn-agent-delegation")), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open session database: %v", err)
 	}
