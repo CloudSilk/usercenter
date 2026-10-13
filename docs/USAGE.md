@@ -24,6 +24,7 @@
 15. [可观测性与告警](#15-可观测性与告警)
 16. [可视化管理后台](#16-可视化管理后台)
 17. [微信支付（小程序 JSAPI）](#17-微信支付小程序-jsapi)
+18. [可复用支付包 pay（JSAPI / 虚拟支付 / mock）](#18-可复用支付包-pay)
 
 ---
 
@@ -1470,3 +1471,7 @@ curl "/api/core/wechat/pay/order/trade-bill?configID=<商户配置ID>&billDate=2
 `Create` 与 `UpdateWithNote` 将当前行和历史快照放在同一事务中。`PinCurrent` 返回启用模板及不可变版本，供异步任务固定输入；`GetVersionByID` 同时验证模板、版本关联与租户可见性。`SnapshotCurrent` 只供迁移保存包括停用模板在内的已知当前状态，任务入队应调用 `PinCurrent`。旧数据缺失的历史不会根据当前内容伪造。
 
 版本表已包含在启动迁移中；版本快照失败会使模板写入整体失败。回滚产生新版本，并保留当前启用状态。
+
+## 18. 可复用支付包 pay
+
+嵌入式业务服务可直接 import `github.com/CloudSilk/usercenter/pay`，按配置选择微信支付 JSAPI、小程序虚拟支付（`wx.requestVirtualPayment`）或 mock，并用 `pay.DeliveryLedger` 保证每个渠道单号只发货一次。完整说明与需从后台获取的配置清单见 [PAY.md](PAY.md)。
