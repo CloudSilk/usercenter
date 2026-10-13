@@ -67,6 +67,13 @@ type Notify struct {
 	Raw []byte
 	// Echo URL 校验时需原样返回的 echostr
 	Echo string
+	// AckXML 回包需用 XML（推送为 XML 格式时）
+	AckXML bool
+}
+
+// RefundQuerier 支持主动查询退款单状态的渠道
+type RefundQuerier interface {
+	QueryRefund(ctx context.Context, orderID, refundID string) (*RefundResult, error)
 }
 
 // Acker 由需要特定回包格式的渠道实现（如虚拟支付消息推送须回 {"ErrCode":0,"ErrMsg":"success"}）。

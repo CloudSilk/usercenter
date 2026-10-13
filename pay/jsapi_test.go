@@ -170,4 +170,3 @@ func TestWechatConfigIncomplete(t *testing.T) {
 		t.Fatal("配置不完整应报错")
 	}
 }
-
