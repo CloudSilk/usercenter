@@ -70,6 +70,7 @@ func cleanPhoneRows(t *testing.T, phone string) {
 }
 
 func TestPhoneCodeUsesDigestsCooldownAndMaskedAudit(t *testing.T) {
+	isolate(t)
 	const phone = "13800138000"
 	cleanPhoneRows(t, phone)
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
@@ -99,6 +100,7 @@ func TestPhoneCodeUsesDigestsCooldownAndMaskedAudit(t *testing.T) {
 }
 
 func TestPhoneLoginCreatesUserRunsHookAndIssuesNativeToken(t *testing.T) {
+	isolate(t)
 	const phone = "13900139000"
 	const tenantID = "phone-new-user-tenant"
 	cleanPhoneRows(t, phone)
@@ -158,6 +160,7 @@ func TestPhoneLoginCreatesUserRunsHookAndIssuesNativeToken(t *testing.T) {
 }
 
 func TestPhoneLoginReusesExistingUserAndEnforcesMFA(t *testing.T) {
+	isolate(t)
 	const phone = "13700137000"
 	cleanPhoneRows(t, phone)
 	u := &user.User{
@@ -203,6 +206,7 @@ func TestPhoneLoginReusesExistingUserAndEnforcesMFA(t *testing.T) {
 }
 
 func TestPhoneCodeLocksAfterConfiguredAttemptsAndExpires(t *testing.T) {
+	isolate(t)
 	const phone = "13600136000"
 	cleanPhoneRows(t, phone)
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
@@ -235,6 +239,7 @@ func TestPhoneCodeLocksAfterConfiguredAttemptsAndExpires(t *testing.T) {
 }
 
 func TestPhoneCodeProviderFailureLeavesNoLiveChallenge(t *testing.T) {
+	isolate(t)
 	const phone = "13500135000"
 	cleanPhoneRows(t, phone)
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)

@@ -15,6 +15,7 @@ import (
 )
 
 func TestWechatConfigReadIsRedactedAndBlankUpdatePreservesSecrets(t *testing.T) {
+	isolate(t)
 	config := &wechatconfig.WechatConfig{
 		AppID: "wx-security", AppName: "wechat-security-test",
 		DisplayName: "Before", TenantID: "wechat-security-tenant", AppType: 4,

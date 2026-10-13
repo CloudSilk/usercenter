@@ -13,6 +13,7 @@ import (
 // --- TOTP ---
 
 func TestTOTPGenerateAndVerify(t *testing.T) {
+	isolate(t)
 	secret, err := GenerateTOTPSecret()
 	if err != nil {
 		t.Fatalf("generate secret: %v", err)
@@ -42,6 +43,7 @@ func TestTOTPGenerateAndVerify(t *testing.T) {
 }
 
 func TestGenerateTOTPURI(t *testing.T) {
+	isolate(t)
 	uri := GenerateTOTPURI("SECRET234", "alice@example.com", "UserCenter")
 	for _, want := range []string{
 		"otpauth://totp/UserCenter:alice@example.com",
@@ -55,6 +57,7 @@ func TestGenerateTOTPURI(t *testing.T) {
 }
 
 func TestRequiredACRForAction(t *testing.T) {
+	isolate(t)
 	l2 := []string{"delete_user", "reset_password", "change_password", "update_role"}
 	for _, a := range l2 {
 		if got := RequiredACRForAction(a); got != ACRLevel2 {
@@ -75,6 +78,7 @@ func TestRequiredACRForAction(t *testing.T) {
 // --- MFA challenge(一次性令牌)与因子校验(DB) ---
 
 func TestMFAChallengeIssueAndConsume(t *testing.T) {
+	isolate(t)
 	tok, err := IssueMFAChallenge("user-1")
 	if err != nil {
 		t.Fatalf("issue: %v", err)
@@ -111,6 +115,7 @@ func setupMFADB(t *testing.T) {
 }
 
 func TestHasEnabledMFA(t *testing.T) {
+	isolate(t)
 	setupMFADB(t)
 	if HasEnabledMFA("nobody") {
 		t.Fatal("unknown principal should have no MFA")
@@ -140,6 +145,7 @@ func TestHasEnabledMFA(t *testing.T) {
 }
 
 func TestVerifyMFACode(t *testing.T) {
+	isolate(t)
 	setupMFADB(t)
 	SetPIIKeyFrom("mfa-pii-key")
 	t.Cleanup(func() { piiKey = nil })

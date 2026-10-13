@@ -13,7 +13,7 @@ import (
 
 func TestCreateValidateAndDeleteKey(t *testing.T) {
 	db, err := gorm.Open(
-		sqlite.Open("file:api-key-lifecycle?mode=memory&cache=shared"),
+		sqlite.Open(memDSN("api-key-lifecycle")),
 		&gorm.Config{},
 	)
 	if err != nil {

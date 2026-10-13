@@ -44,6 +44,7 @@ func decodeQueryDictionariesResponse(t *testing.T, body []byte) *apipb.QueryDict
 }
 
 func TestTenantConfigurationRoutesRejectCrossTenantAccess(t *testing.T) {
+	isolate(t)
 	const (
 		tenantA = "config-scope-tenant-a"
 		tenantB = "config-scope-tenant-b"
@@ -140,6 +141,7 @@ func TestTenantConfigurationRoutesRejectCrossTenantAccess(t *testing.T) {
 }
 
 func TestPlatformTenantCanExplicitlyManageTargetTenantConfiguration(t *testing.T) {
+	isolate(t)
 	const targetTenant = "config-scope-platform-target"
 	r := newTenantConfigTestEngine(&apipb.CurrentUser{Id: "platform-admin", TenantID: platformTenant})
 

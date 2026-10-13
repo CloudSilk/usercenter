@@ -8,6 +8,7 @@ import (
 )
 
 func TestLocalDayStartPreservesLocation(t *testing.T) {
+	isolate(t)
 	location := time.FixedZone("UTC+8", 8*60*60)
 	now := time.Date(2026, time.July, 19, 19, 36, 42, 123, location)
 

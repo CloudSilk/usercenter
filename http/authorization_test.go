@@ -29,6 +29,7 @@ func newAuthorizationTestEngineWithPrincipal(user *apipb.CurrentUser, authentica
 }
 
 func TestRuntimeAuthorizationUsesCurrentPrincipalRoles(t *testing.T) {
+	isolate(t)
 	engine := newAuthorizationTestEngine(&apipb.CurrentUser{
 		Id: "runtime-user", TenantID: platformTenant, UserName: "Runtime User", RoleIDs: []string{"1"},
 	})
@@ -68,6 +69,7 @@ func TestRuntimeAuthorizationUsesCurrentPrincipalRoles(t *testing.T) {
 }
 
 func TestRuntimeAuthorizationExposesTrustedMachineIdentity(t *testing.T) {
+	isolate(t)
 	for _, test := range []struct {
 		name          string
 		authenticated principal.Principal
@@ -108,6 +110,7 @@ func TestRuntimeAuthorizationExposesTrustedMachineIdentity(t *testing.T) {
 }
 
 func TestApplyAuthorizationCatalogRequiresSuperAdministrator(t *testing.T) {
+	isolate(t)
 	defer store.DB().Unscoped().Delete(&permission.API{}, "id = ?", "remote-catalog-api")
 	catalog := authorization.Catalog{
 		TenantID: "remote-catalog-tenant",

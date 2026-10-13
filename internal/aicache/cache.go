@@ -10,6 +10,7 @@ import (
 
 	commonmodel "github.com/CloudSilk/pkg/model"
 	"github.com/CloudSilk/usercenter/internal/store"
+	"gorm.io/gorm"
 )
 
 // EmbeddingFunc 生成 prompt 的嵌入向量。网关注入实现（调用 /v1/embeddings）。
@@ -51,6 +52,7 @@ type Cache struct {
 	stats       CacheStats
 	embeddingFn EmbeddingFunc
 	embedWG     sync.WaitGroup // 跟踪进行中的异步嵌入计算，便于测试等待
+	persistWG   sync.WaitGroup // 跟踪进行中的异步持久化
 }
 
 // CacheStats holds cache performance statistics
@@ -203,7 +205,13 @@ func (c *Cache) Set(prompt, response, modelName string, promptTokens, compTokens
 	c.mu.Unlock()
 
 	// Persist to DB asynchronously（不持久化 embedding/Prompt 字段）
-	go c.persistEntry(entry)
+	// 在调用方 goroutine 内捕获当前数据库句柄，避免异步写入落到之后被替换的连接上。
+	gdb := store.DB()
+	c.persistWG.Add(1)
+	go func() {
+		defer c.persistWG.Done()
+		c.persistEntry(gdb, entry)
+	}()
 
 	// 异步计算嵌入并写回（仅当条目仍是当前条目时，避免写入被淘汰/替换的条目）
 	if fn != nil && len(prompt) > 20 {
@@ -329,14 +337,17 @@ func (c *Cache) loadFromDB() {
 }
 
 // persistEntry saves a cache entry to the database
-func (c *Cache) persistEntry(entry *CacheEntry) {
-	if store.DB() == nil {
+func (c *Cache) persistEntry(gdb *gorm.DB, entry *CacheEntry) {
+	if gdb == nil {
+		return
+	}
+	if gdb == nil {
 		return
 	}
 
 	existing := &CacheEntry{}
-	if err := store.DB().Where("prompt_hash = ?", entry.PromptHash).First(existing).Error; err == nil {
-		store.DB().Model(existing).Updates(map[string]interface{}{
+	if err := gdb.Where("prompt_hash = ?", entry.PromptHash).First(existing).Error; err == nil {
+		gdb.Model(existing).Updates(map[string]interface{}{
 			"response_body": entry.ResponseBody,
 			"model_name":    entry.ModelName,
 			"prompt_tokens": entry.PromptTokens,
@@ -345,11 +356,17 @@ func (c *Cache) persistEntry(entry *CacheEntry) {
 			"expires_at":    entry.ExpiresAt,
 		})
 	} else {
-		store.DB().Create(entry)
+		gdb.Create(entry)
 	}
 }
 
 // EnforceMaxEntries removes oldest entries if cache exceeds max size
+// Flush 等待所有进行中的异步持久化与嵌入计算完成（优雅退出、测试收尾时调用）。
+func (c *Cache) Flush() {
+	c.persistWG.Wait()
+	c.embedWG.Wait()
+}
+
 func (c *Cache) EnforceMaxEntries() {
 	c.mu.Lock()
 	if len(c.entries) <= c.config.MaxEntries {

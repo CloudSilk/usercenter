@@ -25,6 +25,7 @@ func genPEM(t *testing.T) string {
 // --- Argon2id 密码哈希 ---
 
 func TestEncryptedPasswordArgon2Format(t *testing.T) {
+	isolate(t)
 	hash, err := EncryptedPasswordArgon2("s3cret-密码")
 	if err != nil {
 		t.Fatalf("hash: %v", err)
@@ -51,6 +52,7 @@ func TestEncryptedPasswordArgon2Format(t *testing.T) {
 }
 
 func TestCompareArgon2InvalidFormat(t *testing.T) {
+	isolate(t)
 	for _, bad := range []string{"", "plain", "$argon2id$bad", "$bcrypt$v=19$a$b$c$d"} {
 		if err := CompareArgon2(bad, "x"); err == nil {
 			t.Fatalf("expected invalid format error for %q", bad)
@@ -68,6 +70,7 @@ func TestCompareArgon2InvalidFormat(t *testing.T) {
 // --- RSA 密钥管理与轮换 ---
 
 func TestKeyManagerInitAutoGenerate(t *testing.T) {
+	isolate(t)
 	ResetKeys()
 	kid, err := InitKeyManager("") // 空串自动生成
 	if err != nil {
@@ -90,6 +93,7 @@ func TestKeyManagerInitAutoGenerate(t *testing.T) {
 }
 
 func TestKeyManagerRotateAndGracePeriod(t *testing.T) {
+	isolate(t)
 	ResetKeys()
 	SetGracePeriod(24 * 365 * time.Hour) // 实际不会过期
 	oldKid, err := InitKeyManager("")
@@ -124,6 +128,7 @@ func TestKeyManagerRotateAndGracePeriod(t *testing.T) {
 }
 
 func TestKeyManagerRotatePrunesBeyondGrace(t *testing.T) {
+	isolate(t)
 	ResetKeys()
 	SetGracePeriod(-time.Second) // 立即过期
 	if _, err := InitKeyManager(""); err != nil {
@@ -149,6 +154,7 @@ func TestKeyManagerRotatePrunesBeyondGrace(t *testing.T) {
 }
 
 func TestParseRSAPrivatePEM(t *testing.T) {
+	isolate(t)
 	valid := genPEM(t)
 	if _, err := parseRSAPrivatePEM(valid); err != nil {
 		t.Fatalf("valid pem: %v", err)
@@ -171,6 +177,7 @@ func TestParseRSAPrivatePEM(t *testing.T) {
 }
 
 func TestGetJWKSMapEmpty(t *testing.T) {
+	isolate(t)
 	ResetKeys()
 	m := GetJWKSMap()
 	if _, ok := m["keys"]; !ok {
@@ -182,6 +189,7 @@ func TestGetJWKSMapEmpty(t *testing.T) {
 }
 
 func TestGetJWKSWithMultipleKeys(t *testing.T) {
+	isolate(t)
 	ResetKeys()
 	SetGracePeriod(24 * 365 * time.Hour)
 	if _, err := InitKeyManager(""); err != nil {

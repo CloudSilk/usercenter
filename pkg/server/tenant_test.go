@@ -12,7 +12,7 @@ import (
 )
 
 func TestTenantFacadeLifecycle(t *testing.T) {
-	database, err := gorm.Open(sqlite.Open("file:server-tenant-facade?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	database, err := gorm.Open(sqlite.Open(memDSN("server-tenant-facade")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}

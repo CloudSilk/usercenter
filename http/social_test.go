@@ -10,6 +10,7 @@ import (
 )
 
 func TestSocialState_SingleUse(t *testing.T) {
+	isolate(t)
 	c := newSocialStateCache()
 	c.set("state-1", "https://app.front/cb")
 	got, ok := c.take("state-1")
@@ -23,6 +24,7 @@ func TestSocialState_SingleUse(t *testing.T) {
 }
 
 func TestSocialProviders_Map(t *testing.T) {
+	isolate(t)
 	g, ok := socialProviders["github"]
 	if !ok {
 		t.Fatal("缺 github provider")
@@ -49,6 +51,7 @@ func TestSocialProviders_Map(t *testing.T) {
 }
 
 func TestSocialLoginRedirect_ConfiguredVsMissing(t *testing.T) {
+	isolate(t)
 	gin.SetMode(gin.TestMode)
 
 	// 未配置 → 400
@@ -80,6 +83,7 @@ func TestSocialLoginRedirect_ConfiguredVsMissing(t *testing.T) {
 }
 
 func TestRandToken_Unique(t *testing.T) {
+	isolate(t)
 	seen := map[string]bool{}
 	for i := 0; i < 100; i++ {
 		tk := randToken()

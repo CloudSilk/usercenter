@@ -18,6 +18,7 @@ import (
 // 注意：标题生成依赖已配置的 AI Key；测试环境通常无可用的上游模型，summarizeSession
 // 会静默 no-op，标题保持不变——此处只断言端点契约，不断言 LLM 生成的具体标题。
 func TestConversationSummarizeEndpoint(t *testing.T) {
+	isolate(t)
 	const tenant = "conv-summarize-tenant"
 	sessionID, err := conversation.CreateSession(&conversation.Session{
 		TenantID: tenant, PrincipalID: "u-1", ModelAlias: "gpt-x", Title: "原始标题",

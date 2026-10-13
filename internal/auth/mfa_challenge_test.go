@@ -9,6 +9,7 @@ import (
 // TestMFAChallengeGuardsWithoutDB 验证 store.DB() 未初始化时,
 // MFA 因子查询与校验安全降级为 false(不 panic)。
 func TestMFAChallengeGuardsWithoutDB(t *testing.T) {
+	isolate(t)
 	store.SetDB(nil)
 	t.Cleanup(func() { store.SetDB(nil) })
 

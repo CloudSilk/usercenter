@@ -1,6 +1,8 @@
 package systemconfig
 
 import (
+	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/CloudSilk/pkg/db"
@@ -10,18 +12,35 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	gdb, err := gorm.Open(glebsqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		panic(err)
-	}
-	if err := gdb.AutoMigrate(&SystemConfig{}); err != nil {
-		panic(err)
-	}
-	store.SetDB(db.NewDBClient(gdb, false))
 	m.Run()
 }
 
+var testDBSeq atomic.Int64
+
+// isolate 为每个用例提供独立的命名内存库(cache=shared 让连接池内的连接共享同一份数据),
+// 结束后关闭并还原全局 store,使用例与执行顺序、-count 重复次数无关。
+func isolate(t *testing.T) {
+	t.Helper()
+	dsn := fmt.Sprintf("file:systemconfig-test-%d?mode=memory&cache=shared", testDBSeq.Add(1))
+	gdb, err := gorm.Open(glebsqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	if err := gdb.AutoMigrate(&SystemConfig{}); err != nil {
+		t.Fatalf("migrate test db: %v", err)
+	}
+	prev := store.Client()
+	store.SetDB(db.NewDBClient(gdb, false))
+	t.Cleanup(func() {
+		store.SetDB(prev)
+		if sqlDB, err := gdb.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+}
+
 func TestUpsertAndGetByKey(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("`key` LIKE ?", "sc-cov-%").Delete(&SystemConfig{}).Error
 	})
@@ -51,6 +70,7 @@ func TestUpsertAndGetByKey(t *testing.T) {
 }
 
 func TestGetSystemConfigByKeyVariants(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("`key` LIKE ?", "sc-cov-b%").Delete(&SystemConfig{}).Error
 	})
@@ -88,6 +108,7 @@ func TestGetSystemConfigByKeyVariants(t *testing.T) {
 }
 
 func TestCompareAndSwapSystemConfigByKey(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("`key` LIKE ?", "sc-cas-%").Delete(&SystemConfig{}).Error
 	})
@@ -128,6 +149,7 @@ func TestCompareAndSwapSystemConfigByKey(t *testing.T) {
 }
 
 func TestCRUDAndPB(t *testing.T) {
+	isolate(t)
 	id, err := CreateSystemConfig(&SystemConfig{Key: "sc-crud-k", Value: "v", TenantID: "t1"})
 	if err != nil {
 		t.Fatalf("create: %v", err)

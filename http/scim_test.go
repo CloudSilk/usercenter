@@ -8,6 +8,7 @@ import (
 )
 
 func TestRegisterSCIMRouterRequiresTokenAndMountsProvisioningRoutes(t *testing.T) {
+	isolate(t)
 	gin.SetMode(gin.TestMode)
 
 	disabled := gin.New()

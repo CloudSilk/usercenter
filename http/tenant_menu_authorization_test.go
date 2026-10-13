@@ -54,6 +54,7 @@ func ensureTenantAuthorizationTenant(t *testing.T, id, name string) *tenant.Tena
 }
 
 func TestTenantMenuAuthorizationPublishesBoundaryAndNarrowsRoles(t *testing.T) {
+	isolate(t)
 	const prefix = "tenant-menu-authorization"
 	fixture := createRoleAuthorizationFixture(t, prefix)
 	ensureTenantAuthorizationTenant(t, platformTenant, "Platform tenant")

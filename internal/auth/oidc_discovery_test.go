@@ -5,6 +5,7 @@ import (
 )
 
 func TestGetDiscovery(t *testing.T) {
+	isolate(t)
 	issuer := "https://id.example.com"
 	d := GetDiscovery(issuer)
 	if d.Issuer != issuer {
@@ -46,6 +47,7 @@ func TestGetDiscovery(t *testing.T) {
 }
 
 func TestOIDCTableNames(t *testing.T) {
+	isolate(t)
 	if (RefreshToken{}).TableName() != "refresh_token" {
 		t.Fatal("refresh_token table name mismatch")
 	}
@@ -58,6 +60,7 @@ func TestOIDCTableNames(t *testing.T) {
 }
 
 func TestKidFromPublicDeterministic(t *testing.T) {
+	isolate(t)
 	// kidFromPublic 在 SPKI 编码失败时走 (n,e) 哈希退化路径——
 	// 正常公钥走 SPKI 路径;两条路径对同一密钥应产生一致 kid
 	key, err := parseRSAPrivatePEM(genPEM(t))
@@ -80,6 +83,7 @@ func TestKidFromPublicDeterministic(t *testing.T) {
 }
 
 func TestEncodeHex(t *testing.T) {
+	isolate(t)
 	// 65537 = 0x010001 → 大端字节 0x01 0x00 0x01 → hex "010001"
 	if got := encodeHex(bigEndBytes(65537)); got != "010001" {
 		t.Fatalf("encodeHex(65537) = %q", got)
@@ -87,6 +91,7 @@ func TestEncodeHex(t *testing.T) {
 }
 
 func TestParseRSADERErrors(t *testing.T) {
+	isolate(t)
 	if _, err := parseRSADER([]byte("junk")); err == nil {
 		t.Fatal("junk der should fail")
 	}

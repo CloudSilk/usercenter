@@ -39,6 +39,7 @@ func decodeWebhookList(t *testing.T, body []byte) struct {
 }
 
 func TestWebhookAdminRoutesEnforceTenantScope(t *testing.T) {
+	isolate(t)
 	const (
 		tenantA = "webhook-scope-tenant-a"
 		tenantB = "webhook-scope-tenant-b"
@@ -91,6 +92,7 @@ func TestWebhookAdminRoutesEnforceTenantScope(t *testing.T) {
 }
 
 func TestPlatformTenantCanExplicitlyManageTargetWebhook(t *testing.T) {
+	isolate(t)
 	const targetTenant = "webhook-scope-platform-target"
 	sub := &webhook.Subscription{TenantID: targetTenant, Name: "platform-target", URL: "https://target.example.test/hook", Events: "order.created", Secret: "secret", Enable: true}
 	if _, err := webhook.CreateSub(sub); err != nil {

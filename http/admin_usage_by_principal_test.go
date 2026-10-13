@@ -17,6 +17,7 @@ import (
 // TestUsageByPrincipalEndpoint 验证 /admin/api/usage/by-principal 端点按主体
 // 维度聚合（tokens/cost/count）并区分 principal_kind（0人/1Agent）。
 func TestUsageByPrincipalEndpoint(t *testing.T) {
+	isolate(t)
 	const tenant = "usage-by-principal-tenant"
 	// 起点为空库，插入两条不同主体的记录。
 	now := time.Now()

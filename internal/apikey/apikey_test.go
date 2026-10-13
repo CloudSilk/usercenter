@@ -1,7 +1,9 @@
 package apikey
 
 import (
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/CloudSilk/pkg/db"
@@ -11,17 +13,36 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		panic(err)
-	}
-	_ = gdb.AutoMigrate(&AIProvider{}, &AIKey{}, &ModelRoute{})
-	store.SetDB(db.NewDBClient(gdb, false))
 	SetEncryptionKeyFrom("test-encryption-key")
 	m.Run()
 }
 
+var testDBSeq atomic.Int64
+
+// isolate 为每个用例提供独立的命名内存库(cache=shared 让连接池内的连接共享同一份数据),
+// 结束后关闭并还原全局 store,使用例与执行顺序、-count 重复次数无关。
+func isolate(t *testing.T) {
+	t.Helper()
+	dsn := fmt.Sprintf("file:apikey-test-%d?mode=memory&cache=shared", testDBSeq.Add(1))
+	gdb, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	if err := gdb.AutoMigrate(&AIProvider{}, &AIKey{}, &ModelRoute{}); err != nil {
+		t.Fatalf("migrate test db: %v", err)
+	}
+	prev := store.Client()
+	store.SetDB(db.NewDBClient(gdb, false))
+	t.Cleanup(func() {
+		store.SetDB(prev)
+		if sqlDB, err := gdb.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+}
+
 func TestCreateAndGetProvider(t *testing.T) {
+	isolate(t)
 	p := &AIProvider{
 		Name:     "test-provider",
 		BaseURL:  "https://test.local/v1",
@@ -46,6 +67,7 @@ func TestCreateAndGetProvider(t *testing.T) {
 }
 
 func TestCreateAndSelectKey(t *testing.T) {
+	isolate(t)
 	p := &AIProvider{Name: "p1", BaseURL: "https://x/v1", AuthType: "bearer", Healthy: true}
 	pid, _ := CreateProvider(p)
 
@@ -66,6 +88,7 @@ func TestCreateAndSelectKey(t *testing.T) {
 }
 
 func TestSelectKeyUsesTenantSpecificRouteProviderKeyAndUpstreamModel(t *testing.T) {
+	isolate(t)
 	const alias = "tenant-routing-shared-alias"
 
 	providerA := &AIProvider{TenantID: "tenant-route-a", Name: "tenant-route-provider-a", BaseURL: "https://a.example/v1", AuthType: "bearer", Healthy: true}
@@ -123,6 +146,7 @@ func TestSelectKeyUsesTenantSpecificRouteProviderKeyAndUpstreamModel(t *testing.
 }
 
 func TestSelectKeyPrefersTenantRouteThenFallsBackToGlobalRoute(t *testing.T) {
+	isolate(t)
 	const alias = "tenant-before-global-alias"
 
 	globalProvider := &AIProvider{Name: "global-route-provider", BaseURL: "https://global.example/v1", AuthType: "bearer", Healthy: true}
@@ -172,6 +196,7 @@ func TestSelectKeyPrefersTenantRouteThenFallsBackToGlobalRoute(t *testing.T) {
 }
 
 func TestSelectKeyRejectsForeignTenantKey(t *testing.T) {
+	isolate(t)
 	const alias = "foreign-key-rejected-alias"
 	provider := &AIProvider{TenantID: "tenant-key-owner", Name: "foreign-key-provider", BaseURL: "https://owner.example/v1", AuthType: "bearer", Healthy: true}
 	providerID, err := CreateProvider(provider)
@@ -192,6 +217,7 @@ func TestSelectKeyRejectsForeignTenantKey(t *testing.T) {
 }
 
 func TestSelectKeyExcludingAdvancesWithoutMutatingCooldown(t *testing.T) {
+	isolate(t)
 	const alias = "request-local-key-failover-alias"
 	provider := &AIProvider{Name: "request-local-key-failover-provider", BaseURL: "https://failover.example/v1", AuthType: "bearer", Healthy: true}
 	providerID, err := CreateProvider(provider)

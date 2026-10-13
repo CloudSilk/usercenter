@@ -45,6 +45,7 @@ func doLogin(t *testing.T, userName, password string) *apipb.LoginResponse {
 // TestMFALogin_RequiresSecondFactor 回归：绑定 MFA 因子后，密码登录必须返回 41008 而非 access_token。
 // 修复前 Login 完全忽略 MFA，直接签发 token —— 等于 MFA 形同虚设。
 func TestMFALogin_RequiresSecondFactor(t *testing.T) {
+	isolate(t)
 	const pwd = "Secret123!"
 	u := mustCreateUser(t, "mfauser", pwd)
 	enrollTOTPFactor(t, u.ID)
@@ -60,6 +61,7 @@ func TestMFALogin_RequiresSecondFactor(t *testing.T) {
 
 // TestMFALogin_RejectsWrongCode 错误验证码 → 41010，且 challenge 一次性消费。
 func TestMFALogin_RejectsWrongCode(t *testing.T) {
+	isolate(t)
 	const pwd = "Secret456!"
 	u := mustCreateUser(t, "mfawrong", pwd)
 	enrollTOTPFactor(t, u.ID)
@@ -74,6 +76,7 @@ func TestMFALogin_RejectsWrongCode(t *testing.T) {
 
 // TestMFALogin_CompletesWithCorrectCode 正确码 → 签发 access_token（二阶段完成）。
 func TestMFALogin_CompletesWithCorrectCode(t *testing.T) {
+	isolate(t)
 	const pwd = "Secret789!"
 	u := mustCreateUser(t, "mfacorrect", pwd)
 	secret := enrollTOTPFactor(t, u.ID)
@@ -98,6 +101,7 @@ func TestMFALogin_CompletesWithCorrectCode(t *testing.T) {
 
 // TestMFALogin_ChallengeSingleUse challenge 一次性：用过（即便失败）后再次使用应失效。
 func TestMFALogin_ChallengeSingleUse(t *testing.T) {
+	isolate(t)
 	const pwd = "Secret000!"
 	u := mustCreateUser(t, "mfaonce", pwd)
 	enrollTOTPFactor(t, u.ID)
@@ -115,6 +119,7 @@ func TestMFALogin_ChallengeSingleUse(t *testing.T) {
 
 // TestLogin_NoMFA_NormalToken 无 MFA 因子时登录正常签发 token（向后兼容）。
 func TestLogin_NoMFA_NormalToken(t *testing.T) {
+	isolate(t)
 	const pwd = "Plain123!"
 	mustCreateUser(t, "nomfauser", pwd)
 
@@ -128,6 +133,7 @@ func TestLogin_NoMFA_NormalToken(t *testing.T) {
 }
 
 func TestWechatLoginCarriesManageableSessionClaims(t *testing.T) {
+	isolate(t)
 	const unionID = "wechat-session-union-id"
 	u := mustCreateUser(t, "wechat-session-user", "WechatSession123!")
 	if err := store.DB().Model(&user.User{}).Where("id = ?", u.ID).Updates(map[string]any{

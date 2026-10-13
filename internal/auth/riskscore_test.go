@@ -16,6 +16,7 @@ func riskSig() *RiskSignals {
 }
 
 func TestCalculateRiskScore_NoSignalsAllows(t *testing.T) {
+	isolate(t)
 	score := CalculateRiskScore(riskSig())
 	if score.Action != "allow" || score.Level != RiskNone || len(score.Reasons) != 0 {
 		t.Fatalf("unexpected clean score: %+v", score)
@@ -23,6 +24,7 @@ func TestCalculateRiskScore_NoSignalsAllows(t *testing.T) {
 }
 
 func TestCalculateRiskScore_ImpossibleTravelDenies(t *testing.T) {
+	isolate(t)
 	sig := riskSig()
 	sig.TokenIssuedIP = "1.1.1.1"
 	sig.CurrentIP = "2.2.2.2"
@@ -38,6 +40,7 @@ func TestCalculateRiskScore_ImpossibleTravelDenies(t *testing.T) {
 }
 
 func TestCalculateRiskScore_IpChangeAfterLongTimeIsLow(t *testing.T) {
+	isolate(t)
 	sig := riskSig()
 	sig.TokenIssuedIP = "1.1.1.1"
 	sig.CurrentIP = "2.2.2.2"
@@ -51,6 +54,7 @@ func TestCalculateRiskScore_IpChangeAfterLongTimeIsLow(t *testing.T) {
 }
 
 func TestCalculateRiskScore_NewDeviceStepsUp(t *testing.T) {
+	isolate(t)
 	sig := riskSig()
 	sig.NewDevice = true
 	score := CalculateRiskScore(sig)
@@ -60,6 +64,7 @@ func TestCalculateRiskScore_NewDeviceStepsUp(t *testing.T) {
 }
 
 func TestCalculateRiskScore_FailedAuthsStepsUp(t *testing.T) {
+	isolate(t)
 	sig := riskSig()
 	sig.FailedAuths = 5
 	score := CalculateRiskScore(sig)
@@ -69,6 +74,7 @@ func TestCalculateRiskScore_FailedAuthsStepsUp(t *testing.T) {
 }
 
 func TestCalculateRiskScore_OldTokenIsLow(t *testing.T) {
+	isolate(t)
 	sig := riskSig()
 	sig.TokenAge = 48 * time.Hour
 	score := CalculateRiskScore(sig)
@@ -79,6 +85,7 @@ func TestCalculateRiskScore_OldTokenIsLow(t *testing.T) {
 }
 
 func TestCalculateRiskScore_CombinedSignalsDeny(t *testing.T) {
+	isolate(t)
 	sig := riskSig()
 	sig.TokenIssuedIP = "1.1.1.1"
 	sig.CurrentIP = "2.2.2.2"
@@ -94,6 +101,7 @@ func TestCalculateRiskScore_CombinedSignalsDeny(t *testing.T) {
 }
 
 func TestIsSensitiveAction(t *testing.T) {
+	isolate(t)
 	sensitive := []string{
 		"/api/core/auth/user/resetpwd",
 		"/api/core/auth/user/changepwd",

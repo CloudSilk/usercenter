@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 
 	"github.com/CloudSilk/pkg/db"
@@ -11,21 +13,37 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	os.Exit(m.Run())
+}
+
+var testDBSeq atomic.Int64
+
+// isolate 为每个用例提供独立的命名内存库(cache=shared 让连接池内的连接共享同一份数据),
+// 结束后关闭并还原全局 store,使用例与执行顺序、-count 重复次数无关。
+func isolate(t *testing.T) {
+	t.Helper()
+	dsn := fmt.Sprintf("file:auth-test-%d?mode=memory&cache=shared", testDBSeq.Add(1))
+	gdb, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
-		panic(err)
+		t.Fatalf("open test db: %v", err)
 	}
 	if err := gdb.AutoMigrate(&ConsentRecord{}); err != nil {
-		panic(err)
+		t.Fatalf("migrate test db: %v", err)
 	}
+	prev := store.Client()
 	store.SetDB(db.NewDBClient(gdb, false))
-	code := m.Run()
-	os.Exit(code)
+	t.Cleanup(func() {
+		store.SetDB(prev)
+		if sqlDB, err := gdb.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 }
 
 // --- Consent 生命周期 ---
 
 func TestGrantAndHasConsent(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("client_id = ?", "consent-agent").Delete(&ConsentRecord{}).Error
 	})
@@ -53,6 +71,7 @@ func TestGrantAndHasConsent(t *testing.T) {
 }
 
 func TestRevokeConsent(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("client_id = ?", "revoke-agent").Delete(&ConsentRecord{}).Error
 	})
@@ -75,6 +94,7 @@ func TestRevokeConsent(t *testing.T) {
 }
 
 func TestListConsents(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("client_id LIKE ?", "list-agent-%").Delete(&ConsentRecord{}).Error
 	})
@@ -96,6 +116,7 @@ func TestListConsents(t *testing.T) {
 // --- CheckDelegation 委派链 ---
 
 func TestCheckDelegationChain(t *testing.T) {
+	isolate(t)
 	// nil 链
 	if CheckDelegation(nil, "read", "order") {
 		t.Fatal("nil chain should deny")

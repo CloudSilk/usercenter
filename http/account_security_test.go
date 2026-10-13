@@ -24,6 +24,7 @@ import (
 )
 
 func TestPasswordLoginCreatesManageableSession(t *testing.T) {
+	isolate(t)
 	const (
 		tenantID = "tenant-login-session"
 		userName = "login-session-user"
@@ -86,6 +87,7 @@ func TestPasswordLoginCreatesManageableSession(t *testing.T) {
 }
 
 func TestOwnPhoneChangeRequiresVerificationAndProfileCannotBypass(t *testing.T) {
+	isolate(t)
 	const (
 		tenantID = "tenant-own-phone-change"
 		oldPhone = "13800001111"
@@ -137,6 +139,7 @@ func TestOwnPhoneChangeRequiresVerificationAndProfileCannotBypass(t *testing.T) 
 }
 
 func TestOwnPhoneFirstBindingUsesVerifiedNewNumber(t *testing.T) {
+	isolate(t)
 	const (
 		tenantID = "tenant-own-phone-first-bind"
 		phone    = "13700003333"
@@ -164,6 +167,7 @@ func TestOwnPhoneFirstBindingUsesVerifiedNewNumber(t *testing.T) {
 }
 
 func TestAccountSecuritySummaryAndOwnSessionRevoke(t *testing.T) {
+	isolate(t)
 	const (
 		tenantID = "tenant-account-security"
 		userName = "account-security-user"
@@ -319,6 +323,7 @@ func TestAccountSecuritySummaryAndOwnSessionRevoke(t *testing.T) {
 }
 
 func TestAccountSecuritySwitchTenantAndRevokeAllUseBoundReauth(t *testing.T) {
+	isolate(t)
 	const (
 		originTenant = "tenant-switch-origin"
 		targetTenant = "tenant-switch-target"

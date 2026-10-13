@@ -16,6 +16,7 @@ import (
 // TestAlertWebhookConfig 验证告警 Webhook 通道的读取/设置端点。
 // 该配置是进程内全局态（alert 包内存变量），故测试前后保存/恢复原值。
 func TestAlertWebhookConfig(t *testing.T) {
+	isolate(t)
 	prev := alert.WebhookURL()
 	t.Cleanup(func() { alert.SetWebhookURL(prev) })
 	// 起点为已知干净态。

@@ -6,6 +6,7 @@ import (
 )
 
 func TestParseScope(t *testing.T) {
+	isolate(t)
 	scopes := ParseScope("read:order write:profile:*")
 	if len(scopes) != 2 {
 		t.Fatalf("expected 2 scopes, got %d", len(scopes))
@@ -19,6 +20,7 @@ func TestParseScope(t *testing.T) {
 }
 
 func TestParseScope_Empty(t *testing.T) {
+	isolate(t)
 	scopes := ParseScope("")
 	if len(scopes) != 0 {
 		t.Fatalf("expected 0 scopes for empty input, got %d", len(scopes))
@@ -26,6 +28,7 @@ func TestParseScope_Empty(t *testing.T) {
 }
 
 func TestScopeMatches(t *testing.T) {
+	isolate(t)
 	sc := Scope{Action: "read", Resource: "order"}
 	if !sc.Matches("read", "order") {
 		t.Fatal("exact match should pass")
@@ -36,6 +39,7 @@ func TestScopeMatches(t *testing.T) {
 }
 
 func TestScopeMatches_Wildcard(t *testing.T) {
+	isolate(t)
 	sc := Scope{Action: "*", Resource: "*"}
 	if !sc.Matches("read", "order") {
 		t.Fatal("wildcard should match anything")
@@ -46,6 +50,7 @@ func TestScopeMatches_Wildcard(t *testing.T) {
 }
 
 func TestScopeMatches_Admin(t *testing.T) {
+	isolate(t)
 	sc := Scope{Action: "admin", Resource: "order"}
 	if !sc.Matches("read", "order") {
 		t.Fatal("admin action should match any action")
@@ -56,6 +61,7 @@ func TestScopeMatches_Admin(t *testing.T) {
 }
 
 func TestCheckScope(t *testing.T) {
+	isolate(t)
 	scopes := ParseScope("read:order write:profile")
 	if !CheckScope(scopes, "read", "order") {
 		t.Fatal("should allow read:order")
@@ -69,6 +75,7 @@ func TestCheckScope(t *testing.T) {
 }
 
 func TestCheckDelegation(t *testing.T) {
+	isolate(t)
 	chain := &DelegationChain{
 		Links: []DelegationLink{
 			{PrincipalID: "user-1", Kind: "human", Scope: "read:order write:order"},
@@ -90,6 +97,7 @@ func TestCheckDelegation(t *testing.T) {
 }
 
 func TestCheckDelegation_EmptyChain(t *testing.T) {
+	isolate(t)
 	if CheckDelegation(&DelegationChain{}, "read", "order") {
 		t.Fatal("empty chain should deny")
 	}
@@ -99,12 +107,14 @@ func TestCheckDelegation_EmptyChain(t *testing.T) {
 }
 
 func TestConsentRecord_TableName(t *testing.T) {
+	isolate(t)
 	if got := (ConsentRecord{}).TableName(); got != "oauth_consent" {
 		t.Fatalf("expected table name 'oauth_consent', got %q", got)
 	}
 }
 
 func TestDelegationLink_Kinds(t *testing.T) {
+	isolate(t)
 	link := DelegationLink{
 		PrincipalID: "p1",
 		Kind:        "human",

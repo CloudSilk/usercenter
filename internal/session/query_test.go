@@ -26,6 +26,7 @@ func createNameTables(t *testing.T) {
 }
 
 func TestSessionStatus(t *testing.T) {
+	isolate(t)
 	now := time.Now().Unix()
 	revoked := &Session{Revoked: true}
 	if got := sessionStatus(revoked, 15); got != SessionStatusTerminated {
@@ -42,6 +43,7 @@ func TestSessionStatus(t *testing.T) {
 }
 
 func TestNormalizePage(t *testing.T) {
+	isolate(t)
 	pi, ps := normalizePage(0, 0)
 	if pi != 1 || ps != 20 {
 		t.Fatalf("defaults: pi=%d ps=%d", pi, ps)
@@ -57,6 +59,7 @@ func TestNormalizePage(t *testing.T) {
 }
 
 func TestQuerySessionsFiltersAndStatus(t *testing.T) {
+	isolate(t)
 	createNameTables(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "q-").Delete(&Session{}).Error
@@ -152,6 +155,7 @@ func TestQuerySessionsFiltersAndStatus(t *testing.T) {
 }
 
 func TestQuerySessionsKeywordNoMatch(t *testing.T) {
+	isolate(t)
 	createNameTables(t)
 	_, total, err := QuerySessions(Query{Keyword: "zzz-no-such-keyword"})
 	if err != nil {
@@ -164,6 +168,7 @@ func TestQuerySessionsKeywordNoMatch(t *testing.T) {
 }
 
 func TestRecordLoginAndQuery(t *testing.T) {
+	isolate(t)
 	createNameTables(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "q-login-%").Delete(&LoginRecord{}).Error
@@ -208,6 +213,7 @@ func TestRecordLoginAndQuery(t *testing.T) {
 func boolPtr(b bool) *bool { return &b }
 
 func TestRecordSessionAndStoreUnavailable(t *testing.T) {
+	isolate(t)
 	t.Cleanup(func() {
 		_ = store.DB().Where("principal_id LIKE ?", "q-rec-sess-%").Delete(&Session{}).Error
 	})
