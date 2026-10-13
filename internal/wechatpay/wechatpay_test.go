@@ -1939,6 +1939,10 @@ func TestCleanupExpiredBills(t *testing.T) {
 			t.Fatalf("upsert bill %s: %v", no, err)
 		}
 	}
+	// CleanupExpiredBills 作用于全表:先清掉其他用例遗留的超期账单,只统计本用例的数据
+	if _, err := CleanupExpiredBills(context.Background()); err != nil {
+		t.Fatalf("baseline cleanup: %v", err)
+	}
 	mk("old", time.Now().AddDate(0, 0, -31).Format("2006-01-02"))
 	mk("fresh", time.Now().AddDate(0, 0, -1).Format("2006-01-02"))
 	t.Cleanup(func() {
@@ -2314,14 +2318,17 @@ func TestQueryPayRefundsAndBillFiles(t *testing.T) {
 	}
 
 	// UpsertBillFile 已存在跳过 + GetBillFileByID + ListBillFiles(tenant 过滤)
-	bill := &BillFile{TenantID: tenant, ConfigID: "cfg-cov", BillDate: "2026-09-01",
+	// 用相对日期:固定日期会随时间超出保留期,被其他用例的全局清理删除
+	billDate := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	t.Cleanup(func() { _ = store.DB().Unscoped().Delete(&BillFile{}, "tenant_id = ?", tenant).Error })
+	bill := &BillFile{TenantID: tenant, ConfigID: "cfg-cov", BillDate: billDate,
 		BillType: BillTypeAll, Content: []byte("c1")}
 	created, err := UpsertBillFile(bill)
 	if err != nil || !created {
 		t.Fatalf("first upsert: created=%v err=%v", created, err)
 	}
 	created, err = UpsertBillFile(&BillFile{TenantID: tenant, ConfigID: "cfg-cov",
-		BillDate: "2026-09-01", BillType: BillTypeAll, Content: []byte("c2")})
+		BillDate: billDate, BillType: BillTypeAll, Content: []byte("c2")})
 	if err != nil || created {
 		t.Fatalf("duplicate upsert should skip, created=%v err=%v", created, err)
 	}
